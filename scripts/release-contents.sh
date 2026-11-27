@@ -77,7 +77,7 @@ for arch in amd64 arm64; do
 	# The full archive: both programs, each its own file, and the units.
 	[ -x "$full/armadad" ] || fail "linux_$arch: no armadad program"
 	[ ! -L "$full/armadad" ] || fail "linux_$arch: armadad is a link"
-	for unit in armada-server armada-agent armada-runtime armada-etcd; do
+	for unit in armada-server armada-agent armada-runtime armada-etcd armada-kv; do
 		[ -f "$full/deploy/systemd/$unit.service" ] || fail "linux_$arch: no deploy/systemd/$unit.service"
 	done
 	# The license files of the Go modules the pack's etcd programs link.

@@ -1,6 +1,6 @@
 # 0057. The control plane's state in Armada's own store
 
-- Status: Accepted; step 1 (a single-member `armada-kv`) and step 2 (Raft) built; TLS listeners, the daemon, and the move to come
+- Status: Accepted; steps 1-3 built (a single-member `armada-kv`, Raft, then the TLS listeners, `armadad kv`, `armada-kv.service`, and `armadad init --state kv`); the move to come
 - Date: 2026-11-27
 
 ## Context
@@ -101,6 +101,20 @@ whether it starts a cluster or joins one) from the server's flags as
 `armadad etcd` does, and refuses to start while another process holds the
 member's database. `armadad server join` adds the new server as a learner
 and the leader promotes it, as today.
+
+Until the move, the choice is recorded per server by its data directory:
+a server of a cluster made with `armadad init --state kv` has the member's
+directory `kv/` (its CA, `member.crt`/`member.key`, `kv.db`, and, on a
+server that joined until it votes, `initial-cluster`) and no `etcd/`.
+`armadad server join` learns the cluster's choice from the leader
+(`JoinServerResponse.state`, `kv`, with the learner added at the
+`kv_peer_port` the joining server sends), so every server of a cluster runs
+the same store; a machine too old to send that port is refused.
+`armada-kv.service` is installed beside `armada-etcd.service` but not
+enabled: on such a cluster's servers it is enabled with `armada-server`.
+`armadad etcd` on a kv server, and `armadad kv` on an etcd one, exit with
+status 78, which neither unit restarts. Until the move brings `kv.snapshot`,
+`armadad backup` and the scheduled backups refuse a kv server.
 
 Backups (`armadad backup`, ADR 0051) write the store's snapshot as
 `kv.snapshot`; `armadad restore` checks it (format, hash, revision) and

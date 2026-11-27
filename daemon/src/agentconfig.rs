@@ -15,6 +15,12 @@ pub const FILE_CA_CERT: &str = "ca.crt";
 pub const FILE_CA_KEY: &str = "ca.key";
 pub const FILE_ETCD_INITIAL: &str = "etcd/initial-cluster";
 pub const DIR_ETCD: &str = "etcd";
+/// The armada-kv member's directory (ADR 0057): a server of a cluster
+/// whose state is in armada-kv has it, and no etcd directory.
+pub const DIR_KV: &str = "kv";
+/// The members a server that joined such a cluster asks for its ID
+/// (removed once it votes).
+pub const FILE_KV_INITIAL: &str = "kv/initial-cluster";
 
 /// Container runtimes recorded in agent.json.
 pub const RUNTIME_EMBEDDED: &str = "embedded";

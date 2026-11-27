@@ -35,5 +35,6 @@ Flags:
 | `--port int` | control plane port on the private IP (default `7443`) |
 | `--private-ip string` | this node's private IP (default: the only private IPv4 address; not with --network mesh) |
 | `--runtime string` | container runtime: supervisor, the only one (ADR 0046); kept for scripts that pass it (default `supervisor`) |
+| `--state string` | where the control plane keeps its state: etcd, or kv for armada-kv, Armada's own store (ADR 0057; not the default yet); set once (default `etcd`) |
 | `--user-name string` | name of the first user, who gets cluster-admin (default: the user running it) |
 

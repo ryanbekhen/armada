@@ -1,6 +1,8 @@
 //! armadad init: a new cluster on this machine. The state is written
 //! through the pack's etcd, started from the configuration file `armadad
-//! etcd` writes for the command's length (ADR 0055).
+//! etcd` writes for the command's length (ADR 0055), or, with `--state kv`,
+//! through a new armada-kv cluster (ADR 0057) opened in this process, whose
+//! member armada-kv.service runs afterwards.
 
 use std::net::IpAddr;
 use std::path::Path;
@@ -13,7 +15,7 @@ use armada_spec::go::{Prefix, parse_addr, quote};
 use armada_store::{Etcd, Network, Node, NodeCert, Server};
 
 use crate::agentconfig::{
-    self, AgentConfig, DIR_ETCD, FILE_CA_CERT, FILE_CA_KEY, FILE_SERVER_CERT, NETWORK_MESH,
+    self, AgentConfig, DIR_ETCD, DIR_KV, FILE_CA_CERT, FILE_CA_KEY, FILE_SERVER_CERT, NETWORK_MESH,
 };
 use crate::machine::{
     self, FILE_MASTER_KEY, FILE_NETWORK_KEY, FILE_NODE_CERT, FILE_NODE_KEY, FILE_SERVER_KEY,
@@ -69,7 +71,17 @@ fn overlaps(a: &Prefix, b: &Prefix) -> bool {
     Prefix::from(&a.addr, bits).masked() == Prefix::from(&b.addr, bits).masked()
 }
 
+/// --state: where the cluster keeps its state.
+fn state_store(flag: &str) -> std::result::Result<state::Store, String> {
+    match flag {
+        "etcd" => Ok(state::Store::Etcd),
+        "kv" => Ok(state::Store::Kv),
+        other => Err(format!("invalid --state {}: etcd or kv", quote(other))),
+    }
+}
+
 pub fn run(ctx: &mut Ctx<'_>, _: &[String]) -> Result {
+    let store = state_store(&ctx.str("state")).map_err(msg)?;
     let mode = ctx.str("network");
     let data_dir = ctx.str("data-dir");
     let port = ctx.int("port");
@@ -164,7 +176,7 @@ pub fn run(ctx: &mut Ctx<'_>, _: &[String]) -> Result {
     };
     let dd = Path::new(&data_dir);
     armada_fsutil::mkdir_private(dd).map_err(|e| msg(format!("data dir: {e}")))?;
-    for f in [FILE_CA_KEY, DIR_ETCD, FILE_MASTER_KEY] {
+    for f in [FILE_CA_KEY, DIR_ETCD, DIR_KV, FILE_MASTER_KEY] {
         match std::fs::symlink_metadata(dd.join(f)) {
             Ok(_) => {
                 return Err(msg(format!(
@@ -269,7 +281,7 @@ pub fn run(ctx: &mut Ctx<'_>, _: &[String]) -> Result {
                 };
                 machine::up_mesh(&data_dir, &ac, Some(cfg), &net_log).await?;
             }
-            let member = state::start(&data_dir).await?;
+            let member = state::start(&data_dir, store).await?;
             let st = Etcd::new(member.client.clone(), backup::ETCD_PREFIX)
                 .await
                 .map_err(|e| e.to_string())?;
@@ -334,7 +346,7 @@ pub fn run(ctx: &mut Ctx<'_>, _: &[String]) -> Result {
             )
             .await
             .map_err(e)?;
-            drop(member);
+            member.close().await;
             Ok::<_, String>((node, ac))
         })
         .map_err(msg)?;
@@ -378,6 +390,9 @@ pub fn run(ctx: &mut Ctx<'_>, _: &[String]) -> Result {
     ));
     out.push_str(&format!("  api:         {listen}\n"));
     out.push_str(&format!("  network:     {net_mode}, {cluster_text}\n"));
+    if store == state::Store::Kv {
+        out.push_str("  state:       armada-kv (ADR 0057)\n");
+    }
     if mode == NETWORK_MESH {
         out.push_str(&format!(
             "  mesh:        {mesh_text} at {ip}, endpoint {ep_text} (open UDP {WIREGUARD_PORT} to every address)\n"
@@ -390,10 +405,49 @@ pub fn run(ctx: &mut Ctx<'_>, _: &[String]) -> Result {
         out.push_str(&format!("               {group_note}\n"));
     }
     out.push_str(&format!("  CA SHA-256:  {fingerprint}\n\n"));
-    out.push_str(&machine::next_step("server", &data_dir));
+    out.push_str(&next_step(store, &data_dir));
     out.push_str(&format!(
         "Back up {data_dir} with `armadad backup`: without it, secrets are lost.\n"
     ));
     ctx.print(&out);
     Ok(())
+}
+
+/// What to start after init or server join: the server, and on a cluster
+/// on armada-kv its member's unit too (armada-server.service wants
+/// armada-etcd.service, not armada-kv.service).
+pub fn next_step(store: state::Store, data_dir: &str) -> String {
+    if store == state::Store::Etcd {
+        return machine::next_step("server", data_dir);
+    }
+    if data_dir == machine::DEFAULT_DATA_DIR {
+        "Next: sudo systemctl enable --now armada-kv armada-server\n".to_string()
+    } else {
+        format!(
+            "Next: armadad kv --data-dir {data_dir}, and beside it armadad server --data-dir {data_dir}\n"
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn state_flag() {
+        assert_eq!(state_store("etcd"), Ok(state::Store::Etcd));
+        assert_eq!(state_store("kv"), Ok(state::Store::Kv));
+        assert_eq!(
+            state_store("redb").unwrap_err(),
+            "invalid --state \"redb\": etcd or kv"
+        );
+        assert_eq!(
+            next_step(state::Store::Kv, machine::DEFAULT_DATA_DIR),
+            "Next: sudo systemctl enable --now armada-kv armada-server\n"
+        );
+        assert_eq!(
+            next_step(state::Store::Etcd, machine::DEFAULT_DATA_DIR),
+            machine::next_step("server", machine::DEFAULT_DATA_DIR)
+        );
+    }
 }

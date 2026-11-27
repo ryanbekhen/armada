@@ -26,6 +26,7 @@ Every command takes these.
 | [`armadad etcd`](armadad-etcd.md) | Run this server's etcd member from the runtime pack (started by systemd) |
 | [`armadad init`](armadad-init.md) | Initialize a new cluster on this machine |
 | [`armadad join`](armadad-join.md) | Join this machine to a cluster as a node |
+| [`armadad kv`](armadad-kv.md) | Run this server's armada-kv member (started by systemd) |
 | [`armadad restore`](armadad-restore.md) | Restore the control plane from a backup |
 | [`armadad runtime`](armadad-runtime.md) | Install the runtime pack (started by systemd) |
 | [`armadad server`](armadad-server.md) | Run the control plane |

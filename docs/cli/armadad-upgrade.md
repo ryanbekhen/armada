@@ -6,8 +6,8 @@
 
 upgrade downloads a release, verifies its checksum (and its signature when cosign is
 installed), replaces armadad and armada and the systemd units, and restarts
-armada-runtime (containers keep running), armada-etcd, armada-server, and armada-agent,
-each where it runs. Upgrade servers first, one at a time, then the other
+armada-runtime (containers keep running), armada-etcd or armada-kv, armada-server, and
+armada-agent, each where it runs. Upgrade servers first, one at a time, then the other
 nodes (docs/operations.md#upgrades). ARMADA_DOWNLOAD_BASE points at a mirror.
 
 It refuses older releases: going back takes the backup from before the upgrade

@@ -140,8 +140,8 @@ fn cert_addrs(addr: &IpAddr) -> Vec<IpAddr> {
     v
 }
 
-fn write_ca(cfg: &Config, ca: &Ca) -> Result<(), String> {
-    armada_fsutil::write_file_atomic(&cfg.dir.join(FILE_CA), &ca.cert_pem, 0o600)
+fn write_ca(dir: &Path, ca: &Ca) -> Result<(), String> {
+    armada_fsutil::write_file_atomic(&dir.join(FILE_CA), &ca.cert_pem, 0o600)
         .map_err(|e| e.to_string())
 }
 
@@ -166,15 +166,17 @@ fn unix(t: SystemTime) -> i64 {
 }
 
 /// The member certificate issued when missing, for another
-/// identity or addresses, or within a month of its end.
-fn ensure_cert(cfg: &Config, ca: &Ca, addr: &IpAddr) -> Result<(), String> {
-    let cert_path = cfg.dir.join(FILE_CERT);
+/// identity or addresses, or within a month of its end, in the member's
+/// directory dir with the CA beside it (etcd's member, and armada-kv's,
+/// whose files have the same names).
+pub fn ensure_member_cert(dir: &Path, ca: &Ca, addr: &IpAddr) -> Result<(), String> {
+    let cert_path = dir.join(FILE_CERT);
     match armada_fsutil::read_private_file(&cert_path) {
         Ok(b) => {
             if let Ok(c) = parse_cert_pem(&b)
                 && cert_fits(&c, ca, addr)
             {
-                return write_ca(cfg, ca);
+                return write_ca(dir, ca);
             }
         }
         Err(e) if e.kind() == armada_fsutil::ErrorKind::NotFound => {}
@@ -189,10 +191,10 @@ fn ensure_cert(cfg: &Config, ca: &Ca, addr: &IpAddr) -> Result<(), String> {
             ..Default::default()
         })
         .map_err(|e| format!("etcd member certificate: {e}"))?;
-    armada_fsutil::write_file_atomic(&cfg.dir.join(FILE_KEY), key_pem.expose(), 0o600)
+    armada_fsutil::write_file_atomic(&dir.join(FILE_KEY), key_pem.expose(), 0o600)
         .map_err(|e| e.to_string())?;
     armada_fsutil::write_file_atomic(&cert_path, &cert_pem, 0o600).map_err(|e| e.to_string())?;
-    write_ca(cfg, ca)
+    write_ca(dir, ca)
 }
 
 /// A directory holding a file named *.wal.
@@ -217,7 +219,7 @@ fn prepare(cfg: &mut Config) -> Result<MemberSpec, String> {
     let abs = std::path::absolute(&cfg.dir).map_err(|e| e.to_string())?;
     cfg.dir = PathBuf::from(crate::gopath::clean(&abs.to_string_lossy()));
     armada_fsutil::mkdir_private(&cfg.dir).map_err(|e| e.to_string())?;
-    ensure_cert(cfg, ca, &addr)?;
+    ensure_member_cert(&cfg.dir, ca, &addr)?;
     let data = cfg.dir.join(DIR_DATA);
     let fresh = !wal_exists(&data.join("member").join("wal"));
     if fresh

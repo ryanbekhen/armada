@@ -1,11 +1,11 @@
 //! armadad (ADR 0027, ADR 0055): every command that runs on a machine, on
 //! the client's command framework (armada_client::cli). Some need neither
 //! the running server or agent, nor the cluster's state, nor the container
-//! runtime: version, endpoint, etcd, upgrade, and runtime. Some need the
+//! runtime: version, endpoint, etcd, kv, upgrade, and runtime. Some need the
 //! cluster's state but not the running server or agent: backup, backup
 //! list, restore, user renew, and runtime-log. The rest set a machine up
 //! and run it: init, join, server join, server (armada-server's terms on
-//! the member armada-etcd.service runs), agent (armada-agent on the
+//! the member armada-etcd.service runs, or armada-kv.service, ADR 0057), agent (armada-agent on the
 //! supervisor runtime), runtime reset, and doctor.
 
 pub mod agentconfig;
@@ -17,6 +17,7 @@ pub mod gofs;
 pub mod gopath;
 pub mod hooks;
 pub mod joinclient;
+pub mod kvmember;
 pub mod machine;
 pub mod manifest;
 pub mod netutil;

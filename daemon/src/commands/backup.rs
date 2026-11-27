@@ -50,6 +50,9 @@ pub fn run(ctx: &mut Ctx<'_>, _: &[String]) -> Result {
         }
     };
     let staged = ctx.block_on(async {
+        if crate::kvmember::is_kv(&data_dir) {
+            return Err(crate::backup::NO_KV_BACKUPS.to_string());
+        }
         let st = state::state_client(&data_dir).await?;
         backup::prepare(&data_dir, &st.client).await
     });

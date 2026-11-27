@@ -13,6 +13,8 @@ description = "armadad: the commands that set up and run a machine (ADR 0055)"
 armada-agent = { path = "../agent" }
 armada-client = { path = "../client" }
 armada-fsutil = { path = "../fsutil" }
+# armadad kv: a server's armada-kv member (ADR 0057), and init's in process.
+armada-kv = { path = "../kv" }
 # The control plane's backups in their bucket (ADR 0051) through the
 # repository volume backups use, and the readers of a restore's archive.
 armada-node = { path = "../node" }

@@ -14,6 +14,15 @@ use crate::{etcdmember, pack};
 pub fn run(ctx: &mut Ctx<'_>, _: &[String]) -> Result {
     let data_dir = ctx.str("data-dir");
     let bin_dir = ctx.str("bin-dir");
+    if crate::kvmember::is_kv(&data_dir) {
+        // The server's member is armada-kv's (armada-kv.service, ADR 0057):
+        // this unit has nothing to run and stays stopped.
+        let _ = writeln!(
+            ctx.err,
+            "this server keeps the cluster's state in armada-kv (armada-kv); armada-etcd has nothing to run"
+        );
+        return Err(Error::Exit(crate::kvmember::EXIT_OTHER_STORE));
+    }
     let (bin, config) = prepare(&data_dir, &bin_dir)?;
     let env = etcd_env(std::env::vars_os());
     let err = std::process::Command::new(&bin)

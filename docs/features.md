@@ -164,7 +164,8 @@ Armada needs Linux machines (cloud instances, VMs, or bare metal) with a
 private network between them, and nothing else: `armadad` embeds its own
 container runtime (crun, CNI plugins, and Armada's own supervisor, with no
 container daemon, which holds less memory per node)
-and its state store (etcd)
+and its state store (etcd, or as a preview armada-kv, Armada's own,
+with `armadad init --state kv`)
 ([operations guide](operations.md#container-runtimes)).
 The `armada` client needs no root and also runs on macOS, and on Windows
 inside WSL 2. From outside the private network it reaches the servers

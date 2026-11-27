@@ -1,8 +1,9 @@
 //! armadad upgrade: this machine moved to a newer release (ADR 0030):
 //! the release downloaded, its signature (when cosign is installed) and
 //! checksum verified, armada and armadad and the systemd units installed,
-//! and every active unit restarted in order: armada-runtime, armada-etcd,
-//! armada-server, armada-agent. Older releases are refused.
+//! and every active unit restarted in order: armada-runtime, armada-etcd or
+//! armada-kv (ADR 0057), armada-server, armada-agent. Older releases are
+//! refused.
 
 use std::fs;
 use std::io::{BufRead, Read, Write};
@@ -247,9 +248,10 @@ impl Upgrader<'_> {
                     })?;
                 msg.push_str("; restarted armada-runtime");
             }
-            // The member first, so the server reaches the etcd this armadad
+            // The member first (etcd's, or armada-kv's on a cluster whose
+            // state is there), so the server reaches the store this armadad
             // carries; then the server, then the node's agent.
-            for unit in ["armada-etcd", "armada-server", "armada-agent"] {
+            for unit in ["armada-etcd", "armada-kv", "armada-server", "armada-agent"] {
                 if !systemd::unit_active(unit) {
                     continue;
                 }

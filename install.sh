@@ -182,7 +182,7 @@ if [ "$CLIENT_ONLY" = 1 ]; then
 fi
 
 if [ -n "$SYSTEMD_DIR" ] && [ -d "$SYSTEMD_DIR" ]; then
-	for unit in armada-server.service armada-agent.service armada-runtime.service armada-etcd.service; do
+	for unit in armada-server.service armada-agent.service armada-runtime.service armada-etcd.service armada-kv.service; do
 		[ -f "$TMP/x/deploy/systemd/$unit" ] || continue
 		sed "s#/usr/local/bin/armadad#$PREFIX/bin/armadad#" "$TMP/x/deploy/systemd/$unit" >"$TMP/$unit"
 		install -m 0644 "$TMP/$unit" "$SYSTEMD_DIR/$unit"
@@ -233,6 +233,10 @@ if [ -e "$DATA_DIR/agent.json" ]; then
 	# their own beside the server (ADR 0055).
 	if command -v systemctl >/dev/null 2>&1 && systemctl is-enabled --quiet armada-server 2>/dev/null; then
 		unit="armada-etcd armada-server armada-agent"
+		# A server of a cluster whose state is in armada-kv (ADR 0057).
+		if systemctl is-enabled --quiet armada-kv 2>/dev/null; then
+			unit="armada-kv armada-server armada-agent"
+		fi
 	fi
 	say "This machine already runs Armada: 'sudo systemctl restart $unit' starts the new version. Next time, 'sudo armadad upgrade' installs and restarts in one step."
 else

@@ -13,6 +13,10 @@
 //!   member, the pack's etcd in a private directory listening on Unix
 //!   sockets only (no TLS: nothing outside the directory reaches it).
 //!
+//! A server whose state is in armada-kv (ADR 0057, `<data dir>/kv`) is
+//! reached the same way at its member's client URL; one that does not run
+//! is opened in this process for the command's length (crate::kvmember).
+//!
 //! The programs come from the pack this armadad carries, extracted into a
 //! private directory each time and checked against the pack's manifest
 //! (the test hook ARMADA_DAEMON_TEST_ETCD_DIR names a directory holding
@@ -29,9 +33,79 @@ use std::time::{Duration, Instant};
 
 use armada_store::client::Client;
 
-use crate::agentconfig::FILE_ETCD_INITIAL;
+use crate::agentconfig::{FILE_ETCD_INITIAL, FILE_KV_INITIAL};
 use crate::etcdmember::{self, CLUSTER_TOKEN, DIR_DATA};
-use crate::pack;
+use crate::{kvmember, pack};
+
+/// Where a server keeps the cluster's state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Store {
+    /// The pack's etcd (armada-etcd.service, ADR 0055).
+    Etcd,
+    /// armada-kv (armada-kv.service, ADR 0057): the data directory has
+    /// `kv`.
+    Kv,
+}
+
+impl Store {
+    /// The store of data_dir's server.
+    pub fn of(data_dir: &str) -> Store {
+        if kvmember::is_kv(data_dir) {
+            Store::Kv
+        } else {
+            Store::Etcd
+        }
+    }
+
+    /// The systemd unit that runs the member.
+    pub fn unit(self) -> &'static str {
+        match self {
+            Store::Etcd => "armada-etcd",
+            Store::Kv => "armada-kv",
+        }
+    }
+
+    /// The member, as messages name it.
+    pub fn member(self) -> &'static str {
+        match self {
+            Store::Etcd => "etcd member",
+            Store::Kv => "armada-kv member",
+        }
+    }
+
+    /// The file naming the members a joining server starts with.
+    fn initial_file(self) -> &'static str {
+        match self {
+            Store::Etcd => FILE_ETCD_INITIAL,
+            Store::Kv => FILE_KV_INITIAL,
+        }
+    }
+}
+
+/// The client URL of data_dir's member, its peer URL, and its directory
+/// (whose certificate the client presents).
+pub fn endpoint(data_dir: &str) -> Result<(String, String, PathBuf), String> {
+    match Store::of(data_dir) {
+        Store::Etcd => {
+            let cfg = etcdmember::etcd_config(data_dir)?;
+            let Some(addr) = cfg.addr else {
+                return Err("etcd: no listen address".to_string());
+            };
+            Ok((
+                etcdmember::member_url(&addr, cfg.client_port),
+                etcdmember::member_url(&addr, cfg.peer_port),
+                cfg.dir,
+            ))
+        }
+        Store::Kv => {
+            let cfg = kvmember::kv_config(data_dir)?;
+            match (cfg.client_url(), cfg.peer_url()) {
+                (Some(c), Some(p)) => Ok((c, p, cfg.dir)),
+                _ => Err("armada-kv: no listen address".to_string()),
+            }
+        }
+    }
+}
 
 /// How long a member may take to answer.
 const READY_LIMIT: Duration = Duration::from_secs(60);
@@ -219,19 +293,27 @@ pub struct State {
     /// The member's ID in the cluster.
     pub member_id: u64,
     _member: Option<Process>,
+    /// The armada-kv member this command opened.
+    kv: Option<kvmember::Member>,
 }
 
-/// The running member described by cfg, or an error.
-async fn dial(cfg: &etcdmember::Config) -> Result<(Client, u64), String> {
-    let Some(addr) = cfg.addr else {
-        return Err("etcd: no listen address".to_string());
-    };
-    let url = etcdmember::member_url(&addr, cfg.client_port);
-    let c = Client::connect(&url, &cfg.dir).map_err(|e| e.to_string())?;
+impl State {
+    /// Closes a member this command started: an armada-kv member shuts
+    /// down in order, an etcd process stops when dropped.
+    pub async fn close(mut self) {
+        if let Some(m) = self.kv.take() {
+            m.shutdown().await;
+        }
+    }
+}
+
+/// The running member at url (with the certificates in dir), or an error.
+async fn dial(url: &str, dir: &Path) -> Result<(Client, u64), String> {
+    let c = Client::connect(url, dir).map_err(|e| e.to_string())?;
     match tokio::time::timeout(Duration::from_secs(3), c.status()).await {
         Ok(Ok(st)) => Ok((c, st.header.as_ref().map_or(0, |h| h.member_id))),
-        Ok(Err(e)) => Err(format!("etcd at {url}: {e}")),
-        Err(_) => Err(format!("etcd at {url}: context deadline exceeded")),
+        Ok(Err(e)) => Err(format!("member at {url}: {e}")),
+        Err(_) => Err(format!("member at {url}: context deadline exceeded")),
     }
 }
 
@@ -277,13 +359,74 @@ async fn start_member(data_dir: &str, cfg: &mut etcdmember::Config) -> Result<St
         client,
         member_id: id,
         _member: Some(p),
+        kv: None,
     })
 }
 
-/// The member of a data directory started from the pack for the command's
-/// length (`armadad init`), joined as
-/// start_member joins it.
-pub async fn start(data_dir: &str) -> Result<State, String> {
+/// data_dir's armada-kv member opened in this process for the command's
+/// length, as start_member starts etcd's: its peer URL brought up to date,
+/// and, on a server that joined, a voting member. fresh says whether a
+/// member with no state starts a new cluster.
+async fn start_kv(data_dir: &str, fresh: kvmember::Fresh) -> Result<State, String> {
+    let mut cfg = kvmember::kv_config(data_dir)?;
+    let m = kvmember::start(&mut cfg, fresh).await?;
+    let client = Client::connect(&m.client_url, &m.dir).map_err(|e| e.to_string())?;
+    let deadline = Instant::now() + READY_LIMIT;
+    let (id, mut learner) = loop {
+        if let Ok(Ok(st)) = tokio::time::timeout(Duration::from_secs(3), client.status()).await
+            && st.leader != 0
+        {
+            break (st.header.as_ref().map_or(0, |h| h.member_id), st.is_learner);
+        }
+        if Instant::now() > deadline {
+            m.shutdown().await;
+            return Err("armada-kv did not become ready within a minute".to_string());
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    };
+    if !learner {
+        update_peer_url(&client, id, &m.peer_url).await?;
+    }
+    while learner {
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        learner = match client.status().await {
+            Ok(s) => s.is_learner,
+            Err(_) => true,
+        };
+    }
+    remove_initial(data_dir, Store::Kv)?;
+    Ok(State {
+        client,
+        member_id: id,
+        _member: None,
+        kv: Some(m),
+    })
+}
+
+/// The initial cluster of a server that joined, once its member votes:
+/// later starts use the member's own data.
+fn remove_initial(data_dir: &str, store: Store) -> Result<(), String> {
+    let initial = Path::new(data_dir).join(store.initial_file());
+    if let Err(e) = fs::remove_file(&initial)
+        && e.kind() != std::io::ErrorKind::NotFound
+    {
+        return Err(format!(
+            "remove {}: {}",
+            initial.display(),
+            armada_fsutil::errno_text(&e)
+        ));
+    }
+    Ok(())
+}
+
+/// The member of a data directory started for the command's length
+/// (`armadad init`): the pack's etcd, joined as start_member joins it, or,
+/// for a cluster on armada-kv, a new armada-kv cluster with this member
+/// alone, opened in this process.
+pub async fn start(data_dir: &str, store: Store) -> Result<State, String> {
+    if store == Store::Kv {
+        return start_kv(data_dir, kvmember::Fresh::New).await;
+    }
     let mut cfg = etcdmember::etcd_config(data_dir)?;
     start_member(data_dir, &mut cfg).await
 }
@@ -310,17 +453,24 @@ async fn update_peer_url(c: &Client, id: u64, peer: &str) -> Result<(), String> 
 /// The member of a running server in data_dir, or the member
 /// started for the command when no server runs.
 pub async fn state_client(data_dir: &str) -> Result<State, String> {
-    let mut cfg = etcdmember::etcd_config(data_dir)?;
-    if let Ok((c, id)) = dial(&cfg).await {
+    let store = Store::of(data_dir);
+    let (url, _, dir) = endpoint(data_dir)?;
+    if let Ok((c, id)) = dial(&url, &dir).await {
         return Ok(State {
             client: c,
             member_id: id,
             _member: None,
+            kv: None,
         });
     }
-    start_member(data_dir, &mut cfg)
-        .await
-        .map_err(|e| format!("the server's state is not reachable (is it starting?): {e}"))
+    let started = match store {
+        Store::Etcd => {
+            let mut cfg = etcdmember::etcd_config(data_dir)?;
+            start_member(data_dir, &mut cfg).await
+        }
+        Store::Kv => start_kv(data_dir, kvmember::Fresh::Refuse).await,
+    };
+    started.map_err(|e| format!("the server's state is not reachable (is it starting?): {e}"))
 }
 
 /// The snapshot turned into the data of a new single-member
@@ -489,22 +639,23 @@ async fn member_status(c: &Client, host: &str) -> Result<(u64, bool), String> {
 pub async fn member_health(
     data_dir: &str,
 ) -> Result<(String, armada_proto::etcd::etcdserverpb::StatusResponse), String> {
-    let cfg = etcdmember::etcd_config(data_dir)?;
-    let Some(addr) = cfg.addr else {
-        return Err("etcd: no listen address".to_string());
+    let (url, _, dir) = endpoint(data_dir)?;
+    let what = match Store::of(data_dir) {
+        Store::Etcd => "etcd",
+        Store::Kv => "armada-kv",
     };
-    let url = etcdmember::member_url(&addr, cfg.client_port);
     let host = url.trim_start_matches("https://").to_string();
-    let c = Client::connect(&url, &cfg.dir).map_err(|e| e.to_string())?;
+    let c = Client::connect(&url, &dir).map_err(|e| e.to_string())?;
     match tokio::time::timeout(Duration::from_secs(3), c.status()).await {
         Ok(Ok(st)) => Ok((host, st)),
-        Ok(Err(e)) => Err(format!("etcd at {host}: {e}")),
-        Err(_) => Err(format!("etcd at {host}: context deadline exceeded")),
+        Ok(Err(e)) => Err(format!("{what} at {host}: {e}")),
+        Err(_) => Err(format!("{what} at {host}: context deadline exceeded")),
     }
 }
 
 /// The member armada-etcd.service runs
-/// (`armadad etcd`, ADR 0055), waited for up to a minute, its peer URL
+/// (`armadad etcd`, ADR 0055), or armada-kv.service on a server whose state
+/// is in armada-kv (ADR 0057), waited for up to a minute, its peer URL
 /// brought up to date, and, on a server that joined, a voting member
 /// before the state is used. wait is told once that the member does not
 /// answer yet, and learner once that it waits for its promotion.
@@ -513,16 +664,13 @@ pub async fn connect(
     wait: &(dyn Fn(&str, &str) + Send + Sync),
     learner: &(dyn Fn() + Send + Sync),
 ) -> Result<State, String> {
-    let cfg = etcdmember::etcd_config(data_dir)?;
-    let Some(addr) = cfg.addr else {
-        return Err("etcd: no listen address".to_string());
-    };
-    let url = etcdmember::member_url(&addr, cfg.client_port);
+    let store = Store::of(data_dir);
+    let (url, peer, dir) = endpoint(data_dir)?;
     let host = url.trim_start_matches("https://").to_string();
     let deadline = Instant::now() + READY_LIMIT;
     let mut logged = false;
     let (client, id, is_learner) = loop {
-        let res = match Client::connect(&url, &cfg.dir) {
+        let res = match Client::connect(&url, &dir) {
             Ok(c) => member_status(&c, &host).await.map(|(id, l)| (c, id, l)),
             Err(e) => Err(e.to_string()),
         };
@@ -531,7 +679,9 @@ pub async fn connect(
             Err(e) => {
                 if Instant::now() > deadline {
                     return Err(format!(
-                        "the etcd member at {host} did not answer within a minute (is armada-etcd running?): {e}"
+                        "the {} at {host} did not answer within a minute (is {} running?): {e}",
+                        store.member(),
+                        store.unit()
                     ));
                 }
                 if !logged {
@@ -543,7 +693,6 @@ pub async fn connect(
         }
     };
     if !is_learner {
-        let peer = etcdmember::member_url(&addr, cfg.peer_port);
         update_peer_url(&client, id, &peer).await?;
     }
     let mut is_learner = is_learner;
@@ -554,19 +703,11 @@ pub async fn connect(
         tokio::time::sleep(Duration::from_millis(500)).await;
         is_learner = member_status(&client, &host).await.map_or(true, |(_, l)| l);
     }
-    let initial = Path::new(data_dir).join(FILE_ETCD_INITIAL);
-    if let Err(e) = fs::remove_file(&initial)
-        && e.kind() != std::io::ErrorKind::NotFound
-    {
-        return Err(format!(
-            "remove {}: {}",
-            initial.display(),
-            armada_fsutil::errno_text(&e)
-        ));
-    }
+    remove_initial(data_dir, store)?;
     Ok(State {
         client,
         member_id: id,
         _member: None,
+        kv: None,
     })
 }
