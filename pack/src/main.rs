@@ -172,7 +172,7 @@ fn artifact_files(
         .map_err(|e| format!("{}: {e}", a.name))
 }
 
-/// bundle: Go's mkbundle. Armada's own programs first (each checked to be
+/// bundle: the runtime pack of one architecture. Armada's own programs first (each checked to be
 /// an ELF program for arch), then every pinned artifact.
 fn bundle(f: &Flags) -> Result<(), String> {
     let arch = f.arch()?;

@@ -2,22 +2,22 @@
 //! Armada container (ADR 0011, ADR 0046). The shim passes the container's output on
 //! fds 3 (stdout) and 4 (stderr); closing fd 5 tells it the logger is ready.
 //!
-//! It stores the output exactly as `armadad runtime-log`
-//! (`internal/runtime/embedded/logs.go`) does, which stays the reference:
-//! JSON lines `{"log","stream","time"}` encoded like Go's encoding/json,
+//! It stores the output exactly as `armadad runtime-log` does:
+//! JSON lines `{"log","stream","time"}` (HTML characters escaped, invalid
+//! UTF-8 replaced by U+FFFD),
 //! lines cut at 16 KiB, a token bucket of 1 MiB/s with a 4 MiB burst whose
 //! excess is dropped (never blocked) and counted in one stderr line, and
 //! rotation at 10 MiB with 3 files, the oldest moved into history when the
 //! container has a meta file (ADR 0043). It differs in one way: after a
 //! write error it keeps reading and dropping the output, so a full disk
-//! never blocks the container. A Go test compares both byte for byte.
+//! never blocks the container.
 //!
 //! `armada-log search` reads the log history for a search instead
 //! (src/search.rs), and `armada-log export` renders new output as the
 //! requests armadad sends to the cluster's log store (src/export.rs).
 //!
-//! It exists because a Go process costs about 5 MiB of private memory per
-//! container; this one costs well under 1 MiB.
+//! It uses the standard library only, so it costs well under 1 MiB of
+//! private memory per container.
 
 mod export;
 mod search;
@@ -210,7 +210,7 @@ impl LogFile {
 }
 
 /// Moves a log file of container id into history, or removes it when the
-/// container has no meta file (embedded.keep).
+/// container has no meta file.
 fn keep(dir: &Path, id: &str, path: &Path, seq: i64) -> io::Result<()> {
     let history = dir.join(HISTORY_DIR);
     if !history.join(format!("{id}{META_SUFFIX}")).exists() {
@@ -232,8 +232,8 @@ fn ignore_missing(r: io::Result<()>) -> io::Result<()> {
     }
 }
 
-/// Appends s as a JSON string the way Go's encoding/json does (HTML
-/// characters escaped, each invalid UTF-8 byte replaced by U+FFFD).
+/// Appends s as a JSON string (HTML characters escaped as \u003c and the
+/// like, each invalid UTF-8 byte replaced by U+FFFD).
 fn json_string(out: &mut Vec<u8>, s: &[u8]) {
     const HEX: &[u8; 16] = b"0123456789abcdef";
     out.push(b'"');
@@ -315,7 +315,7 @@ fn json_safe(s: &[u8]) -> usize {
         .unwrap_or(s.len() - i)
 }
 
-/// Formats t in UTC like Go's time.RFC3339Nano (trailing zeros of the
+/// Formats t in UTC as RFC 3339 with nanoseconds (trailing zeros of the
 /// fraction dropped).
 fn rfc3339_nano(t: SystemTime) -> String {
     let d = t.duration_since(UNIX_EPOCH).unwrap_or_default();
@@ -392,7 +392,7 @@ fn copy_stream(l: &Mutex<LogFile>, stream: &str, mut r: File) -> io::Result<()> 
     }
 }
 
-/// Accepts IDs like embedded.validID: ^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$.
+/// Accepts container IDs: ^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$.
 fn valid_id(id: &str) -> bool {
     let b = id.as_bytes();
     !b.is_empty()

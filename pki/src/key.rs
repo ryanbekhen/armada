@@ -1,5 +1,5 @@
-//! P-256 private keys in PKCS#8, as Go's `x509.MarshalPKCS8PrivateKey`
-//! writes them and ring reads them.
+//! P-256 private keys in PKCS#8 (with the curve named in the algorithm
+//! identifier and the public key included), as ring reads them.
 
 use std::fmt;
 
@@ -62,8 +62,8 @@ impl PrivateKey {
         Self::from_pkcs8(doc.as_ref())
     }
 
-    /// Reads a PKCS#8 key, refusing every key but ECDSA P-256 with Go's
-    /// texts where Go refuses it too.
+    /// Reads a PKCS#8 key, refusing every key but ECDSA P-256 with the
+    /// `x509:` texts of the recordings.
     pub fn from_pkcs8(der: &[u8]) -> Result<Self, Error> {
         let malformed = || Error::new("x509: failed to parse private key");
         let (0x30, body, []) = encoding::read_tlv(der).ok_or_else(malformed)? else {
@@ -99,7 +99,7 @@ impl PrivateKey {
         })
     }
 
-    /// Parses a `PRIVATE KEY` PEM block (Go's `ParseKeyPEM`).
+    /// Parses a `PRIVATE KEY` PEM block.
     pub fn from_pem(b: &[u8]) -> Result<Self, Error> {
         match encoding::pem_decode(b) {
             Some(block) if block.kind == "PRIVATE KEY" => {

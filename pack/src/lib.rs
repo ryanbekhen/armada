@@ -1,9 +1,9 @@
-//! armada-pack: the runtime pack's build tool (ADR 0011, ADR 0055). It
+//! armada-pack: the runtime pack's build tool (ADR 0011). It
 //! reads the pins in `pack/lock.json`, downloads each upstream artifact
 //! over HTTPS (curl), keeps it only when its SHA-256 matches, and writes
 //! the pack `armadad` embeds (the bundle feature, daemon/build.rs): a
-//! gzipped tar with MANIFEST.json first, then every file by name, as Go's
-//! `embedded.Pack` writes it. It also collects the license files of the
+//! gzipped tar with MANIFEST.json first, then every file by name, the
+//! layout `armadad` reads. It also collects the license files of the
 //! Go modules the pack's etcd programs link and the license texts of
 //! crun's source (`licenses`), crun's complete corresponding source
 //! (`sources`, ADR 0056), fetches etcd's

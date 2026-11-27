@@ -1,6 +1,6 @@
 //! `armada-log search`: the scan behind a log history search (ADR 0043),
-//! for armadad's `embedded.SearchLogs`, which picks the files and keeps the
-//! reference implementation in Go (compared by a Go test).
+//! for the node agent, which picks the files and reads them itself when
+//! there is no armada-log.
 //!
 //!   armada-log search --since NS [--until NS] [--grep TEXT] --limit N
 //!                     --max-bytes N [--deadline-ms N]
@@ -173,7 +173,7 @@ impl Kept {
 }
 
 /// Reads complete lines of f (a last line without its line break is not
-/// read, as in Go's scanEntries) and returns the bytes read.
+/// read) and returns the bytes read.
 fn scan(mut f: File, file: usize, q: &Query, kept: &mut Kept) -> u64 {
     let mut buf = vec![0u8; 1 << 20];
     let mut filled = 0;
@@ -212,10 +212,10 @@ fn wanted(line: &[u8], q: &Query, floor: Option<i128>, text: &mut Vec<u8>) -> Op
     if tail.is_some_and(outside) {
         return None;
     }
-    // The whole line is read for what is kept: Go keeps only valid lines.
+    // The whole line is read for what is kept: only valid lines are kept.
     let e = entry(line)?;
     // No time: a zero time, before every window; an invalid one fails the
-    // line in Go. The last time is the one at the tail.
+    // line. The last time is the one at the tail.
     let time = match tail {
         Some(t) => t,
         None => e
@@ -289,8 +289,7 @@ pub(crate) struct Entry {
     pub(crate) time: Option<Span>,
 }
 
-/// Reads a line as a JSON object of string (or null) values, as Go's
-/// logEntry decodes it: the last `log` and `time` win, other keys are
+/// Reads a line as a JSON object of string (or null) values: the last `log` and `time` win, other keys are
 /// skipped; anything else fails the line.
 pub(crate) fn entry(b: &[u8]) -> Option<Entry> {
     let mut e = Entry {
@@ -321,7 +320,7 @@ pub(crate) fn entry(b: &[u8]) -> Option<Entry> {
             i = next;
             Some(v)
         };
-        // Keys match without regard to case in Go; these have no escapes.
+        // Keys match without regard to case; these have no escapes.
         let k = &b[key.start..key.end];
         if k.eq_ignore_ascii_case(b"log") {
             e.log = value;
@@ -530,8 +529,8 @@ fn find2(hay: &[u8], a: u8, b: u8) -> Option<usize> {
         .map(|p| i + p)
 }
 
-/// Nanoseconds since the epoch of an RFC 3339 time as Go's time.Time
-/// encodes it (`2006-01-02T15:04:05.999999999Z07:00`).
+/// Nanoseconds since the epoch of an RFC 3339 time as a log entry
+/// writes it (`2006-01-02T15:04:05.999999999Z07:00`).
 pub(crate) fn parse_time(s: &[u8]) -> Option<i128> {
     let num = |a: usize, b: usize| -> Option<i64> {
         let d = s.get(a..b)?;

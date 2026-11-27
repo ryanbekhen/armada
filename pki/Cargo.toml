@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "The cluster's certificate authority, a port of Go's internal/pki (ADR 0055)"
+description = "The cluster's certificate authority: identities, certificates, requests, and join tokens"
 
 [dependencies]
 armada-fsutil = { path = "../fsutil" }
@@ -18,5 +18,5 @@ time.workspace = true
 x509-parser.workspace = true
 
 [dev-dependencies]
-# The parity cases recorded from Go (tests/parity.rs).
+# The recorded cases (tests/parity.rs).
 serde_json.workspace = true

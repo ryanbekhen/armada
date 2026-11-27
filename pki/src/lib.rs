@@ -1,15 +1,15 @@
-//! The cluster's certificate authority: a port of Go's `internal/pki`
-//! (ADR 0055).
+//! The cluster's certificate authority.
 //!
 //! Identities are encoded in the certificate common name as
-//! `<kind>:<name>`. Certificates are issued as Go issues them: the same
-//! subject (organization `armada`, then the identity, each string as Go
-//! picks its ASN.1 type), the same extensions in Go's order and encoding
+//! `<kind>:<name>`. Certificates are issued in one fixed form: the
+//! subject (organization `armada`, then the identity, each a
+//! PrintableString when it can be one, else a UTF8String), the extensions
+//! in one order and encoding
 //! (key usage, extended key usages, basic constraints, the CA's subject key
 //! identifier, the authority key identifier, subject alternative names),
 //! P-256 keys in PKCS#8 PEM, random 128-bit serial numbers, NotBefore
-//! backdated by [`CLOCK_SKEW`], and the same lifetimes. The cases recorded
-//! from Go (tests/parity.rs) check it against what Go issued.
+//! backdated by [`CLOCK_SKEW`], and fixed lifetimes. The recorded cases
+//! (tests/parity.rs) check it against the certificates they hold.
 
 use std::fmt;
 use std::net::IpAddr;
@@ -63,7 +63,7 @@ pub const CLOCK_SKEW: Duration = Duration::from_secs(5 * 60);
 pub const FILE_CA_CERT: &str = "ca.crt";
 pub const FILE_CA_KEY: &str = "ca.key";
 
-/// An error with Go's text.
+/// An error, with the text the recordings hold.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Error(String);
 
@@ -150,7 +150,7 @@ impl Ca {
         let key = PrivateKey::generate()?;
         let now = cert::unix(SystemTime::now()).0;
         let cn = format!("armada-ca:{cluster_name}");
-        // Go's subject key identifier for CAs: the leftmost 160 bits of the
+        // The subject key identifier of a CA: the leftmost 160 bits of the
         // SHA-256 of the public key (RFC 7093).
         let ski =
             ring::digest::digest(&ring::digest::SHA256, key.public_key()).as_ref()[..20].to_vec();
@@ -181,7 +181,7 @@ impl Ca {
         })
     }
 
-    /// Parses a CA certificate and its private key (Go's `LoadCA`).
+    /// Parses a CA certificate and its private key.
     pub fn load(cert_pem: &[u8], key_pem: &[u8]) -> Result<Self, Error> {
         let cert = parse_cert_pem(cert_pem)?;
         if !cert.is_ca {
@@ -225,8 +225,7 @@ impl Ca {
         self.key.to_pem()
     }
 
-    /// Creates a new key pair and a certificate signed by the CA (Go's
-    /// `Issue`).
+    /// Creates a new key pair and a certificate signed by the CA.
     pub fn issue(&self, req: &IssueRequest) -> Result<(Vec<u8>, SecretBytes), Error> {
         parse_identity(&req.identity.to_string())?;
         if !req.server && !req.client {
@@ -268,8 +267,7 @@ impl Ca {
     /// Signs a new certificate for the key, identity, names, and usages of
     /// `old`, which this CA must have signed, valid for `validity` from now
     /// (zero means [`LEAF_VALIDITY`]). Only the serial and the validity
-    /// period change, so the private key on disk stays as it is (Go's
-    /// `Reissue`).
+    /// period change, so the private key on disk stays as it is.
     pub fn reissue(&self, old: &Certificate, validity: Duration) -> Result<Vec<u8>, Error> {
         old.check_signature_from(&self.cert)
             .map_err(|e| Error::new(format!("certificate is not signed by this CA: {e}")))?;
@@ -304,8 +302,7 @@ impl Ca {
         Ok(encoding::pem_encode("CERTIFICATE", &der))
     }
 
-    /// Issues a client certificate for `node` from a CSR (Go's
-    /// `SignNodeCSR`). Only the CSR's public key is used: the identity,
+    /// Issues a client certificate for `node` from a CSR. Only the CSR's public key is used: the identity,
     /// usages, and lifetime come from the CA, so a node cannot ask for
     /// another name, a server certificate, or extra extensions. The key
     /// must be ECDSA P-256 and the CSR self-signed. A zero `validity`, or
@@ -389,8 +386,8 @@ impl Ca {
     }
 
     fn sign(&self, t: &Template<'_>, public: &[u8]) -> Result<Vec<u8>, Error> {
-        // Go names the CA's subject key identifier as the authority key
-        // identifier of every certificate it signs.
+        // The CA's subject key identifier is the authority key identifier
+        // of every certificate it signs.
         let t = Template {
             common_name: t.common_name,
             not_before: t.not_before,
@@ -413,7 +410,7 @@ impl Ca {
             .map_err(|e| Error::new(format!("x509: {e}")))?
             .der()
             .to_vec();
-        // Go names the issuer with the CA's subject bytes as they are;
+        // The issuer must be the CA's subject bytes as they are;
         // rcgen writes it again from its parts, which must give the same
         // bytes, or chains would not build.
         let issued = Certificate::from_der(&der)?;
@@ -440,8 +437,8 @@ impl Template<'_> {
         p.not_after = time::OffsetDateTime::from_unix_timestamp(self.not_after)
             .map_err(|e| Error::new(format!("x509: {e}")))?;
         let mut dn = rcgen::DistinguishedName::new();
-        dn.push(rcgen::DnType::OrganizationName, go_string("armada")?);
-        dn.push(rcgen::DnType::CommonName, go_string(self.common_name)?);
+        dn.push(rcgen::DnType::OrganizationName, subject_string("armada")?);
+        dn.push(rcgen::DnType::CommonName, subject_string(self.common_name)?);
         p.distinguished_name = dn;
         p.is_ca = rcgen::IsCa::NoCa;
         p.key_identifier_method = rcgen::KeyIdMethod::PreSpecified(Vec::new());
@@ -449,7 +446,7 @@ impl Template<'_> {
         Ok(p)
     }
 
-    /// The extensions in Go's order (`buildCertExtensions`): key usage,
+    /// The extensions, in this order: key usage,
     /// extended key usage, basic constraints, subject key identifier,
     /// authority key identifier, subject alternative names.
     fn extensions(&self) -> Vec<rcgen::CustomExtension> {
@@ -470,7 +467,7 @@ impl Template<'_> {
                 .collect();
             out.push(ext(oid::EXT_KEY_USAGE, false, encoding::seq(&oids)));
         }
-        // Go's basicConstraints: cA only when true, pathLenConstraint 0
+        // basicConstraints: cA only when true, pathLenConstraint 0
         // for the CA (MaxPathLenZero).
         let bc = if self.is_ca {
             encoding::seq(&[vec![0x01, 0x01, 0xff], vec![0x02, 0x01, 0x00]])
@@ -497,7 +494,7 @@ impl Template<'_> {
             for ip in self.ips {
                 let b = match ip {
                     IpAddr::V4(v4) => v4.octets().to_vec(),
-                    // Go writes an IPv4-mapped address in its four bytes.
+                    // An IPv4-mapped address is written in its four bytes.
                     IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
                         Some(v4) => v4.octets().to_vec(),
                         None => v6.octets().to_vec(),
@@ -511,7 +508,7 @@ impl Template<'_> {
     }
 }
 
-/// Go's key usage encoding: bit i of the usage at bit i of the BIT STRING,
+/// The key usage encoding: bit i of the usage at bit i of the BIT STRING,
 /// one or two bytes, the bit length up to the last bit set.
 fn key_usage_value(ku: u16) -> Vec<u8> {
     let mut a = [0u8; 2];
@@ -532,9 +529,9 @@ fn key_usage_value(ku: u16) -> Vec<u8> {
     encoding::tlv(0x03, &content)
 }
 
-/// A subject string with the ASN.1 type Go's `encoding/asn1` picks: a
+/// A subject string with its ASN.1 type: a
 /// PrintableString when every byte may be one, else a UTF8String.
-fn go_string(s: &str) -> Result<rcgen::DnValue, Error> {
+fn subject_string(s: &str) -> Result<rcgen::DnValue, Error> {
     let printable = s.bytes().all(|b| {
         b.is_ascii_alphanumeric()
             || matches!(
@@ -552,7 +549,7 @@ fn go_string(s: &str) -> Result<rcgen::DnValue, Error> {
 }
 
 /// Parses a CSR, checks its signature, and returns its P-256 public point,
-/// with Go's texts.
+/// with the `parse CSR:` texts of the recordings.
 fn csr_public_key(csr_der: &[u8]) -> Result<Vec<u8>, Error> {
     let (rest, csr) =
         x509_parser::certification_request::X509CertificationRequest::from_der(csr_der)
@@ -595,13 +592,13 @@ fn csr_public_key(csr_der: &[u8]) -> Result<Vec<u8>, Error> {
     Ok(point)
 }
 
-/// A node key and a certificate request for it (Go's `NewNodeCSR`). The
+/// A node key and a certificate request for it. The
 /// key never leaves the node.
 pub fn new_node_csr(node: &str) -> Result<(SecretBytes, Vec<u8>), Error> {
     new_csr(&Identity::new(KIND_NODE, node))
 }
 
-/// A key and a certificate request for `id` (Go's `NewCSR`): the common
+/// A key and a certificate request for `id`: the common
 /// name only, signed with the key. The CA decides the identity it signs
 /// anyway.
 pub fn new_csr(id: &Identity) -> Result<(SecretBytes, Vec<u8>), Error> {
@@ -609,7 +606,7 @@ pub fn new_csr(id: &Identity) -> Result<(SecretBytes, Vec<u8>), Error> {
     let key = PrivateKey::generate()?;
     let mut p = rcgen::CertificateParams::default();
     let mut dn = rcgen::DistinguishedName::new();
-    dn.push(rcgen::DnType::CommonName, go_string(&id.to_string())?);
+    dn.push(rcgen::DnType::CommonName, subject_string(&id.to_string())?);
     p.distinguished_name = dn;
     let csr = p
         .serialize_request(&key.rcgen()?)
@@ -618,7 +615,7 @@ pub fn new_csr(id: &Identity) -> Result<(SecretBytes, Vec<u8>), Error> {
 }
 
 /// Whether a certificate that renews itself should be renewed now: once
-/// less than a third of its lifetime is left (Go's `RenewDue`).
+/// less than a third of its lifetime is left.
 pub fn renew_due(c: &Certificate, now: SystemTime) -> bool {
     let life = nanos(c.not_after - c.not_before) - nanos_d(CLOCK_SKEW);
     left(c, now) < life / 3
@@ -626,7 +623,7 @@ pub fn renew_due(c: &Certificate, now: SystemTime) -> bool {
 
 /// Whether a node certificate should be renewed: in the last third of its
 /// lifetime, or if it outlives [`NODE_VALIDITY`] (issued before node
-/// certificates became short-lived). Go's `NeedsRenewal`.
+/// certificates became short-lived).
 pub fn needs_renewal(c: &Certificate, now: SystemTime) -> bool {
     let life = nanos(c.not_after - c.not_before) - nanos_d(CLOCK_SKEW);
     life > nanos_d(NODE_VALIDITY) + nanos_d(CLOCK_SKEW) || left(c, now) < life / 3

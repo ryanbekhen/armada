@@ -1,5 +1,5 @@
-//! Sensitive files with strict permissions: a port of Go's
-//! `internal/fsutil` (ADR 0055). Errors read as Go's do (`open PATH: file
+//! Sensitive files with strict permissions. Errors read `OP PATH: TEXT`
+//! with the system's error texts (`open PATH: file
 //! exists`, `PATH has mode 0644, want no group/other access (chmod go-rwx):
 //! insecure permissions`), since the machine commands print them.
 
@@ -11,24 +11,23 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// The text Go's `ErrInsecurePermissions` reads as.
+/// The text of an insecure permissions error.
 pub const INSECURE_PERMISSIONS: &str = "insecure permissions";
 
 /// What kind of failure an [`Error`] is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorKind {
-    /// The file or directory is open to group or others (Go's
-    /// `ErrInsecurePermissions`).
+    /// The file or directory is open to group or others.
     InsecurePermissions,
-    /// The path does not exist (Go's `fs.ErrNotExist`).
+    /// The path does not exist.
     NotFound,
-    /// The file exists where it must not (Go's `fs.ErrExist`).
+    /// The file exists where it must not.
     AlreadyExists,
     /// Anything else.
     Other,
 }
 
-/// An error worded as Go's `*fs.PathError` or fsutil's own texts.
+/// An error worded `OP PATH: TEXT`, or as one of fsutil's own texts.
 #[derive(Debug)]
 pub struct Error {
     kind: ErrorKind,
@@ -46,7 +45,7 @@ impl Error {
         self.kind == ErrorKind::InsecurePermissions
     }
 
-    /// Go's `*fs.PathError` text: `OP PATH: ERRNO TEXT`.
+    /// A path error's text: `OP PATH: ERRNO TEXT`.
     pub fn path(op: &str, path: &Path, err: &io::Error) -> Self {
         let kind = match err.kind() {
             io::ErrorKind::NotFound => ErrorKind::NotFound,
@@ -68,7 +67,7 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-/// The text Go's `syscall.Errno` gives for the common errors, else the
+/// The short lowercase text of the common errors, else the
 /// system's own text without Rust's `(os error N)`.
 pub fn errno_text(err: &io::Error) -> String {
     let text = match err.raw_os_error() {
@@ -96,7 +95,7 @@ pub fn errno_text(err: &io::Error) -> String {
 }
 
 /// Verifies that `path` exists and has no group or other permissions
-/// (Go's `CheckPrivate`; symbolic links are followed, as `os.Stat` does).
+/// (symbolic links are followed).
 pub fn check_private(path: &Path) -> Result<(), Error> {
     let meta = fs::metadata(path).map_err(|e| Error::path("stat", path, &e))?;
     let perm = meta.permissions().mode() & 0o777;
@@ -112,11 +111,10 @@ pub fn check_private(path: &Path) -> Result<(), Error> {
     Ok(())
 }
 
-/// Reads a file only if it is not accessible by group or others (Go's
-/// `ReadPrivateFile`).
+/// Reads a file only if it is not accessible by group or others.
 pub fn read_private_file(path: &Path) -> Result<Vec<u8>, Error> {
     check_private(path)?;
-    // Go's os.ReadFile opens a directory and fails reading it.
+    // A directory opens and fails at the read, worded as one.
     fs::read(path).map_err(|e| {
         let op = if e.raw_os_error() == Some(21) {
             "read"
@@ -128,7 +126,7 @@ pub fn read_private_file(path: &Path) -> Result<Vec<u8>, Error> {
 }
 
 /// Creates `dir` with mode 0700 if missing and verifies the mode of an
-/// existing directory (Go's `MkdirPrivate`).
+/// existing directory.
 pub fn mkdir_private(dir: &Path) -> Result<(), Error> {
     fs::DirBuilder::new()
         .recursive(true)
@@ -139,7 +137,7 @@ pub fn mkdir_private(dir: &Path) -> Result<(), Error> {
 }
 
 /// Creates `path` with `perm` and writes `data`, failing if the file
-/// already exists (Go's `WriteFileExclusive`). For keys that must never be
+/// already exists. For keys that must never be
 /// overwritten.
 pub fn write_file_exclusive(path: &Path, data: &[u8], perm: u32) -> Result<(), Error> {
     let mut f = OpenOptions::new()
@@ -163,8 +161,7 @@ pub fn write_file_exclusive(path: &Path, data: &[u8], perm: u32) -> Result<(), E
 }
 
 /// Writes `data` to `path` through a temporary file in the same directory
-/// and an atomic rename, so readers never see a partial file (Go's
-/// `WriteFileAtomic`).
+/// and an atomic rename, so readers never see a partial file.
 pub fn write_file_atomic(path: &Path, data: &[u8], perm: u32) -> Result<(), Error> {
     let dir = match path.parent() {
         Some(d) if !d.as_os_str().is_empty() => d.to_path_buf(),
@@ -189,8 +186,7 @@ pub fn write_file_atomic(path: &Path, data: &[u8], perm: u32) -> Result<(), Erro
     Ok(())
 }
 
-/// Opens a new file `.<base>.tmp-<random>` in `dir`, as Go's
-/// `os.CreateTemp(dir, "."+base+".tmp-*")` does.
+/// Opens a new file `.<base>.tmp-<random>` in `dir`, created exclusively.
 fn create_temp(dir: &Path, base: &str) -> Result<(PathBuf, File), Error> {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let mut last = None;

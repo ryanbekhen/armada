@@ -39,7 +39,7 @@ fn ca_round_trip() {
     assert_eq!(
         ca.key.pkcs8().expose().len(),
         138,
-        "Go's PKCS#8 size for P-256"
+        "the PKCS#8 size of a P-256 key"
     );
 }
 

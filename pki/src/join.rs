@@ -1,4 +1,4 @@
-//! Join tokens and the CA pin joining machines check (Go's `join.go`).
+//! Join tokens and the CA pin joining machines check.
 
 use std::fmt;
 use std::time::SystemTime;
@@ -89,7 +89,7 @@ pub fn token_secret_matches(secret: &str, stored_hash: &str) -> bool {
     constant_time_eq(hash_token_secret(secret).as_bytes(), stored_hash.as_bytes())
 }
 
-/// Go's `subtle.ConstantTimeCompare`: false at once for different lengths,
+/// Constant-time comparison: false at once for different lengths,
 /// else time independent of the contents.
 pub(crate) fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     if a.len() != b.len() {
@@ -117,7 +117,7 @@ pub fn parse_ca_hash(s: &str) -> Result<String, Error> {
 
 /// Finds the certificate matching `ca_hash` (hex, from [`parse_ca_hash`])
 /// in a chain a join listener presented, and verifies the leaf against it
-/// for [`SERVER_NAME`] at `now` (Go's `pinCA`).
+/// for [`SERVER_NAME`] at `now`.
 pub fn pin_ca(chain: &[Certificate], ca_hash: &str, now: SystemTime) -> Result<Certificate, Error> {
     if chain.len() < 2 {
         return Err(Error::new("server did not present its CA certificate"));

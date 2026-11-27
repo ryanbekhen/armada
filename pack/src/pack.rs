@@ -1,9 +1,8 @@
 //! The pack: a gzipped tar, MANIFEST.json first, then every file by name
-//! in byte order, as Go's `embedded.Pack` writes it; its tar is the same
-//! bytes, header for header (USTAR, mode 0644 for the manifest and 0755
-//! for programs, owner 0, time 0). The gzip stream is flate2's at the
-//! default level: a valid stream of the same tar, not Go's compressor's
-//! bytes, which change with Go's releases anyway.
+//! in byte order; its tar is the recorded one byte for byte
+//! (testdata/pack.tar), header for header (USTAR, mode 0644 for the
+//! manifest and 0755 for programs, owner 0, time 0). The gzip stream is
+//! flate2's at the default level: only the tar's bytes are fixed.
 
 use std::collections::BTreeMap;
 use std::io::{self, Write};
@@ -23,7 +22,7 @@ pub const MAX_FILE_SIZE: u64 = 256 << 20;
 
 const BLOCK: usize = 512;
 
-/// Manifest describes a pack (field order as Go's struct).
+/// Manifest describes a pack (fields in the manifest's order).
 #[derive(Debug, Serialize)]
 pub struct Manifest {
     pub arch: String,
@@ -31,8 +30,8 @@ pub struct Manifest {
     pub files: BTreeMap<String, String>,
 }
 
-/// manifest_json: json.MarshalIndent(m, "", "  "), Go's HTML escaping
-/// included.
+/// manifest_json: the manifest as JSON indented by two spaces, with `<`,
+/// `>`, and `&` escaped as \u003c, \u003e, and \u0026.
 pub fn manifest_json(m: &Manifest) -> Vec<u8> {
     let s = serde_json::to_string_pretty(m).expect("manifest");
     s.replace('<', "\\u003c")
@@ -144,7 +143,8 @@ pub fn check_name(n: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// clean: Go's path.Clean.
+/// clean: the shortest equivalent slash-separated path, worked out
+/// lexically (`.` and `..` resolved, repeated `/` collapsed).
 pub fn clean(p: &str) -> String {
     if p.is_empty() {
         return ".".into();
@@ -225,11 +225,10 @@ mod tests {
         );
     }
 
-    /// testdata/pack.tar is the tar inside the pack Go's embedded.Pack
-    /// built for these inputs (written once, before Go's code left): the
-    /// pack's tar is the same bytes, manifest included.
+    /// testdata/pack.tar is the tar recorded for these inputs: the pack's
+    /// tar is the same bytes, manifest included.
     #[test]
-    fn tar_is_gos() {
+    fn tar_matches_recording() {
         let files: BTreeMap<String, Vec<u8>> = [
             ("runc".to_string(), vec![b'r'; 1000]),
             ("cni/bridge".to_string(), b"bridge\n".to_vec()),
@@ -249,8 +248,8 @@ mod tests {
         let mut tar = Vec::new();
         std::io::Read::read_to_end(&mut flate2::read::GzDecoder::new(&p[..]), &mut tar).unwrap();
         let want = include_bytes!("../testdata/pack.tar");
-        assert!(tar == want, "the pack's tar differs from Go's");
-        // The gzip header Go writes: no name, time 0, unknown OS.
+        assert!(tar == want, "the pack's tar differs from the recording");
+        // The gzip header: no name, time 0, unknown OS.
         assert_eq!(&p[..10], b"\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\xff");
     }
 

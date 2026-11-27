@@ -1,11 +1,9 @@
-//! The parity cases of Go's internal/pki tests, recorded once from Go
-//! before the Go code was removed (ADR 0055, item 20): testdata/parity.json
-//! holds
-//! the CA, certificates, requests, keys, and tokens Go made and what Go
-//! answered about each. With no Go, these tests check that the crate issues
-//! and signs from Go's CA what Go issued and signed (compared by shape:
-//! every extension in order, the raw names, the algorithms, the lifetime),
-//! reads what Go wrote, and refuses what Go refused with Go's texts. The
+//! The recorded cases: testdata/parity.json holds a CA, certificates,
+//! requests, keys, and tokens, and the answers about each. These tests
+//! check that the crate issues and signs from the recorded CA what the
+//! recording holds (compared by shape: every extension in order, the raw
+//! names, the algorithms, the lifetime), reads the recorded files, and
+//! refuses what the recording refuses with the same texts. The
 //! fixture's keys are test keys made for it.
 
 use std::net::IpAddr;
@@ -51,9 +49,9 @@ fn at(v: &Value, k: &str) -> SystemTime {
     }
 }
 
-fn go_ca(f: &Value) -> Ca {
+fn recorded_ca(f: &Value) -> Ca {
     let ca = &f["ca"];
-    Ca::load(s(ca, "cert").as_bytes(), s(ca, "key").as_bytes()).expect("Go's CA loads")
+    Ca::load(s(ca, "cert").as_bytes(), s(ca, "key").as_bytes()).expect("the recorded CA loads")
 }
 
 fn cert(pem: &[u8]) -> Certificate {
@@ -62,12 +60,16 @@ fn cert(pem: &[u8]) -> Certificate {
 
 fn expect_err<T>(what: &str, got: Result<T, armada_pki::Error>, want: &str) {
     match got {
-        Ok(_) => panic!("{what}: Go refused with {want:?}; Rust did not"),
-        Err(e) => assert_eq!(e.to_string(), want, "{what}: Rust's text, then Go's"),
+        Ok(_) => panic!("{what}: the recording refused with {want:?}; the crate did not"),
+        Err(e) => assert_eq!(
+            e.to_string(),
+            want,
+            "{what}: the crate's text, then the recording's"
+        ),
     }
 }
 
-/// Go's shape of a certificate (record_test.go's shapeJSON), from its DER.
+/// The recorded shape of a certificate, from its DER.
 fn shape(der: &[u8]) -> Value {
     let (_, c) = X509Certificate::from_der(der).expect("DER");
     let tbs = &c.tbs_certificate;
@@ -119,8 +121,9 @@ fn shape(der: &[u8]) -> Value {
     })
 }
 
-/// Rust's certificate has Go's shape: the lifetime within two seconds of
-/// Go's (both count from the moment of issue), unless capped at the CA.
+/// The crate's certificate has the recorded shape: the lifetime within two
+/// seconds of the recorded one (both count from the moment of issue),
+/// unless capped at the CA.
 fn same_shape(what: &str, go: &Value, rust_der: &[u8], capped_at: Option<i64>) {
     let mut g = go.clone();
     let mut r = shape(rust_der);
@@ -135,7 +138,7 @@ fn same_shape(what: &str, go: &Value, rust_der: &[u8], capped_at: Option<i64>) {
         }
         None => assert!(
             (gl - rl).abs() <= 2,
-            "{what}: lifetime Go {gl}s, Rust {rl}s"
+            "{what}: lifetime recorded {gl}s, got {rl}s"
         ),
     }
     g["lifeSeconds"] = json!(0);
@@ -156,10 +159,10 @@ fn der_of(pem: &[u8]) -> Vec<u8> {
     cert(pem).raw
 }
 
-/// A key Rust wrote is PKCS#8 as Go encodes it: Go's CA key's DER with
+/// A key the crate wrote is PKCS#8 as recorded: the recorded CA key's DER with
 /// the private scalar and the public point in the same places.
-fn key_like_go(f: &Value, key_pem: &[u8]) {
-    let k = PrivateKey::from_pem(key_pem).expect("Rust's key");
+fn key_like_recorded(f: &Value, key_pem: &[u8]) {
+    let k = PrivateKey::from_pem(key_pem).expect("the crate's key");
     let go = &f["caKeyDER"];
     let (gder, d, point) = (b64(go, "pkcs8"), b64(go, "d"), b64(go, "point"));
     let rder = k.pkcs8().expose().to_vec();
@@ -167,7 +170,7 @@ fn key_like_go(f: &Value, key_pem: &[u8]) {
     let find = |hay: &[u8], needle: &[u8]| {
         hay.windows(needle.len())
             .position(|w| w == needle)
-            .expect("in Go's DER")
+            .expect("in the recorded DER")
     };
     let (dp, pp) = (find(&gder, &d), find(&gder, &point));
     let mask = |b: &[u8]| {
@@ -179,7 +182,7 @@ fn key_like_go(f: &Value, key_pem: &[u8]) {
     assert_eq!(
         mask(&rder),
         mask(&gder),
-        "Rust's PKCS#8 framing differs from Go's"
+        "the PKCS#8 framing differs from the recording's"
     );
     assert_eq!(
         &rder[pp..pp + point.len()],
@@ -208,10 +211,10 @@ fn issue_request(r: &Value) -> IssueRequest {
 }
 
 #[test]
-fn issues_what_go_issues() {
+fn issues_as_recorded() {
     let f = fixture();
-    let ca = go_ca(&f);
-    // Go's CA key reads, and encodes again to Go's bytes.
+    let ca = recorded_ca(&f);
+    // The recorded CA key reads, and encodes again to the same bytes.
     let key = PrivateKey::from_pem(s(&f["ca"], "key").as_bytes()).unwrap();
     assert_eq!(key.to_pem().expose(), s(&f["ca"], "key").as_bytes());
     assert_eq!(key.pkcs8().expose(), b64(&f["caKeyDER"], "pkcs8"));
@@ -224,10 +227,10 @@ fn issues_what_go_issues() {
         let before = SystemTime::now();
         let (pem, key) = ca
             .issue(&req)
-            .unwrap_or_else(|e| panic!("{name}: Go issued it; Rust: {e}"));
+            .unwrap_or_else(|e| panic!("{name}: the recording issued it; the crate: {e}"));
         let capped = (name == "capped").then_some(ca.cert.not_after);
         same_shape(name, &c["shape"], &der_of(&pem), capped);
-        key_like_go(&f, key.expose());
+        key_like_recorded(&f, key.expose());
         let rc = cert(&pem);
         let k = PrivateKey::from_pem(key.expose()).unwrap();
         assert_eq!(
@@ -270,7 +273,7 @@ fn new_ca_and_load_refusals() {
     let ca = Ca::new(s(go, "name")).unwrap();
     same_shape("CA", &go["shape"], &ca.cert.raw, None);
     assert_eq!(shape(&ca.cert.raw)["skiFromKey"], json!(true));
-    key_like_go(&f, ca.key_pem().expose());
+    key_like_recorded(&f, ca.key_pem().expose());
     ca.cert.check_signature_from(&ca.cert).unwrap();
     for c in arr(&f, "loadRefused") {
         expect_err(
@@ -298,9 +301,9 @@ fn sign(
 }
 
 #[test]
-fn signs_csrs_as_go_does() {
+fn signs_csrs_as_recorded() {
     let f = fixture();
-    let ca = go_ca(&f);
+    let ca = recorded_ca(&f);
     let csr = b64(&f, "csr");
     let cases = arr(&f, "signed");
     assert_eq!(cases.len(), 12);
@@ -321,11 +324,11 @@ fn signs_csrs_as_go_does() {
         );
     }
 
-    // Rust's request looks like Go's own, and Go's CA (here Rust, with
-    // Go's key) signs it.
+    // The crate's request looks like the recorded one, and the recorded CA
+    // signs it.
     let go = &f["nodeCSR"];
     let (key, rust_csr) = new_csr(&Identity::new("node", "web-1")).unwrap();
-    key_like_go(&f, key.expose());
+    key_like_recorded(&f, key.expose());
     let go_csr = b64(go, "csr");
     let (_, gr) = X509CertificationRequest::from_der(&go_csr).unwrap();
     let (_, rr) = X509CertificationRequest::from_der(&rust_csr).unwrap();
@@ -358,27 +361,31 @@ fn signs_csrs_as_go_does() {
         s(bad, "error"),
     );
 
-    // Refusals: Go's text where it is Armada's own, and the prefix where
+    // Refusals: the recorded text where it is Armada's own, and the prefix where
     // it is a parser's.
     for c in arr(&f, "signRefused") {
         let what = format!("{}/{}", s(c, "case"), s(c, "as"));
         let got = sign(&ca, s(c, "as"), &b64(c, "csr"), s(c, "name"), 0);
         let want = s(c, "error");
         match got {
-            Ok(_) => panic!("{what}: Go refused with {want:?}; Rust signed it"),
+            Ok(_) => panic!("{what}: the recording refused with {want:?}; the crate signed it"),
             Err(e) if c["prefixOnly"].as_bool().unwrap() => {
-                assert!(want.starts_with("parse CSR: "), "{what}: Go {want:?}");
-                assert!(e.to_string().starts_with("parse CSR: "), "{what}: Rust {e}");
+                assert!(want.starts_with("parse CSR: "), "{what}: recorded {want:?}");
+                assert!(e.to_string().starts_with("parse CSR: "), "{what}: got {e}");
             }
-            Err(e) => assert_eq!(e.to_string(), want, "{what}: Rust's text, then Go's"),
+            Err(e) => assert_eq!(
+                e.to_string(),
+                want,
+                "{what}: the crate's text, then the recording's"
+            ),
         }
     }
 }
 
 #[test]
-fn reissues_as_go_does() {
+fn reissues_as_recorded() {
     let f = fixture();
-    let ca = go_ca(&f);
+    let ca = recorded_ca(&f);
     let r = &f["reissue"];
     let old = cert(s(r, "cert").as_bytes());
     let key = PrivateKey::from_pem(s(r, "key").as_bytes()).unwrap();
@@ -402,7 +409,7 @@ fn reissues_as_go_does() {
 }
 
 #[test]
-fn reads_identities_as_go_does() {
+fn reads_identities_as_recorded() {
     let f = fixture();
     for c in arr(&f, "identities") {
         let cn = s(c, "cn");
@@ -415,7 +422,7 @@ fn reads_identities_as_go_does() {
                     "{cn:?}"
                 )
             }
-            (got, want) => panic!("{cn:?}: Go {want:?}, Rust {got:?}"),
+            (got, want) => panic!("{cn:?}: recorded {want:?}, got {got:?}"),
         }
     }
     for c in arr(&f, "readCert") {
@@ -436,7 +443,7 @@ fn reads_identities_as_go_does() {
 }
 
 #[test]
-fn renewal_as_go_decides() {
+fn renewal_as_recorded() {
     let f = fixture();
     for c in arr(&f, "renewal") {
         let rc = cert(s(c, "cert").as_bytes());
@@ -458,21 +465,21 @@ fn renewal_as_go_decides() {
 }
 
 #[test]
-fn verifies_servers_as_go_does() {
+fn verifies_servers_as_recorded() {
     let f = fixture();
-    let ca = go_ca(&f);
+    let ca = recorded_ca(&f);
     for c in arr(&f, "verifyServer") {
         let got = verify_server(&cert(s(c, "cert").as_bytes()), &ca.cert, at(c, "now"));
         let want = s(c, "error");
         match got {
-            Ok(()) => assert_eq!(want, "", "{}: Go refused it", s(c, "case")),
+            Ok(()) => assert_eq!(want, "", "{}: the recording refused it", s(c, "case")),
             Err(e) => assert_eq!(e.to_string(), want, "{}", s(c, "case")),
         }
     }
 }
 
 #[test]
-fn pins_cas_as_go_does() {
+fn pins_cas_as_recorded() {
     let f = fixture();
     for c in arr(&f, "pinCA") {
         let chain: Vec<Certificate> = arr(c, "chain")
@@ -483,13 +490,13 @@ fn pins_cas_as_go_does() {
         match (got, c.get("error").and_then(Value::as_str)) {
             (Err(e), Some(want)) => assert_eq!(e.to_string(), want, "{}", s(c, "case")),
             (Ok(ca), None) => assert_eq!(ca.fingerprint(), s(c, "fingerprint"), "{}", s(c, "case")),
-            (got, want) => panic!("{}: Go {want:?}, Rust {got:?}", s(c, "case")),
+            (got, want) => panic!("{}: recorded {want:?}, got {got:?}", s(c, "case")),
         }
     }
 }
 
 #[test]
-fn join_tokens_as_go_reads_them() {
+fn join_tokens_as_recorded() {
     let f = fixture();
     let j = &f["joinToken"];
     let t = parse_join_token(s(j, "token")).unwrap();
@@ -502,7 +509,7 @@ fn join_tokens_as_go_reads_them() {
         match (got, c["error"].as_str()) {
             (Err(e), Some(want)) => assert_eq!(e.to_string(), want, "{:?}", s(c, "token")),
             (Ok(_), None) => {}
-            (got, want) => panic!("{:?}: Go {want:?}, Rust {got:?}", s(c, "token")),
+            (got, want) => panic!("{:?}: recorded {want:?}, got {got:?}", s(c, "token")),
         }
     }
     for c in arr(&f, "tokenMatches") {
@@ -520,7 +527,7 @@ fn join_tokens_as_go_reads_them() {
         ) {
             (Err(e), Some(want)) => assert_eq!(e.to_string(), want, "{:?}", s(c, "hash")),
             (Ok(h), None) => assert_eq!(h, s(c, "hex")),
-            (got, want) => panic!("{:?}: Go {want:?}, Rust {got:?}", s(c, "hash")),
+            (got, want) => panic!("{:?}: recorded {want:?}, got {got:?}", s(c, "hash")),
         }
     }
 }
@@ -534,7 +541,7 @@ fn temp_dir(name: &str) -> PathBuf {
 }
 
 #[test]
-fn ca_files_as_go_reads_them() {
+fn ca_files_as_recorded() {
     let f = fixture();
     let dir = temp_dir("files");
     let dir_text = dir.to_str().unwrap().to_string();
@@ -545,7 +552,7 @@ fn ca_files_as_go_reads_them() {
     };
     write("ca.crt", s(&f["ca"], "cert"), 0o600);
     write("ca.key", s(&f["ca"], "key"), 0o600);
-    let ca = Ca::load_dir(&dir).expect("Go's CA files");
+    let ca = Ca::load_dir(&dir).expect("the recorded CA files");
     assert_eq!(ca.cert.fingerprint(), s(&f["ca"], "fingerprint"));
     let files = &f["caFiles"];
     for c in arr(files, "modes") {
@@ -565,7 +572,7 @@ fn ca_files_as_go_reads_them() {
         Ca::load_dir(&dir.join("none")),
         &s(files, "missing").replace("{dir}", &dir_text),
     );
-    // Rust writes the CA as init does: both files 0600, read back.
+    // The crate writes the CA as init does: both files 0600, read back.
     let rdir = dir.join("rust");
     std::fs::create_dir(&rdir).unwrap();
     let rca = Ca::new("c").unwrap();

@@ -1,5 +1,4 @@
-//! members: the listed regular files of a gzipped tar (Go's mkbundle with
-//! archive/tar's reader): V7, USTAR (with its prefix), GNU, and PAX
+//! members: the listed regular files of a gzipped tar: V7, USTAR (with its prefix), GNU, and PAX
 //! headers, GNU long names, and PAX path and size records.
 
 use std::collections::BTreeMap;

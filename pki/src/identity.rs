@@ -104,8 +104,8 @@ pub fn parse_identity(cn: &str) -> Result<Identity, Error> {
     Ok(Identity::new(kind, name))
 }
 
-/// Go's `%q` of a string (`strconv.Quote`): Go escapes, `\u`/`\U` for
-/// characters that do not print.
+/// A string in double quotes with backslash escapes (`\n`, `\x00`, and
+/// `\u`/`\U` for characters that do not print), as error texts quote names.
 pub fn go_quote(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 2);
     out.push('"');
@@ -130,7 +130,7 @@ pub fn go_quote(s: &str) -> String {
     out
 }
 
-/// An approximation of Go's `strconv.IsPrint` that agrees on ASCII,
+/// Whether a character prints as itself in [`go_quote`]: exact on ASCII,
 /// controls, spaces, and the common format characters.
 fn go_printable(c: char) -> bool {
     if c == ' ' {
