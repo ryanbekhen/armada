@@ -1,11 +1,11 @@
-//! The metrics endpoint (ADR 0017; Go's metrics.go): `GET /metrics` on
+//! The metrics endpoint (ADR 0017): `GET /metrics` on
 //! the metrics listener, TLS 1.3 with the API's server certificate, only
 //! to metrics certificates on record and to users or services with
 //! cluster-admin; the leader's counters, and the cluster's metrics read
 //! from the same sources as `armada app show` and `armada app top`, at
-//! most once per `metrics_cache`. The text is Prometheus' text format as
-//! client_golang writes it (families by name, samples by label values,
-//! labels by name, Go's float format), without Go's runtime metrics.
+//! most once per `metrics_cache`. The text is Prometheus' text format
+//! (families by name, samples by label values, labels by name, floats in
+//! their shortest form).
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Mutex;
@@ -37,9 +37,9 @@ use crate::grpc::{Auth, cert_time};
 use crate::reconcile::sub;
 use crate::{Server, store_err};
 
-/// metricsCacheFor: how long gathered metrics answer further scrapes.
+/// How long gathered metrics answer further scrapes.
 pub const METRICS_CACHE_FOR: Duration = Duration::from_secs(10);
-/// metricsTimeout bounds the store reads of one scrape.
+/// Bounds the store reads of one scrape.
 const METRICS_TIMEOUT: Duration = Duration::from_secs(10);
 const READ_HEADER_TIMEOUT: Duration = Duration::from_secs(5);
 const WRITE_TIMEOUT: Duration = Duration::from_secs(30);
@@ -57,8 +57,8 @@ struct Hist {
     count: u64,
 }
 
-/// The leader's counters (Go's reconcileSeconds, reconcileErrors,
-/// events.total, jobRuns, the alerter's, and cpFailures).
+/// The leader's counters: reconcile durations and errors, events, job
+/// runs, alerts, and control plane backup failures.
 pub(crate) struct Metrics {
     reconcile: Mutex<Hist>,
     reconcile_errors: AtomicU64,
@@ -232,7 +232,7 @@ impl Sample {
     }
 }
 
-/// The families: name, type, and help, as Go's descriptions declare them.
+/// The families: name, type, and help.
 const FAMILIES: &[(&str, &str, &str)] = &[
     (
         "armada_server_leader",
@@ -541,7 +541,9 @@ const FAMILIES: &[(&str, &str, &str)] = &[
     ),
 ];
 
-/// strconv.FormatFloat(f, 'g', -1, 64) with expfmt's special cases.
+/// A float in Prometheus' text format: the shortest digits that read back
+/// as f, in exponent form (`1.5e+06`) for exponents below -4 or from 6,
+/// and NaN, +Inf, -Inf.
 pub(crate) fn fmt_float(f: f64) -> String {
     if f == 1.0 {
         return "1".into();
@@ -558,7 +560,8 @@ pub(crate) fn fmt_float(f: f64) -> String {
     if f.is_infinite() {
         return if f > 0.0 { "+Inf" } else { "-Inf" }.into();
     }
-    // The shortest digits and the exponent, then %e or %f as Go picks.
+    // The shortest digits and the exponent, then the exponent form or the
+    // plain one.
     let e = format!("{f:e}");
     let (mant, exp) = e.split_once('e').unwrap_or((&e, "0"));
     let exp: i32 = exp.parse().unwrap_or(0);
@@ -611,8 +614,7 @@ fn family_of(name: &str) -> &str {
     name
 }
 
-/// The text format of samples, as client_golang's Gather and expfmt write
-/// them.
+/// The text format of samples.
 pub(crate) fn exposition(samples: Vec<Sample>) -> String {
     let mut by: BTreeMap<&str, Vec<Sample>> = BTreeMap::new();
     for mut s in samples {
@@ -664,7 +666,7 @@ fn write_sample(out: &mut String, s: &Sample) {
     out.push('\n');
 }
 
-/// replicaStateLabel keeps the state label to the states the store knows.
+/// Keeps the state label to the states the store knows.
 fn replica_state_label(state: &str) -> String {
     match state {
         REPLICA_PENDING | REPLICA_PULLING | REPLICA_PULLED | REPLICA_STARTING | REPLICA_RUNNING
@@ -673,14 +675,14 @@ fn replica_state_label(state: &str) -> String {
     }
 }
 
-/// addressIP: the IP of a replica's host:port address, or "".
+/// The IP of a replica's host:port address, or "".
 fn address_ip(addr: &str) -> String {
     addr.parse::<std::net::SocketAddr>()
         .map(|a| a.ip().to_string())
         .unwrap_or_default()
 }
 
-/// restartReason names why a container was recreated from the agent's
+/// Names why a container was recreated from the agent's
 /// words, so that the label takes only a few values.
 pub(crate) fn restart_reason(msg: &str) -> &'static str {
     match msg {
@@ -709,7 +711,7 @@ fn secs(t: &Option<armada_proto::google::protobuf::Timestamp>) -> Option<f64> {
 }
 
 impl Server {
-    /// The server's own access, as Go's internalContext gives it.
+    /// The server's own access.
     pub(crate) fn internal_auth(&self) -> Auth {
         let id = Identity::new(armada_pki::KIND_SERVER, &self.0.name);
         Auth {
@@ -1188,7 +1190,7 @@ impl Server {
         (out, true)
     }
 
-    /// revisionInfo exports the image of every revision an app serves,
+    /// Exports the image of every revision an app serves,
     /// rolls out, or still runs replicas of, read in one batch.
     async fn revision_info(&self, apps: &[AppStatus], out: &mut Vec<Sample>) {
         let mut owner: HashMap<String, String> = HashMap::new();
@@ -1232,7 +1234,7 @@ impl Server {
         }
     }
 
-    /// metricsAllowed: metrics certificates on record, and users or
+    /// Metrics certificates on record, and users or
     /// services with cluster-admin. The TLS config verified the chain.
     async fn metrics_allowed(&self, cert: &armada_pki::Certificate) -> bool {
         let Ok(id) = cert.identity() else {
@@ -1265,7 +1267,7 @@ impl Server {
         }
     }
 
-    /// serveMetrics serves /metrics on the metrics listener until shutdown.
+    /// Serves /metrics on the metrics listener until shutdown.
     pub(crate) async fn serve_metrics(
         &self,
         shutdown: watch::Receiver<bool>,
@@ -1504,7 +1506,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn floats_as_go() {
+    fn floats() {
         for (f, want) in [
             (1.0, "1"),
             (0.0, "0"),
@@ -1528,7 +1530,7 @@ mod tests {
     }
 
     #[test]
-    fn restart_reasons_as_go() {
+    fn restart_reasons() {
         for (msg, want) in [
             ("", "unknown"),
             ("the machine restarted", "machine_restart"),
@@ -1543,7 +1545,7 @@ mod tests {
     }
 
     #[test]
-    fn text_as_client_golang_writes_it() {
+    fn text_format() {
         let out = exposition(vec![
             Sample::new("armada_node_ready", vec![("node", "n2".into())], 1.0),
             Sample::new("armada_node_ready", vec![("node", "n1".into())], 0.0),

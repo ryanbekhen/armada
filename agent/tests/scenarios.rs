@@ -1,8 +1,6 @@
-//! The agent's parity scenarios, recorded once from Go's agent before the
-//! Go code was removed (the recordings are goldens now, changed only by
-//! hand) and replayed here against the Rust
-//! agent's parity program with the fakes ported to Rust (ADR 0055, item
-//! 20). ARMADA_REPLAY_ONLY=TEXT replays only the scenarios whose name
+//! The agent's recorded scenarios (goldens, changed only by hand),
+//! replayed here against the agent's parity program with its fakes.
+//! ARMADA_REPLAY_ONLY=TEXT replays only the scenarios whose name
 //! holds TEXT.
 
 mod replay;
@@ -43,7 +41,7 @@ fn program() -> Program {
     Program::start(Arc::new(Fake::new(0, String::new(), true, vec![])))
 }
 
-/// The spec hash of every spec Go hashed.
+/// The spec hash of every recorded spec.
 #[test]
 fn agent_parity_spec_hash() {
     let prog = program();
@@ -60,8 +58,8 @@ fn agent_parity_spec_hash() {
     assert!(bad.is_empty(), "{}", bad.join("\n"));
 }
 
-/// The reconnect waits Go worked out (a failover's wait without Go's
-/// jitter, as the program is asked without one).
+/// The recorded reconnect waits (a failover's wait without its jitter, as
+/// the program is asked without one).
 #[test]
 fn agent_parity_reconnect() {
     let prog = program();
@@ -84,7 +82,7 @@ fn agent_parity_reconnect() {
     assert!(bad.is_empty(), "{}", bad.join("\n"));
 }
 
-/// Serves what parity_session_test.go's check server serves: /ok, a
+/// Serves the recorded check server's paths: /ok, a
 /// redirect at /moved, a second's wait at /slow, 503 elsewhere.
 fn check_server() -> String {
     use std::io::{BufRead, BufReader, Write};
@@ -127,7 +125,7 @@ fn check_server() -> String {
     addr
 }
 
-/// The health check's answers Go gave, addresses aside.
+/// The health check's recorded answers, addresses aside.
 #[test]
 fn agent_parity_check() {
     let prog = program();

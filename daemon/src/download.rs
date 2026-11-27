@@ -1,7 +1,6 @@
 //! Release downloads for `armadad upgrade`: an HTTPS GET over rustls with
 //! the machine's roots, following at most 10 redirects and only to https,
-//! the body streamed to a writer (as Go's http.Client with upgrade's
-//! CheckRedirect).
+//! the body streamed to a writer.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
@@ -11,7 +10,7 @@ use std::time::{Duration, Instant};
 use rustls_pki_types::ServerName;
 
 /// Copies the body of url (https) to w, at most limit bytes; returns the
-/// bytes copied, or the error text after Go's "download NAME: ".
+/// bytes copied, or the error text that follows "download NAME: ".
 pub fn https_get(
     url: &str,
     w: &mut dyn Write,
@@ -25,7 +24,7 @@ pub fn https_get(
         let mut conn = connect(&host, port, deadline)
             .map_err(|e| format!("Get {}: {e}", armada_spec::go::quote(&url)))?;
         let req = format!(
-            "GET {path} HTTP/1.1\r\nHost: {host}\r\nUser-Agent: Go-http-client/1.1\r\nAccept-Encoding: identity\r\nConnection: close\r\n\r\n"
+            "GET {path} HTTP/1.1\r\nHost: {host}\r\nUser-Agent: armadad\r\nAccept-Encoding: identity\r\nConnection: close\r\n\r\n"
         );
         conn.write_all(req.as_bytes())
             .map_err(|e| format!("Get {}: {e}", armada_spec::go::quote(&url)))?;

@@ -1,10 +1,9 @@
-//! The container network (internal/runtime/containerd network.go and
-//! network_linux.go): the node's bridge `armada0` and the CNI plugin chain
+//! The container network: the node's bridge `armada0` and the CNI plugin chain
 //! of the runtime pack (bridge with host-local addresses on tmpfs,
 //! portmap, firewall, loopback), run as libcni v1.3 runs them. The
 //! plugins' input, environment, and cache files are what libcni makes, so
-//! a container attached by the Go agent is released by the Rust one and
-//! the other way round (each reads the other's cache).
+//! a container attached by an earlier release is released from its cache
+//! like any other.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -37,7 +36,7 @@ pub struct Prefix4 {
 }
 
 impl Prefix4 {
-    /// netip.ParsePrefix for an IPv4 prefix.
+    /// Parses an IPv4 prefix (no leading zeros in the length).
     pub fn parse(s: &str) -> Option<Prefix4> {
         let (a, b) = s.split_once('/')?;
         let addr = match armada_node::net::addr::Addr::parse(a)? {
@@ -73,7 +72,7 @@ impl std::fmt::Display for Prefix4 {
     }
 }
 
-/// The default container subnet (embedded.DefaultSubnet).
+/// The default container subnet.
 pub const DEFAULT_SUBNET: &str = "10.121.0.0/24";
 
 /// The bridge network: the gateway is the subnet's first address.
@@ -83,7 +82,8 @@ pub struct Bridge {
     pub subnet: Prefix4,
 }
 
-/// netutil.IsPrivate for an IPv4 address.
+/// Whether an IPv4 address is private: RFC 1918, loopback, or shared
+/// (100.64.0.0/10).
 fn private4(a: Ipv4Addr) -> bool {
     let o = a.octets();
     a.is_private() || o[0] == 127 || (o[0] == 100 && o[1] & 0xc0 == 64)
@@ -104,7 +104,7 @@ pub fn bridge_of(subnet: Prefix4) -> Result<Bridge, String> {
     Ok(Bridge { gateway, subnet })
 }
 
-/// bridgeMAC: a locally administered unicast address holding the gateway's
+/// A locally administered unicast address holding the gateway's
 /// bytes, so the bridge keeps it across restarts.
 pub fn bridge_mac(gw: Ipv4Addr) -> [u8; 6] {
     let b = gw.octets();
@@ -115,8 +115,7 @@ fn obj(pairs: Vec<(&str, Value)>) -> Value {
     Value::Object(pairs.into_iter().map(|(k, v)| (k.to_string(), v)).collect())
 }
 
-/// cniConfig: the plugin chain as Go's json.Marshal of its maps writes it
-/// (keys sorted).
+/// The plugin chain as compact JSON, every object's keys sorted.
 pub fn cni_config(b: &Bridge, ipam_dir: &str, mtu: u32) -> Vec<u8> {
     let mut bridge = vec![
         ("type", Value::from("bridge")),
@@ -168,12 +167,12 @@ pub fn cni_config(b: &Bridge, ipam_dir: &str, mtu: u32) -> Vec<u8> {
     ]))
 }
 
-/// encoding/json's bytes for v.
+/// Compact JSON of v, `<`, `>`, `&`, U+2028, and U+2029 as `\u` escapes.
 fn go_json<T: Serialize>(v: &T) -> Vec<u8> {
     armada_node::runtime::spec::to_go_json(v)
 }
 
-/// A published port (portMapping).
+/// A published port.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PortMapping {
     pub host_ip: String,
@@ -198,7 +197,8 @@ fn capability_args(pm: Option<&PortMapping>) -> Map<String, Value> {
     m
 }
 
-/// types100.Result as libcni writes it (an empty dns left out).
+/// A plugin chain's result (CNI 1.0.0) as libcni caches it (an empty dns
+/// left out).
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 pub struct CniResult {
     #[serde(
@@ -341,7 +341,7 @@ impl CniResult {
     }
 }
 
-/// types.Error: what a plugin prints when it fails.
+/// The CNI error object a plugin prints when it fails.
 #[derive(Deserialize, Default)]
 struct PluginError {
     #[serde(default)]
@@ -357,7 +357,7 @@ struct Rt<'a> {
     caps: Map<String, Value>,
 }
 
-/// libcni's cachedInfo.
+/// A cache file's contents, as libcni writes them.
 #[derive(Serialize, Deserialize)]
 struct Cached {
     kind: String,
@@ -395,13 +395,13 @@ pub struct Network {
     ready: tokio::sync::Mutex<bool>,
 }
 
-/// pluginDescription: the plugins have no names of their own.
+/// The plugins have no names of their own.
 fn describe(plugin: &Map<String, Value>) -> String {
     let ty = plugin.get("type").and_then(Value::as_str).unwrap_or("");
     format!("type={}", armada_pki::go_quote(ty))
 }
 
-/// cniReg: ^[a-zA-Z0-9][a-zA-Z0-9_.\-]*$.
+/// ^[a-zA-Z0-9][a-zA-Z0-9_.\-]*$.
 fn cni_name(s: &str) -> bool {
     let b = s.as_bytes();
     !b.is_empty()
@@ -411,7 +411,7 @@ fn cni_name(s: &str) -> bool {
 }
 
 impl Network {
-    /// newNetwork: the chain for subnet; ipam addresses under <cni>/ipam,
+    /// The chain for subnet; ipam addresses under <cni>/ipam,
     /// libcni's cache under <cni>/cache, plugins from <bin>/cni.
     pub fn new(
         subnet: Prefix4,
@@ -443,7 +443,7 @@ impl Network {
         })
     }
 
-    /// The configuration list's bytes (libcni's list.Bytes).
+    /// The configuration list's bytes.
     pub fn conf(&self) -> &[u8] {
         &self.conf
     }
@@ -469,7 +469,7 @@ impl Network {
             .join(format!("{NETWORK_NAME}-{id}-{IFNAME}"))
     }
 
-    /// buildOneConfig: the plugin's map with name, cniVersion, the previous
+    /// The plugin's map with name, cniVersion, the previous
     /// result, and runtimeConfig with the capabilities the plugin declares.
     fn plugin_input(
         &self,
@@ -528,8 +528,8 @@ impl Network {
         ))
     }
 
-    /// RawExec.ExecPlugin: the plugin with the CNI variables, its input on
-    /// stdin; a failure is its types.Error.
+    /// Runs the plugin with the CNI variables, its input on stdin; a
+    /// failure is its CNI error.
     async fn exec(
         &self,
         path: &Path,
@@ -556,7 +556,8 @@ impl Network {
         .map_err(|e| e.to_string())?
     }
 
-    /// AddNetworkList, then cacheAdd.
+    /// Adds the container to every plugin of the chain, then caches the
+    /// result.
     async fn add(&self, rt: &Rt<'_>) -> Result<CniResult, String> {
         let mut result: Option<CniResult> = None;
         for p in &self.plugins {
@@ -615,7 +616,7 @@ impl Network {
         std::io::Write::write_all(&mut w, &go_json(&c)).map_err(|e| super::os_err("write", &f, &e))
     }
 
-    /// getCachedResult: the cached result of id, None when there is none;
+    /// The cached result of id, None when there is none;
     /// an unreadable file is an error.
     fn cached(&self, id: &str) -> Result<Option<CniResult>, String> {
         let Ok(data) = fs::read(self.cache_file(id)) else {
@@ -634,7 +635,7 @@ impl Network {
         Ok(Some(r))
     }
 
-    /// DelNetworkList: every plugin in reverse order with the cached
+    /// Every plugin in reverse order with the cached
     /// result, then the cache file goes.
     async fn del(&self, rt: &Rt<'_>) -> Result<(), String> {
         let prev = match self.cached(rt.id) {
@@ -696,7 +697,7 @@ impl Network {
         }
     }
 
-    /// SetupAt: attaches the namespace at path, which the caller made, as
+    /// Attaches the namespace at path, which the caller made, as
     /// id with no port; its address.
     pub async fn setup_at(&self, id: &str, path: &str) -> Result<String, String> {
         let rt = Rt {
@@ -850,7 +851,7 @@ fn run_plugin(
     }
 }
 
-/// pluginErr: the plugin's types.Error, or what it printed.
+/// The plugin's CNI error, or what it printed.
 fn plugin_error(exit: &str, stdout: &[u8], stderr: &[u8]) -> String {
     let e = if stdout.is_empty() {
         if stderr.is_empty() {
@@ -886,7 +887,7 @@ fn plugin_error(exit: &str, stdout: &[u8], stderr: &[u8]) -> String {
     }
 }
 
-/// The CNI files' layout, for the tests that compare them with Go's.
+/// The CNI files' layout, for the tests that compare them with recordings.
 pub fn cache_file_name(id: &str) -> String {
     format!("{NETWORK_NAME}-{id}-{IFNAME}")
 }
@@ -907,7 +908,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn bridges_as_go() {
+    fn bridges_of_subnets() {
         let b = bridge_of(Prefix4::parse("10.120.3.7/24").unwrap()).unwrap();
         assert_eq!(b.gateway.to_string(), "10.120.3.1");
         assert_eq!(b.subnet.to_string(), "10.120.3.0/24");
@@ -924,7 +925,7 @@ mod tests {
     }
 
     #[test]
-    fn config_as_go_marshals_it() {
+    fn config_with_sorted_keys() {
         let b = bridge_of(Prefix4::parse("10.121.0.0/24").unwrap()).unwrap();
         assert_eq!(
             String::from_utf8(cni_config(&b, "/run/armada/cni/ipam", 1450)).unwrap(),

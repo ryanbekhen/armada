@@ -1,6 +1,6 @@
-//! armada-proto reads and writes what Go's protobuf code did. The files in
-//! testdata were written by Go before the Go code was removed: each
-//! message's deterministic binary encoding and its protojson.
+//! armada-proto reads and writes the recorded encodings. The files in
+//! testdata are recordings: each message's deterministic binary encoding
+//! and its protojson.
 
 use std::fmt::Debug;
 use std::path::PathBuf;
@@ -26,13 +26,13 @@ where
     assert_eq!(
         m.encode_to_vec(),
         bin,
-        "{name}: the encoding differs from Go's"
+        "{name}: the encoding differs from the recording"
     );
 
     let json = read(&format!("{name}.json"));
     let go: serde_json::Value = serde_json::from_slice(&json).unwrap();
     let ours = serde_json::to_value(&m).unwrap();
-    assert_eq!(ours, go, "{name}: the JSON differs from Go's protojson");
+    assert_eq!(ours, go, "{name}: the JSON differs from the recording");
 
     let back: M = serde_json::from_slice(&json).unwrap_or_else(|e| panic!("{name}: {e}"));
     assert_eq!(back, m, "{name}: protojson's JSON reads as another message");
@@ -73,11 +73,11 @@ fn empty() {
     check::<pb::StatusRequest>("empty");
 }
 
-/// Go's deterministic encoding writes a map entry's empty value (`18 0`),
-/// prost leaves it out. Both read either form as the same message, and the
-/// JSON agrees; only bytes differ. Nothing hashes such a message today (the
-/// replica spec hash, ADR 0055, covers ReplicaSpec, which has no maps), and
-/// an encoder that must match Go's bytes writes the value.
+/// The recording writes a map entry's empty value (`18 0`), prost leaves
+/// it out. Both read either form as the same message, and the JSON agrees;
+/// only bytes differ. Nothing hashes such a message today (the replica spec
+/// hash covers ReplicaSpec, which has no maps), and an encoder that must
+/// match the recorded bytes writes the value.
 #[test]
 fn map_empty_value() {
     let bin = read("map_empty_value.binpb");

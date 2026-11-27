@@ -1,4 +1,4 @@
-//! Go's text/tabwriter with the settings Armada's tables use (padding
+//! A tab writer with the settings Armada's tables use (padding
 //! with spaces, left-aligned, no flags): cells end at a tab, a column's
 //! width is its widest cell in runes plus the padding, and a line without
 //! a tab ends the block of lines whose columns line up.

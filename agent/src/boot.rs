@@ -1,5 +1,4 @@
-//! The machine's boot time and capacity (Go's boot.go, capacity.go,
-//! memory.go).
+//! The machine's boot time and capacity.
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 

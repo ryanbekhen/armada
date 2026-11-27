@@ -1,4 +1,4 @@
-//! Event history (ADR 0018; Go's events.go): the leader records what it
+//! Event history (ADR 0018): the leader records what it
 //! sees happen, folding repeats, and streams it to `armada cluster events`,
 //! counts it on the metrics endpoint, and tells the alert channels that
 //! want it (ADR 0045) about new events and conditions that ended.
@@ -20,7 +20,7 @@ use crate::grpc::auth;
 use crate::guard::Guard;
 use crate::{Server, store_err};
 
-/// eventDedup: an event that happens again for the same object within
+/// An event that happens again for the same object within
 /// this window is folded into the stored one.
 const DEDUP_NANOS: i64 = 10 * 60 * 1_000_000_000;
 const KEEP: i64 = 2000;
@@ -53,7 +53,7 @@ pub struct Recorder {
     st: tokio::sync::Mutex<State>,
 }
 
-/// Go's Time.Sub in nanoseconds.
+/// a minus b in nanoseconds.
 fn sub(a: &Time, b: &Time) -> i64 {
     (a.unix - b.unix)
         .saturating_mul(1_000_000_000)
@@ -76,7 +76,7 @@ pub fn event(kind: &str, object: &str, node: &str, reason: &str, message: &str) 
     }
 }
 
-/// cleanMessage: bounded, with control characters replaced, so text from
+/// Bounded, with control characters replaced, so text from
 /// an agent cannot forge lines or terminal sequences.
 pub fn clean_message(m: &str) -> String {
     let mut m = m;
@@ -99,13 +99,13 @@ pub fn clean_message(m: &str) -> String {
 }
 
 impl Server {
-    /// Stores e (Go's record). A failure is logged: events never hold up
+    /// Stores e. A failure is logged: events never hold up
     /// the work they describe.
     pub(crate) async fn record(&self, mut e: Event) {
         e.message = clean_message(&e.message);
         let now = self.now();
         let k = (e.kind.clone(), e.object.clone(), e.reason.clone());
-        // The lock is held across the write, as Go's is, so repeats fold
+        // The lock is held across the write, so repeats fold
         // in the order they happen.
         let mut s = self.0.events.st.lock().await;
         let mut replace = String::new();
@@ -184,8 +184,7 @@ impl Server {
         }
     }
 
-    /// Ends every condition an app or job started, once it is deleted
-    /// (Go's endAppConditions).
+    /// Ends every condition an app or job started, once it is deleted.
     pub(crate) async fn end_app_conditions(&self, app: &str) {
         let ended: Vec<(String, Event)> = {
             let s = self.0.events.st.lock().await;

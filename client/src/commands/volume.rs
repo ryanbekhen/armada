@@ -1,4 +1,4 @@
-//! armada volume and armada snapshot (Go's volume.go).
+//! armada volume and armada snapshot.
 
 use std::io::{Read, Write};
 
@@ -17,7 +17,7 @@ use crate::cli::tabwriter::TabWriter;
 use crate::cli::{Args, Ctx, Error, Node, Result, Tree};
 use crate::rpc;
 
-/// volumeChunk: the most archive data one restore message carries.
+/// The most archive data one restore message carries.
 const VOLUME_CHUNK: usize = 64 << 10;
 
 pub fn add_volume(t: &mut Tree) -> usize {
@@ -332,7 +332,7 @@ fn restore(ctx: &mut Ctx<'_>, args: &[String]) -> Result {
         let mut feed = std::pin::pin!(feed);
         // The stream ends only once the archive was read whole: a read
         // error leaves it open, so the server never takes a cut archive
-        // for a whole one (Go's command returns, cancelling the call).
+        // for a whole one (the command returns, cancelling the call).
         let mut keep = Some(keep);
         let mut fed = false;
         loop {

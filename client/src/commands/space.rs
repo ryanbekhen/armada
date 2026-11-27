@@ -1,4 +1,4 @@
-//! armada space (Go's spaces.go).
+//! armada space.
 
 use armada_proto::armada::v1::{
     CreateSpaceRequest, DeleteSpaceRequest, ListSpacesRequest, ListSpacesResponse, SpaceInfo,

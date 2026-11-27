@@ -1,8 +1,8 @@
-//! The runtime pack (Go's internal/runtime/embedded bundle.go): the pinned
+//! The runtime pack: the pinned
 //! runtime programs armadad carries, built by `make runtime-bundle` and
 //! compiled in with `include_bytes!` when the build names one (the
-//! `bundle` feature, or ARMADA_RUNTIME_PACK; build.rs), as Go's build tag
-//! `bundle` embeds it. Without one, bundled() is empty and the programs
+//! `bundle` feature, or ARMADA_RUNTIME_PACK; build.rs). Without one,
+//! bundled() is empty and the programs
 //! come from `--bin-dir`.
 
 use std::collections::BTreeMap;
@@ -101,7 +101,7 @@ pub fn installed_pack(root: &Path) -> String {
         .unwrap_or_default()
 }
 
-/// checkName: plain relative names only.
+/// Plain relative names only.
 fn check_name(n: &str) -> Result<(), String> {
     let clean = crate::gopath::clean(n);
     if n.is_empty()
@@ -139,7 +139,6 @@ fn path_err(op: &str, p: &Path, e: &std::io::Error) -> String {
     format!("{op} {}: {}", p.display(), io_text(e))
 }
 
-/// readManifest.
 pub fn read_manifest(pack: &[u8]) -> Result<Manifest, String> {
     let mut tr = open_pack(pack)?;
     let h = tr.next_entry();
@@ -318,7 +317,7 @@ pub fn install(root: &Path, pack: &[u8]) -> Result<(PathBuf, Manifest), String> 
     Ok((link.join("bin"), m))
 }
 
-/// os.MkdirTemp(dir, pattern).
+/// A new directory in dir named prefix and a random number, mode 0700.
 pub fn temp_dir(dir: &Path, prefix: &str) -> Result<PathBuf, String> {
     for _ in 0..10000 {
         let mut b = [0u8; 4];
@@ -383,7 +382,7 @@ pub fn check_host() -> Result<(), String> {
     Ok(())
 }
 
-/// installPack: the pack extracted and verified, and the directories the
+/// The pack extracted and verified, and the directories the
 /// runtime writes to made.
 pub fn install_pack(p: &Paths) -> Result<(), String> {
     check_host()?;

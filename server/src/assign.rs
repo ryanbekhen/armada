@@ -1,4 +1,4 @@
-//! Assignments (Go's pushAssignments and replicaSpec in reconciler.go):
+//! Assignments:
 //! what each connected node runs, built from the store's replicas and the
 //! secret versions their revisions pin, opened only while the assignment
 //! is built and never logged, with the queue sandboxes each node keeps
@@ -20,7 +20,7 @@ use crate::schedule::{Res, Reserved, reservation};
 use crate::settings::{META_LOGS, log_settings_proto, read_meta};
 
 /// The secret versions the leader decrypted, kept across passes; versions
-/// no pass used are dropped by sweep (Go's openedSecrets).
+/// no pass used are dropped by sweep.
 #[derive(Default)]
 pub struct Opened {
     st: Mutex<OpenedState>,
@@ -51,7 +51,7 @@ impl Opened {
     }
 
     /// Drops every cached version of a secret's key, or with name "" of
-    /// every key (Go's forget).
+    /// every key.
     pub fn forget(&self, app: &str, name: &str) {
         let mut st = self.st.lock().unwrap_or_else(|p| p.into_inner());
         let gone = |k: &(String, String, i64)| k.0 == app && (name.is_empty() || k.1 == name);
@@ -67,7 +67,7 @@ impl Opened {
     }
 }
 
-/// The revisions and secrets one pass reads (Go's revisionCache).
+/// The revisions and secrets one pass reads.
 pub(crate) struct Revisions<'a> {
     srv: &'a Server,
     m: HashMap<String, Revision>,
@@ -117,7 +117,7 @@ impl<'a> Revisions<'a> {
         Ok(r)
     }
 
-    /// What each revision of replicas reserves (Go's reserved): a revision
+    /// What each revision of replicas reserves: a revision
     /// that cannot be read reserves nothing.
     pub(crate) async fn reserved(&mut self, replicas: &[Replica]) -> Reserved {
         let mut out = Reserved::new();
@@ -174,7 +174,7 @@ impl<'a> Revisions<'a> {
     }
 }
 
-/// Empty values for every secret rev pins (Go's unresolvedSecrets).
+/// Empty values for every secret rev pins.
 fn unresolved(rev: &Revision) -> BTreeMap<String, Value> {
     rev.secrets
         .keys()
@@ -198,7 +198,7 @@ fn probe(p: &Option<armada_spec::Probe>) -> Option<Probe> {
     })
 }
 
-/// What an agent needs to run one replica (Go's replicaSpec). vals holds
+/// What an agent needs to run one replica. vals holds
 /// the plaintext of the secret versions rev pins.
 pub(crate) fn replica_spec(
     r: &Replica,
@@ -378,13 +378,12 @@ pub(crate) fn replica_spec(
 }
 
 impl Server {
-    /// fenceAfter: half the node-lost timeout, at least a second.
+    /// Half the node-lost timeout, at least a second.
     fn fence_after(&self) -> i64 {
         ((self.0.node_lost_timeout / 2).as_secs() as i64).max(1)
     }
 
-    /// Sends every connected node its assignment (Go's pushAssignments,
-    /// with its arguments).
+    /// Sends every connected node its assignment.
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn push_assignments(
         &self,

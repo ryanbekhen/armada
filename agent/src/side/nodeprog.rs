@@ -1,7 +1,7 @@
-//! Running the runtime pack's armada-node for one call (Go's
-//! internal/nodeprog): JSON on stdin, one answer on stdout, `{"error":
-//! TEXT}` for an error it answered with. A call that does not start, ends
-//! badly, or cannot be read fails with "armada-node: ..." and its stderr.
+//! Running the runtime pack's armada-node for one call: JSON on stdin, one
+//! answer on stdout, `{"error": TEXT}` for an error it answered with. A
+//! call that does not start, ends badly, or cannot be read fails with
+//! "armada-node: ..." and its stderr.
 //! The environment's test hooks (ARMADA_NODE_TEST_*) are never passed on.
 //! Programs run on blocking threads; a call whose future is dropped kills
 //! its program.
@@ -157,7 +157,7 @@ pub async fn run_files(
     Ok(out.stdout)
 }
 
-/// exec.ExitError's text.
+/// How a process ended: "exit status N", or "signal: NAME".
 pub fn exit_text(s: &std::process::ExitStatus) -> String {
     use std::os::unix::process::ExitStatusExt;
     match (s.code(), s.signal()) {
@@ -188,7 +188,7 @@ pub fn answer(b: &[u8]) -> Result<Value, String> {
     Ok(v)
 }
 
-/// Runs a call and reads its answer (Program.Call).
+/// Runs a call and reads its answer.
 pub async fn call(
     bin: &str,
     args: &[&str],

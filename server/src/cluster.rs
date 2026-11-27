@@ -1,10 +1,10 @@
-//! The etcd membership of the control plane (Go's server.Cluster).
+//! The etcd membership of the control plane.
 
 use std::net::IpAddr;
 
 use tonic::codegen::async_trait;
 
-/// One etcd member (Go's etcd.MemberInfo).
+/// One etcd member.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct MemberInfo {
     pub id: u64,
@@ -14,7 +14,7 @@ pub struct MemberInfo {
 }
 
 /// Manages the etcd membership of the control plane nodes. Errors are
-/// their texts, as Go's handlers print them with %v.
+/// their texts.
 #[async_trait]
 pub trait Cluster: Send + Sync {
     async fn members(&self) -> Result<Vec<MemberInfo>, String>;

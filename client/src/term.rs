@@ -1,7 +1,6 @@
 //! What the commands that stream need from the process and its terminal:
-//! Ctrl-C and SIGTERM as the end of a followed stream (Go's
-//! signal.NotifyContext in cmd/armada), a terminal's size and raw mode
-//! (golang.org/x/term), and window size changes (SIGWINCH). Unix only;
+//! Ctrl-C and SIGTERM as the end of a followed stream, a terminal's size
+//! and raw mode, and window size changes (SIGWINCH). Unix only;
 //! Linux and macOS alike.
 
 use std::sync::atomic::{AtomicI32, Ordering};

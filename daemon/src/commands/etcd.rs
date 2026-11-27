@@ -25,7 +25,7 @@ pub fn run(ctx: &mut Ctx<'_>, _: &[String]) -> Result {
     Err(Error::Msg(armada_fsutil::errno_text(&err)))
 }
 
-/// etcdEnv: armadad's environment without etcd's own variables.
+/// armadad's environment without etcd's own variables.
 fn etcd_env(
     vars: impl Iterator<Item = (std::ffi::OsString, std::ffi::OsString)>,
 ) -> Vec<(std::ffi::OsString, std::ffi::OsString)> {
@@ -33,7 +33,6 @@ fn etcd_env(
         .collect()
 }
 
-/// prepareEtcd.
 fn prepare(data_dir: &str, bin_dir: &str) -> std::result::Result<(PathBuf, PathBuf), String> {
     let dd = Path::new(data_dir);
     if let Err(e) = fs::metadata(dd.join(FILE_SERVER_CERT))
@@ -51,7 +50,7 @@ fn prepare(data_dir: &str, bin_dir: &str) -> std::result::Result<(PathBuf, PathB
     Ok((bin, config))
 }
 
-/// etcdProgram: the pinned etcd in bin_dir, else the pack this armadad
+/// The pinned etcd in bin_dir, else the pack this armadad
 /// carries (installed first), else one installed earlier.
 fn etcd_program(data_dir: &str, bin_dir: &str) -> std::result::Result<PathBuf, String> {
     let p = crate::paths(data_dir);
@@ -70,7 +69,7 @@ fn etcd_program(data_dir: &str, bin_dir: &str) -> std::result::Result<PathBuf, S
     }
 }
 
-/// holdMember: the lock etcd's database takes, held while the member is
+/// The lock etcd's database takes, held while the member is
 /// copied and its file written.
 fn hold_member(dir: &Path) -> std::result::Result<Option<fs::File>, String> {
     let db = dir.join("data").join("member").join("snap").join("db");

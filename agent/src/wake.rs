@@ -1,10 +1,9 @@
-//! The wake socket (ADR 0021; Go's wake.go): the node's proxy sends a
-//! request for an app scaled to zero here; the agent asks the leader to
-//! start the app, holds the request until the applied proxy configuration
-//! has a server for it, and forwards it there, as Go's
-//! httputil.ReverseProxy with its Rewrite does (hop-by-hop headers
-//! dropped, the proxy's X-Forwarded-For and X-Forwarded-Proto kept,
-//! upgrades such as WebSocket carried through).
+//! The wake socket (ADR 0021): the node's proxy sends a request for an app
+//! scaled to zero here; the agent asks the leader to start the app, holds the
+//! request until the applied proxy configuration has a server for it, and
+//! forwards it there as a reverse proxy (hop-by-hop headers dropped, the
+//! proxy's X-Forwarded-For and X-Forwarded-Proto kept, upgrades such as
+//! WebSocket carried through).
 
 use std::collections::HashMap;
 use std::convert::Infallible;
@@ -31,12 +30,12 @@ pub const MAX_WAITING: usize = 1000;
 pub const MAX_WAITING_PER_APP: usize = 100;
 /// How often a waiting app is asked for again.
 pub const WAKE_EVERY: Duration = Duration::from_secs(5);
-/// How long a request waits for a replica (Go's proxy.WakeTimeout).
+/// How long a request waits for a replica.
 pub const WAKE_TIMEOUT: Duration = Duration::from_secs(60);
 /// The header naming the app; only the proxy sets it.
 pub const WAKE_HEADER: &str = "x-armada-wake";
 
-/// Go's httputil hop-by-hop headers.
+/// The hop-by-hop headers (RFC 9110), dropped when forwarding.
 const HOP_HEADERS: [&str; 9] = [
     "connection",
     "proxy-connection",
@@ -122,7 +121,8 @@ fn full(b: impl Into<Bytes>) -> Body {
     Full::new(b.into()).map_err(|n| match n {}).boxed()
 }
 
-/// Go's http.Error.
+/// A plain text error answer: msg and a line break, with `nosniff`, and
+/// `Retry-After: 5` when retry.
 fn error(code: StatusCode, msg: &str, retry: bool) -> Response<Body> {
     let mut r = Response::new(full(format!("{msg}\n")));
     *r.status_mut() = code;
@@ -141,7 +141,7 @@ fn error(code: StatusCode, msg: &str, retry: bool) -> Response<Body> {
     r
 }
 
-/// The value of Upgrade when Connection asks for one (Go's upgradeType).
+/// The value of Upgrade when Connection asks for one.
 fn upgrade_type(h: &HeaderMap) -> Option<HeaderValue> {
     let asks = h.get_all("connection").iter().any(|v| {
         v.to_str().is_ok_and(|s| {
@@ -155,8 +155,7 @@ fn upgrade_type(h: &HeaderMap) -> Option<HeaderValue> {
     h.get("upgrade").cloned()
 }
 
-/// Removes the hop-by-hop headers and those Connection names (Go's
-/// removeHopByHopHeaders).
+/// Removes the hop-by-hop headers and those Connection names.
 fn remove_hop_headers(h: &mut HeaderMap) {
     let named: Vec<String> = h
         .get_all("connection")
@@ -170,7 +169,7 @@ fn remove_hop_headers(h: &mut HeaderMap) {
         h.remove(n.as_str());
     }
     for n in HOP_HEADERS {
-        // A TE of "trailers" only is kept, as Go keeps it.
+        // A TE of "trailers" only is kept.
         if n == "te"
             && h.get_all("te")
                 .iter()

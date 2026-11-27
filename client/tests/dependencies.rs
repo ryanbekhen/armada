@@ -1,5 +1,4 @@
-//! The client links nothing a machine runs (ADR 0027, ADR 0055), as Go's
-//! TestClientDependencies keeps internal/cli apart: every crate it is
+//! The client links nothing a machine runs (ADR 0027): every crate it is
 //! built with, read from the workspace's Cargo.lock, is outside the
 //! control plane, the store, and the node agent.
 

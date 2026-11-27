@@ -1,9 +1,8 @@
-//! armada-shim as the driver reaches it (internal/runtime/supervisor
-//! shim.go and container.go's tasks): one shim per group, started as a
+//! armada-shim as the driver reaches it: one shim per group, started as a
 //! transient systemd unit, asked one line per connection. armada-node's
 //! code does the calls, the start, and the abandon in process; a wait,
 //! which lasts as long as its container, is asked here so dropping it
-//! closes the connection as Go's cancelled context does.
+//! closes the connection.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -39,12 +38,13 @@ pub struct Shims {
     pub systemctl: String,
 }
 
-/// A shim's own error ("err TEXT"), as Go's errShim.
+/// Whether a shim's own error ("err TEXT") says what it was asked for is
+/// not found.
 pub fn not_found(e: &CallError) -> bool {
     matches!(e, CallError::Shim(t) if t.ends_with(" not found"))
 }
 
-/// The text of an error, as Go's error's.
+/// The text of an error.
 pub fn text(e: &CallError) -> String {
     e.text().to_string()
 }
@@ -80,7 +80,7 @@ fn parse_state(w: &[&str]) -> Result<TaskState, String> {
     }
 }
 
-/// strconv.Atoi.
+/// A decimal integer with an optional sign; None for anything else.
 pub fn atoi(s: &str) -> Option<i64> {
     let digits = s.strip_prefix(['+', '-']).unwrap_or(s);
     if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
@@ -133,7 +133,7 @@ impl Shims {
             .unwrap_or_else(|e| Err(CallError::Conn(e.to_string(), None)))
     }
 
-    /// Shims.For: the group's shim, started when none runs.
+    /// The group's shim, started when none runs.
     pub async fn start(&self, group: &str) -> Result<(), String> {
         let r = self.request(group, Vec::new());
         tokio::task::spawn_blocking(move || r.start())
@@ -141,7 +141,7 @@ impl Shims {
             .map_err(|e| e.to_string())?
     }
 
-    /// Shims.Abandon: whether the shim was gone, its containers ended.
+    /// Whether the shim was gone, its containers ended.
     pub async fn abandon(&self, group: &str) -> (bool, Option<String>) {
         let r = self.request(group, Vec::new());
         tokio::task::spawn_blocking(move || r.abandon())
@@ -174,7 +174,7 @@ impl Shims {
         Ok(states)
     }
 
-    /// Shim.Create: the container made from its bundle by the OCI
+    /// The container made from its bundle by the OCI
     /// runtime rt, not started; its output goes to armada-log in logs. Its
     /// process ID. runc is asked for as before ADR 0056 (no runtime word).
     pub async fn create(
@@ -198,7 +198,7 @@ impl Shims {
         })
     }
 
-    /// Shim.Wait over a connection of its own: the exit code once the
+    /// Over a connection of its own: the exit code once the
     /// container exits. Dropping the future closes the connection.
     pub async fn wait(&self, group: &str, id: &str) -> Result<i64, String> {
         let socket = self.socket(group);
@@ -246,7 +246,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn states_as_go() {
+    fn states_parsed() {
         assert_eq!(
             parse_state(&["running", "42"]).unwrap(),
             TaskState {

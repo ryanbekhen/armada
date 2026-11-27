@@ -1,10 +1,9 @@
-//! JSON as Go's encoding/json writes the transcripts' values: object keys
+//! JSON as the transcripts hold their values: object keys
 //! sorted, `<`, `>`, and `&` escaped, numbers as float64s.
 
 use serde_json::Value;
 
-/// v as encoding/json's Marshal writes the tree json.Unmarshal made of
-/// it (every number a float64).
+/// v as the transcripts write it (every number a float64).
 pub fn marshal(v: &Value) -> String {
     let mut out = String::new();
     write(&mut out, v);
@@ -44,13 +43,13 @@ fn write(out: &mut String, v: &Value) {
     }
 }
 
-/// A float64 as encoding/json writes it ('f' between 1e-6 and 1e21, 'e'
+/// A float64 as JSON (plain between 1e-6 and 1e21, the exponent form
 /// otherwise, the shortest digits that read back).
 pub fn float(f: f64) -> String {
     let abs = f.abs();
     if abs != 0.0 && !(1e-6..1e21).contains(&abs) {
-        // Go: strconv 'e' with the shortest digits, a two-digit exponent
-        // at least.
+        // The exponent form with the shortest digits, a two-digit
+        // exponent at least.
         let s = format!("{f:e}");
         let (mant, exp) = s.split_once('e').unwrap_or((&s, "0"));
         let (sign, digits) = match exp.strip_prefix('-') {

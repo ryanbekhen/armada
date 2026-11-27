@@ -1,7 +1,7 @@
-//! The transcripts' normalization (internal/server/parity_test.go:
-//! encode, normalize, collect, placeholder, replace, and the summaries of
-//! certificates and keys), with the recording's extra random fields
-//! (recordRandomKeys), so the replay's answers read as Go's did.
+//! The transcripts' normalization (encoding, placeholders for random
+//! values, and the summaries of certificates and keys), with the
+//! recording's extra random fields, so the replay's answers read as the
+//! recorded ones.
 
 use std::collections::HashMap;
 
@@ -47,7 +47,7 @@ const RANDOM_KEYS: &[&str] = &[
     "wrappedkey",
     "lastid",
     "lastsnapshot",
-    // The recording's own (recordRandomKeys).
+    // The recording's own.
     "token",
     "cahash",
 ];
@@ -88,11 +88,11 @@ impl Norm {
     }
 
     fn sort(&mut self) {
-        // Go's slices.SortStableFunc by length, longest first.
+        // A stable sort by length, longest first.
         self.aliases.sort_by_key(|a| std::cmp::Reverse(a.0.len()));
     }
 
-    /// A tree's normalized form (Go's encode, before the final Marshal).
+    /// A tree's normalized form.
     pub fn encode(&mut self, tree: &Value) -> Value {
         self.collect(tree, "");
         self.normalize(tree, "")
@@ -266,7 +266,7 @@ fn nested_json(s: &str) -> Option<Value> {
     }
 }
 
-/// Go's `^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?(Z|[+-]\d\d:\d\d)$`.
+/// Whether s matches `^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?(Z|[+-]\d\d:\d\d)$`.
 fn rfc3339(s: &str) -> bool {
     let b = s.as_bytes();
     let d = |i: usize| b.get(i).is_some_and(u8::is_ascii_digit);
@@ -300,7 +300,7 @@ fn rfc3339(s: &str) -> bool {
     false
 }
 
-/// Go's `serial=[0-9a-f]+` replaced by `serial=<serial>`.
+/// `serial=[0-9a-f]+` replaced by `serial=<serial>`.
 fn replace_serials(s: &str) -> String {
     const PAT: &str = "serial=";
     if !s.contains(PAT) {

@@ -1,7 +1,6 @@
-//! The client config (Go's internal/clientconfig): where it is, the
-//! permissions it may have (private to its owner, or shared on purpose by
-//! root with the armada group, ADR 0027), reading and writing it as Go's
-//! encoding/json does, and the machine's list of servers
+//! The client config: where it is, the permissions it may have (private to
+//! its owner, or shared on purpose by root with the armada group, ADR
+//! 0027), reading and writing its JSON, and the machine's list of servers
 //! (/etc/armada/servers).
 
 use std::fs;
@@ -74,7 +73,7 @@ fn join(base: &str, rel: &str) -> String {
     go::clean_path(&joined)
 }
 
-/// Go's text for an errno as os.PathError shows it.
+/// The text of a failed file operation: "OP PATH: ERRNO TEXT".
 fn path_error(op: &str, path: &str, e: &io::Error) -> String {
     format!("{op} {path}: {}", armada_fsutil::errno_text(e))
 }
@@ -141,7 +140,7 @@ fn read_config(path: &str) -> Result<Vec<u8>, ReadError> {
     })
 }
 
-/// sharedOK: root's, mode 0640, group armada.
+/// root's, mode 0640, group armada.
 fn shared_ok(meta: &fs::Metadata) -> bool {
     if meta.permissions().mode() & 0o777 != SHARED_MODE || meta.uid() != 0 {
         return false;
@@ -149,7 +148,7 @@ fn shared_ok(meta: &fs::Metadata) -> bool {
     group_id(GROUP).is_some_and(|g| g == meta.gid())
 }
 
-/// user.LookupGroup through /etc/group, as Go without cgo reads it.
+/// A group's ID, looked up by name in /etc/group.
 fn group_id(name: &str) -> Option<u32> {
     let text = fs::read_to_string("/etc/group").ok()?;
     for line in text.lines() {
@@ -161,7 +160,7 @@ fn group_id(name: &str) -> Option<u32> {
     None
 }
 
-/// The groups of this process (os.Getgroups).
+/// The supplementary groups of this process.
 fn session_groups() -> Vec<u32> {
     // SAFETY: getgroups with a zero size only counts; the second call
     // fills a buffer of the size it returned.
@@ -215,7 +214,7 @@ fn account_groups() -> Vec<u32> {
     out
 }
 
-/// groupAdvice: why SYSTEM_PATH could not be read.
+/// Why SYSTEM_PATH could not be read.
 fn group_advice() -> String {
     let Some(gid) = group_id(GROUP) else {
         return "use sudo".to_string();
@@ -238,7 +237,7 @@ fn decode(b: &[u8]) -> Result<Config, String> {
         serde_json::Value::Null => return Ok(Config::default()),
         other => {
             return Err(format!(
-                "json: cannot unmarshal {} into Go value of type clientconfig.Config",
+                "json: cannot unmarshal {} into value of type clientconfig.Config",
                 json_kind(&other)
             ));
         }
@@ -266,7 +265,7 @@ fn decode(b: &[u8]) -> Result<Config, String> {
                             serde_json::Value::Null => out.push(String::new()),
                             other => {
                                 return Err(format!(
-                                    "json: cannot unmarshal {} into Go struct field Config.servers of type string",
+                                    "json: cannot unmarshal {} into struct field Config.servers of type string",
                                     json_kind(&other)
                                 ));
                             }
@@ -276,7 +275,7 @@ fn decode(b: &[u8]) -> Result<Config, String> {
                 }
                 other => {
                     return Err(format!(
-                        "json: cannot unmarshal {} into Go struct field Config.servers of type []string",
+                        "json: cannot unmarshal {} into struct field Config.servers of type []string",
                         json_kind(&other)
                     ));
                 }
@@ -288,7 +287,7 @@ fn decode(b: &[u8]) -> Result<Config, String> {
             serde_json::Value::Null => continue,
             other => {
                 return Err(format!(
-                    "json: cannot unmarshal {} into Go struct field Config.{field} of type string",
+                    "json: cannot unmarshal {} into struct field Config.{field} of type string",
                     json_kind(&other)
                 ));
             }
@@ -323,7 +322,8 @@ fn json_error(e: &serde_json::Error) -> String {
     format!("invalid JSON: {e}")
 }
 
-/// A string as Go's encoding/json writes it.
+/// A JSON string: quotes, backslashes, and control characters escaped,
+/// and <, >, &, U+2028, U+2029 as \u escapes.
 pub fn json_string(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 2);
     out.push('"');
@@ -348,7 +348,7 @@ pub fn json_string(s: &str) -> String {
 }
 
 impl Config {
-    /// json.MarshalIndent(c, "", "  ") and a new line.
+    /// The config as JSON indented by two spaces, and a new line.
     pub fn encode(&self) -> Vec<u8> {
         let mut out = String::from("{\n  \"servers\": ");
         if self.servers.is_empty() {

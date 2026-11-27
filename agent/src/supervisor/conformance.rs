@@ -1,9 +1,8 @@
-//! The supervisor runtime on a real machine (root, a lab node whose
-//! agent is stopped, its runtime pack installed): what Go's
-//! ConformanceSupervisor checks of the driver, through the Rust one, with
+//! The supervisor runtime on a real machine (root, a lab node whose agent is
+//! stopped, its runtime pack installed): the driver's calls on the kernel, with
 //! new containers on crun (ADR 0056). Never run by `cargo test`; see
-//! CLAUDE.md's Commands for how to run it (the pack installed must carry
-//! crun: a pack built from pack/lock.json since ADR 0056).
+//! CLAUDE.md's Commands for how to run it (the pack installed must carry crun:
+//! a pack built from pack/lock.json since ADR 0056).
 //!
 //! ARMADA_DATA_DIR and ARMADA_RUN_DIR name the node's directories
 //! (/var/lib/armada and /run/armada), ARMADA_SUBNET its container subnet
@@ -69,8 +68,8 @@ async fn conformance_supervisor_rust() {
     rt.agent_start().await.unwrap();
     let img = rt.pull(&image(), None).await.unwrap();
     assert!(img.reference.contains('@'), "{img:?}");
-    // The agent runs a replica's image by the name its spec gives, as Go's
-    // driver does; the digest reference only goes into its reports.
+    // The agent runs a replica's image by the name its spec gives; the
+    // digest reference only goes into its reports.
     let name = image();
 
     // A replica: running, addressed on the bridge, commands, samples.

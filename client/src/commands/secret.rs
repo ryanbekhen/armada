@@ -1,4 +1,4 @@
-//! armada secret (Go's secret.go): keys and values the apps of a space
+//! armada secret: keys and values the apps of a space
 //! share; values are never shown and never taken as arguments.
 
 use std::collections::HashMap;
@@ -121,7 +121,7 @@ pub fn add(t: &mut Tree) -> usize {
     n
 }
 
-/// secretID: the ID of the secret named name, its name checked.
+/// The ID of the secret named name, its name checked.
 fn secret_id(ctx: &Ctx<'_>, name: &str) -> Result<String> {
     let id = ctx.app_id(name).map_err(Error::Msg)?;
     let (_, short) = spec::validate::split_app_id(&id).unwrap_or_default();
@@ -208,7 +208,7 @@ fn create(ctx: &mut Ctx<'_>, args: &[String]) -> Result {
     set_from_env_file(ctx, &secret, &file, true)
 }
 
-/// setFromEnvFile: a key of secret for each line of file.
+/// a key of secret for each line of file.
 fn set_from_env_file(ctx: &mut Ctx<'_>, secret: &str, file: &str, create: bool) -> Result {
     let entries = read_secret_file(ctx, file)?;
     let mut admin = ctx.admin()?;
@@ -242,7 +242,7 @@ fn read_secret_file(ctx: &mut Ctx<'_>, file: &str) -> Result<Vec<(String, Vec<u8
     Ok(entries)
 }
 
-/// parseSecretFile: KEY=VALUE lines, keys as written; errors name a line
+/// KEY=VALUE lines, keys as written; errors name a line
 /// by number and never quote it.
 fn parse_secret_file(b: &[u8]) -> std::result::Result<Vec<(String, Vec<u8>)>, String> {
     let max_line = MAX_SIZE + MAX_ENV_KEY + 2;
@@ -300,7 +300,7 @@ fn trim_bytes(b: &[u8]) -> &[u8] {
     &b[s..e]
 }
 
-/// setKeys: each key without a rollout, stopping at the first failure.
+/// Each key without a rollout, stopping at the first failure.
 fn set_keys(
     ctx: &mut Ctx<'_>,
     admin: &mut Admin,
@@ -521,7 +521,7 @@ fn delete(ctx: &mut Ctx<'_>, args: &[String]) -> Result {
     Ok(())
 }
 
-/// usedBy: the revisions that use a key, app by app.
+/// The revisions that use a key, app by app.
 fn used_by(secret: &str, revisions: &[String]) -> String {
     if revisions.is_empty() {
         return "-".to_string();
@@ -552,7 +552,7 @@ fn used_by(secret: &str, revisions: &[String]) -> String {
     parts.join(",")
 }
 
-/// revisionRuns: r11-r20 for consecutive revisions.
+/// r11-r20 for consecutive revisions.
 fn revision_runs(app: &str, revisions: &[String]) -> String {
     if revisions.is_empty() {
         return "-".to_string();
@@ -588,7 +588,7 @@ fn revision_runs(app: &str, revisions: &[String]) -> String {
     parts.join(",")
 }
 
-/// noSecret: a secret with no keys, and the secrets its space has.
+/// a secret with no keys, and the secrets its space has.
 fn no_secret(ctx: &mut Ctx<'_>, admin: &mut Admin, secret: &str) -> Error {
     let (space, name) = spec::validate::split_app_id(secret).unwrap_or_default();
     let req = ListSpaceSecretsRequest {

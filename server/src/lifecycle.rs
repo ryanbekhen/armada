@@ -1,5 +1,4 @@
-//! Leadership terms (Go's lead, term, and runTerm in internal/daemon's
-//! serve.go): a control plane node campaigns for leadership and, while it
+//! Leadership terms: a control plane node campaigns for leadership and, while it
 //! leads, runs one server after another on a store fenced on its election
 //! key. A change of the cluster's server settings (ADR 0031) runs the
 //! term's server again, keeping the leadership.
@@ -15,15 +14,15 @@ use tokio::sync::watch;
 
 use crate::log::Logger;
 
-/// Go's leaderLease.
+/// The TTL of the election lease.
 pub const LEADER_LEASE: Duration = Duration::from_secs(10);
-/// Go's leadReadyPoll.
+/// How often a server that may not lead yet checks again.
 const LEAD_READY_POLL: Duration = Duration::from_secs(5);
 
 /// How a term ended.
 #[derive(Debug)]
 pub enum TermEnd {
-    /// The server may not lead yet (errStandBy).
+    /// The server may not lead yet.
     StandBy,
     /// A failure that ends the control plane.
     Failed(String),
@@ -31,7 +30,7 @@ pub enum TermEnd {
 
 /// Whether this server may lead (ADR 0012): a binary that knows a newer
 /// state schema than the cluster uses waits until every server knows it;
-/// state written by a newer binary is an error (Go's leadReady).
+/// state written by a newer binary is an error.
 pub async fn lead_ready(st: &Etcd, mine: i64) -> Result<(bool, Vec<String>), String> {
     let stored = st.stored_schema().await.map_err(|e| e.to_string())?;
     if stored > mine {
@@ -81,7 +80,7 @@ pub async fn wait_lead_ready(
 }
 
 /// Runs at the start of a term on the fenced store: checks again that this
-/// server may lead and migrates the state (Go's upgradeState).
+/// server may lead and migrates the state.
 pub async fn upgrade_state(st: &Etcd, log: &Logger) -> Result<(), TermEnd> {
     let (ok, _) = lead_ready(st, SCHEMA).await.map_err(TermEnd::Failed)?;
     if !ok {
@@ -108,7 +107,7 @@ pub async fn upgrade_state(st: &Etcd, log: &Logger) -> Result<(), TermEnd> {
 /// ends the run. It returns Ok when the run ended because it was told to.
 pub type Restart = Arc<dyn Fn() + Send + Sync>;
 
-/// A term (Go's term): the state upgraded on the fenced store, then the
+/// A term: the state upgraded on the fenced store, then the
 /// server run again whenever its settings change, until stop. A run that
 /// fails right after a restart because its listener is still in use is
 /// tried again (the last run's listeners close as it ends).
@@ -176,7 +175,7 @@ where
 }
 
 /// Campaigns for leadership and runs a term while this node leads, until
-/// stop (Go's lead). A term that ends because leadership was lost is
+/// stop. A term that ends because leadership was lost is
 /// followed by a new campaign; a term that fails is fatal.
 pub async fn lead<R, RF, T, TF>(
     c: &Client,

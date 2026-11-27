@@ -1,6 +1,6 @@
 //! Armada's AppArmor profile: containerd's default profile template
-//! (contrib/apparmor's defaultTemplate and loadData) as the Go agent's
-//! appArmorProfile patches it. Loading it stays with apparmor_parser.
+//! (contrib/apparmor's defaultTemplate and loadData) with Armada's
+//! changes. Loading it stays with apparmor_parser.
 
 /// What loadData reads of the machine.
 pub struct Facts {
@@ -134,9 +134,8 @@ fn go_space(c: char) -> bool {
     c.is_whitespace()
 }
 
-/// exec.LookPath for a name without a slash: the first executable file
-/// in $PATH, "" when none or when the directory is not absolute (Go's
-/// ErrDot).
+/// The path of a program named without a slash: the first executable file
+/// in $PATH, "" when none or when the directory is not absolute.
 fn look_path(file: &str) -> String {
     let path = std::env::var_os("PATH").unwrap_or_default();
     let path = path.to_string_lossy();

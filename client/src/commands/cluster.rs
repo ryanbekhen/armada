@@ -1,4 +1,4 @@
-//! armada cluster and armada domain (Go's ingress.go and cpbackup.go).
+//! armada cluster and armada domain.
 
 use armada_proto::armada::v1::{
     BackupKeep, ClusterConfig, ClusterStatusRequest, ClusterStatusResponse,
@@ -256,7 +256,7 @@ fn update_flags() -> Vec<Flag> {
     ]
 }
 
-/// restartingSettings: the flags whose change restarts the leader's
+/// The flags whose change restarts the leader's
 /// control plane (ADR 0031).
 const RESTARTING_SETTINGS: [&str; 7] = [
     "tls",
@@ -424,7 +424,7 @@ fn update(ctx: &mut Ctx<'_>, _: &[String]) -> Result {
     Ok(())
 }
 
-/// waitForAPI: until the control plane answers again after a change of
+/// Until the control plane answers again after a change of
 /// its settings.
 fn wait_for_api(ctx: &mut Ctx<'_>, admin: &mut crate::rpc::Admin) -> Result {
     let deadline = std::time::Instant::now() + SETTINGS_WAIT;
@@ -459,7 +459,7 @@ fn wait_for_api(ctx: &mut Ctx<'_>, admin: &mut crate::rpc::Admin) -> Result {
     }
 }
 
-/// backupRequest: the backup flags checked, and the keep policy, URL, and
+/// The backup flags checked, and the keep policy, URL, and
 /// key put in the request.
 fn backup_request(ctx: &mut Ctx<'_>, req: &mut SetClusterConfigRequest) -> Result {
     if ctx.changed("backup") && ctx.str("backup") != "none" {
@@ -486,7 +486,7 @@ fn backup_request(ctx: &mut Ctx<'_>, req: &mut SetClusterConfigRequest) -> Resul
     Ok(())
 }
 
-/// strconv.ParseInt(s, 10, 32).
+/// A decimal 32-bit integer with an optional sign.
 fn parse_i32(s: &str) -> Option<i32> {
     let digits = s.strip_prefix(['+', '-']).unwrap_or(s);
     if digits.is_empty() || !digits.bytes().all(|c| c.is_ascii_digit()) {
@@ -495,7 +495,7 @@ fn parse_i32(s: &str) -> Option<i32> {
     s.parse::<i32>().ok()
 }
 
-/// parseBackupKeep: a number of the latest, or
+/// a number of the latest, or
 /// last=N,hourly=N,daily=N,weekly=N,monthly=N.
 fn parse_backup_keep(s: &str) -> Result<BackupKeep> {
     let s = go::trim_space(s);
@@ -535,7 +535,7 @@ fn parse_backup_keep(s: &str) -> Result<BackupKeep> {
     Ok(k)
 }
 
-/// keepText: what a keep policy keeps.
+/// What a keep policy keeps.
 fn keep_text(k: Option<&BackupKeep>) -> String {
     let d = BackupKeep::default();
     let k = k.unwrap_or(&d);
@@ -556,7 +556,7 @@ fn keep_text(k: Option<&BackupKeep>) -> String {
     parts.join(", ")
 }
 
-/// backupWhen: when the control plane is backed up.
+/// When the control plane is backed up.
 fn backup_when(cc: &ClusterConfig) -> String {
     let mut when = format!(
         "every {}",
@@ -571,7 +571,7 @@ fn backup_when(cc: &ClusterConfig) -> String {
     when
 }
 
-/// backupStatusLine: how the control plane's backups go.
+/// How the control plane's backups go.
 fn backup_status_line(b: &ControlPlaneBackupStatus) -> String {
     let mut line = format!("backups: to {}", b.bucket);
     if let Some(t) = &b.last_at {
@@ -772,7 +772,7 @@ fn cluster_status_text(r: &ClusterStatusResponse) -> String {
     out
 }
 
-/// switchWait: what a network switch waits for on one node.
+/// What a network switch waits for on one node.
 fn switch_wait(w: &NodeSwitchWait) -> String {
     if w.unsupported {
         "an upgrade: its agent cannot switch the network".to_string()
@@ -857,7 +857,7 @@ fn yes_no(b: bool) -> &'static str {
     if b { "yes" } else { "no" }
 }
 
-/// printDomains: the table to stdout, what needs doing to stderr.
+/// The table to stdout, what needs doing to stderr.
 fn print_domains(ctx: &mut Ctx<'_>, ds: &[Domain]) {
     let mut tw = TabWriter::new(0, 2);
     tw.write("DOMAIN\tAPPS\tVERIFIED\tTLS\n");

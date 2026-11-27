@@ -1,4 +1,4 @@
-//! `mesh.json` (mesh.go): the last peer list a node with peers on WireGuard
+//! `mesh.json`: the last peer list a node with peers on WireGuard
 //! between endpoints applied, kept so the tunnels come up before the control
 //! plane. It holds a NetworkConfig in protojson with only the mode, ranges,
 //! and peers, owner-only (0600).
@@ -11,7 +11,7 @@ use std::path::Path;
 /// maxMeshCache bounds the file read back.
 const MAX_MESH_CACHE: usize = 4 << 20;
 
-/// meshCacheOf: what the file keeps of a configuration.
+/// What the file keeps of a configuration.
 pub fn cache_of(cfg: &NetworkConfig) -> NetworkConfig {
     NetworkConfig {
         mode: cfg.mode.clone(),
@@ -22,7 +22,7 @@ pub fn cache_of(cfg: &NetworkConfig) -> NetworkConfig {
     }
 }
 
-/// loadMeshCache: the kept list, or None when there is none.
+/// The kept list, or None when there is none.
 pub fn load(path: &Path) -> Result<Option<NetworkConfig>, String> {
     let data = match read_private_file(path) {
         Ok(d) => d,
@@ -40,7 +40,7 @@ pub fn load(path: &Path) -> Result<Option<NetworkConfig>, String> {
         .map_err(|e| format!("{}: {e}", path.display()))
 }
 
-/// saveMeshCache: writes the peer list of cfg, unless the file holds it.
+/// Writes the peer list of cfg, unless the file holds it.
 pub fn save(path: &Path, cfg: &NetworkConfig) -> Result<(), String> {
     let keep = cache_of(cfg);
     if let Ok(Some(old)) = load(path)

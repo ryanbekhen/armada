@@ -1,7 +1,7 @@
-//! volbackup.Walk and OpenFile: a volume walked while its app may keep
-//! running and change it. Every lookup goes beneath the volume's directory
-//! (Go: an os.Root; here openat2 with RESOLVE_BENEATH, which follows links
-//! only while they stay inside), every entry is opened without blocking,
+//! A volume walked, and its files opened, while its app may keep running
+//! and change it. Every lookup goes beneath the volume's directory
+//! (openat2 with RESOLVE_BENEATH, which follows links only while they
+//! stay inside), every entry is opened without blocking,
 //! and an entry opened is refused unless it is the one just looked up.
 
 use super::{cstr, errno, last_errno, quote};
@@ -51,16 +51,16 @@ impl Stat {
     }
 }
 
-/// What went wrong with an entry, as Go's error under EntryError.
+/// What went wrong with an entry, under EntryError.
 #[derive(Debug)]
 pub enum Fail {
-    /// An os.PathError: its Op and errno.
+    /// A failed operation: its name and errno.
     Op(&'static str, i32),
-    /// os.Root's errPathEscapes under an op.
+    /// A path escaping the root, under an op.
     Escapes(&'static str),
-    /// volbackup.ErrChanged.
+    /// The entry changed between its lookup and its open.
     Changed,
-    /// io.EOF: a file shorter than its lookup said.
+    /// The end of the input: a file shorter than its lookup said.
     Eof,
 }
 
@@ -108,7 +108,7 @@ pub struct Root {
 }
 
 impl Root {
-    /// os.OpenRoot: the errno of opening dir.
+    /// Opens dir as the root, or the errno of opening it.
     pub fn open(dir: &[u8]) -> Result<Root, i32> {
         let c = cstr(dir)?;
         // SAFETY: open with a valid C string.
@@ -214,7 +214,7 @@ impl Root {
         }
     }
 
-    /// openSame: p opened for reading without blocking (a directory with
+    /// p opened for reading without blocking (a directory with
     /// O_DIRECTORY), refused with Changed unless it is the entry st
     /// describes. The entry is first only looked up (O_PATH) and checked,
     /// then that very inode is opened through /proc/self/fd, so an entry
@@ -260,7 +260,7 @@ impl Root {
     }
 }
 
-/// An openat2 errno as os.Root words it: EXDEV is a name leaving the root.
+/// An openat2 errno as a failure: EXDEV is a name leaving the root.
 fn escapes(op: &'static str, e: i32) -> Fail {
     if e == libc::EXDEV {
         Fail::Escapes(op)
@@ -351,7 +351,7 @@ fn walk_at<E>(root: &Root, p: &[u8], f: &mut WalkFn<'_, E>) -> Result<(), E> {
     Ok(())
 }
 
-/// volumeSize: the regular files of dir added up, entries that fail
+/// The regular files of dir added up, entries that fail
 /// skipped, 0 when dir cannot be opened.
 pub fn size(dir: &[u8]) -> Result<i64, String> {
     let Ok(root) = Root::open(dir) else {

@@ -1,5 +1,7 @@
-//! syscall.Errno.Error() on Linux: Go's table (zerrors_linux_*.go), since
-//! the C library's strerror words some errors otherwise.
+//! The text of an error number on Linux, lower case (e.g. "no such file or
+//! directory"), from a fixed table, since the C library's strerror words
+//! some errors otherwise. The table is Go's syscall errors table
+//! (BSD-3-Clause, The Go Authors).
 
 pub fn text(e: i32) -> String {
     let s = match e {

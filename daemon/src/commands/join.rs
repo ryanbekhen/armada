@@ -1,4 +1,4 @@
-//! armadad join and armadad server join (Go's join.go and server_join.go):
+//! armadad join and armadad server join:
 //! this machine joins a cluster as a node, or as a control plane server,
 //! through the leader's join listener, the CA pinned by its hash.
 
@@ -242,7 +242,7 @@ pub fn servers_error(list: &[String]) -> String {
     "invalid control plane list".to_string()
 }
 
-/// checkJoinedServer: what a server returned to a joining control plane
+/// What a server returned to a joining control plane
 /// node is the pinned CA with its key, and certificates for name.
 fn check_joined_server(
     resp: &pb::JoinServerResponse,
@@ -275,7 +275,7 @@ fn check_joined_server(
     Ok(())
 }
 
-/// joinUserName: the user of the client config a joining server writes;
+/// The user of the client config a joining server writes;
 /// "" when not run as root (none is written).
 fn join_user_name(flag: &str) -> std::result::Result<String, String> {
     if machine::euid() != 0 {
@@ -298,7 +298,7 @@ fn join_user_name(flag: &str) -> std::result::Result<String, String> {
     Ok(name)
 }
 
-/// joinedClientConfigs: the machine's shared admin config, kept when it
+/// The machine's shared admin config, kept when it
 /// exists, for user_name once the leader recorded the name.
 fn joined_client_configs(
     resp: &pb::JoinServerResponse,

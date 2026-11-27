@@ -1,4 +1,4 @@
-//! Exec sessions (ADR 0015, Go's exec.go): the control plane offers an
+//! Exec sessions (ADR 0015): the control plane offers an
 //! ExecRequest on the Connect stream; the agent opens AgentService's
 //! ExecSession, checks the replica is its own and has a running container
 //! (or sidecar), and relays the command's input and output. It never logs
@@ -20,13 +20,13 @@ use crate::runtime::{
 
 /// The exec sessions an agent runs at once.
 pub const MAX_EXEC_SESSIONS: i32 = 8;
-/// Exec limits (Go's runtime package).
+/// Exec limits.
 pub const MAX_EXEC_ARGS: usize = 64;
 pub const MAX_EXEC_ARG_LEN: usize = 4096;
 /// The most data one exec message carries.
 pub const MAX_EXEC_CHUNK: usize = 32 << 10;
 
-/// Go's runtime.CheckExecCommand: errors never repeat the arguments.
+/// Checks a command's bounds; errors never repeat the arguments.
 pub fn check_exec_command(cmd: &[String]) -> Result<(), String> {
     if cmd.is_empty() || cmd[0].is_empty() {
         return Err("command is empty".into());
@@ -55,7 +55,8 @@ pub(crate) fn term_size(t: Option<&pb::TermSize>) -> TermSize {
     }
 }
 
-/// filepath.Base.
+/// The last element of a path, trailing slashes dropped; "." for an
+/// empty path, "/" for slashes only.
 fn base(p: &str) -> String {
     let t = p.trim_end_matches('/');
     if t.is_empty() {
@@ -65,7 +66,7 @@ fn base(p: &str) -> String {
 }
 
 impl<R: Runtime> Inner<R> {
-    /// One exec request (Go's serveExec).
+    /// One exec request.
     pub(crate) async fn serve_exec(self: Arc<Self>, req: pb::ExecRequest) {
         let Some(conn) = lock(&self.side.conn).clone() else {
             return;

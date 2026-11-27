@@ -1,5 +1,5 @@
-//! The node's ingress configuration as Go's internal/proxy holds it:
-//! FromProto's bounds and Validate's checks and texts, over armada-node's
+//! The node's ingress configuration: [`ProxyConfig::from_proto`]'s bounds
+//! and [`ProxyConfig::validate`]'s checks and texts, over armada-node's
 //! render types (certificates by name) with their PEMs beside them.
 
 use armada_node::proxy::{Backend, Certificate, Config, Cors, Rule, Server, TcpRoute};
@@ -7,23 +7,23 @@ use armada_proto::armada::v1 as pb;
 use armada_spec::go::{Addr, parse_addr, parse_prefix, quote};
 use armada_spec::validate as v;
 
-/// proxy.MaxTimeoutSeconds.
+/// The longest backend timeout.
 pub const MAX_TIMEOUT_SECONDS: i64 = 3600;
-/// proxy.MaxCORSMaxAgeSeconds.
+/// The longest CORS max age.
 pub const MAX_CORS_MAX_AGE_SECONDS: i64 = 86400;
-/// proxy.MaxWeight.
+/// The highest server weight.
 pub const MAX_WEIGHT: i64 = 256;
 pub const MAX_BACKENDS: usize = 100_000;
 pub const MAX_RULES: usize = 1_000_000;
 pub const MAX_CERTIFICATES: usize = 100_000;
-/// 2 × spec.MaxReplicas.
+/// Servers per backend: 2 × the most replicas, for rollouts.
 pub const MAX_SERVERS: usize = 2 * armada_spec::spec::MAX_REPLICAS as usize;
 const MAX_CERTIFICATE_PEM: usize = 64 << 10;
 pub const MAX_TRUSTED_PROXIES: usize = 64;
 pub const MAX_TCP_ROUTES: usize = 100_000;
 pub const MAX_TCP_PORTS: usize = 4096;
 
-/// proxy.Config: what armada-node renders, and every certificate's PEM in
+/// What armada-node renders, and every certificate's PEM in
 /// the order of `cfg.certificates`.
 #[derive(Default)]
 pub struct ProxyConfig {
@@ -31,13 +31,13 @@ pub struct ProxyConfig {
     pub pems: Vec<Vec<u8>>,
 }
 
-/// Certificate.FileName.
+/// A certificate's file name: `*` as `_wildcard`, then `.pem`.
 pub fn file_name(name: &str) -> String {
     format!("{}.pem", name.replacen('*', "_wildcard", 1))
 }
 
 impl ProxyConfig {
-    /// proxy.FromProto.
+    /// The configuration of a ProxyConfig message, within the bounds.
     pub fn from_proto(p: &pb::ProxyConfig) -> ProxyConfig {
         let mut c = Config {
             acme_address: p.acme_challenge_address.clone(),
@@ -102,7 +102,7 @@ impl ProxyConfig {
         ProxyConfig { cfg: c, pems }
     }
 
-    /// Config.TCPPorts: sorted, once each.
+    /// The ports of the TCP routes, sorted, once each.
     pub fn tcp_ports(&self) -> Vec<i64> {
         let mut out: Vec<i64> = self.cfg.tcp.iter().map(|r| r.port).collect();
         out.sort_unstable();
@@ -110,13 +110,14 @@ impl ProxyConfig {
         out
     }
 
-    /// Config.Validate: every problem, one per line.
+    /// Checks the configuration: every problem, one per line.
     pub fn validate(&self) -> Result<(), String> {
         validate(self)
     }
 }
 
-/// netutil.IsPrivate.
+/// Whether an address is private: RFC 1918 or unique local, loopback, or
+/// shared (100.64.0.0/10); never one with a zone.
 pub fn is_private(a: &Addr) -> bool {
     if !a.zone.is_empty() {
         return false;
@@ -131,14 +132,14 @@ pub fn is_private(a: &Addr) -> bool {
     u.is_private() || loopback || cgnat.contains(&u)
 }
 
-/// A netip.AddrPort: the address and port.
+/// An address and port.
 pub struct AddrPort {
     pub addr: Addr,
     pub port: u16,
 }
 
 impl AddrPort {
-    /// AddrPort.String.
+    /// `ip:port`, or `[ip%zone]:port` for IPv6.
     pub fn string(&self) -> String {
         let mut ip = self.addr.string();
         if !self.addr.zone.is_empty() {
@@ -152,7 +153,7 @@ impl AddrPort {
     }
 }
 
-/// netip.ParseAddrPort.
+/// Parses `ip:port` or `[ipv6]:port`.
 pub fn parse_addr_port(s: &str) -> Option<AddrPort> {
     let i = s.rfind(':')?;
     let (mut ip, port) = (&s[..i], &s[i + 1..]);
@@ -178,7 +179,7 @@ pub fn parse_addr_port(s: &str) -> Option<AddrPort> {
     Some(AddrPort { addr, port })
 }
 
-/// proxy.BackendSpace.
+/// The space of a backend's app (`<label>--<app ID>` or `<app ID>`).
 pub fn backend_space(backend: &str) -> String {
     let id = backend.split_once("--").map_or(backend, |(_, id)| id);
     v::split_app_id(id).map(|(s, _)| s).unwrap_or_default()
@@ -498,7 +499,8 @@ fn valid_tcp(pc: &ProxyConfig) -> Vec<String> {
     errs
 }
 
-/// getLine of encoding/pem.
+/// The next line of data, its line end and trailing spaces and tabs
+/// dropped, and the rest after it.
 fn get_line(data: &[u8]) -> (&[u8], &[u8]) {
     let (mut i, j) = match data.iter().position(|&b| b == b'\n') {
         None => (data.len(), data.len()),
@@ -522,7 +524,7 @@ fn find(hay: &[u8], needle: &[u8]) -> Option<usize> {
     hay.windows(needle.len()).position(|w| w == needle)
 }
 
-/// encoding/pem.Decode: a block's type, and what follows it; None when no
+/// The next PEM block: its type, and what follows it; None when no
 /// block is left.
 pub fn pem_decode(data: &[u8]) -> Option<(String, &[u8])> {
     const START: &[u8] = b"\n-----BEGIN ";
@@ -587,7 +589,7 @@ pub fn pem_decode(data: &[u8]) -> Option<(String, &[u8])> {
     }
 }
 
-/// checkPEM: a chain and one private key, nothing else.
+/// A chain and one private key, nothing else.
 pub fn check_pem(b: &[u8]) -> Result<(), String> {
     if b.len() > MAX_CERTIFICATE_PEM {
         return Err("bundle too large".into());

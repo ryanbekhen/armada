@@ -1,5 +1,5 @@
-//! armadad backup, backup list, and restore (Go's internal/daemon
-//! backup.go): an archive of the control plane, the control plane's
+//! armadad backup, backup list, and restore: an archive of the control
+//! plane, the control plane's
 //! backups in its bucket (ADR 0051), and a restore from either.
 
 use std::io::Read;
@@ -88,7 +88,7 @@ pub fn run(ctx: &mut Ctx<'_>, _: &[String]) -> Result {
     Ok(())
 }
 
-/// readSecretFile: a URL or key in a file (mode 0600) or "-" for stdin.
+/// A URL or key in a file (mode 0600) or "-" for stdin.
 fn read_secret_file(ctx: &mut Ctx<'_>, flag: &str, arg: &str) -> Result<Vec<u8>> {
     let b = if arg == "-" {
         let mut b = Vec::new();
@@ -103,7 +103,6 @@ fn read_secret_file(ctx: &mut Ctx<'_>, flag: &str, arg: &str) -> Result<Vec<u8>>
     Ok(armada_node::gostr::trim_space(&b).to_vec())
 }
 
-/// openControlPlaneRepo.
 fn open_repo(ctx: &mut Ctx<'_>) -> Result<Repo> {
     let (url_file, key_file) = (ctx.str("backup-url"), ctx.str("backup-key"));
     if url_file.is_empty() || key_file.is_empty() {
@@ -123,7 +122,7 @@ fn open_repo(ctx: &mut Ctx<'_>) -> Result<Repo> {
     Repo::open(&bucket, &root, &key).map_err(msg)
 }
 
-/// The JSON of a time as Go's encoding/json writes a UTC one.
+/// A UTC time as a JSON string (RFC 3339 with nanoseconds).
 fn time_json(t: &armada_node::volbackup::gotime::Instant) -> String {
     t.rfc3339_nano()
 }
@@ -281,7 +280,6 @@ fn restore_snapshot(
     ctx.block_on(rs.finish(member))
 }
 
-/// printRestored.
 fn print_restored(ctx: &mut Ctx<'_>, m: &Manifest, data_dir: &str) {
     let mut s = format!(
         "Restored backup from {} (Armada {}, schema v{}) into {data_dir}.\n\n",

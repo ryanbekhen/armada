@@ -1,4 +1,4 @@
-//! Secrets through the API (Go's secrets.go, ADR 0006 and 0052). The
+//! Secrets through the API (ADR 0006 and 0052). The
 //! handlers never log, return, or audit a secret's value.
 
 use armada_proto::armada::v1::*;
@@ -11,7 +11,7 @@ use crate::grpc::Auth;
 use crate::reconcile::{ROLLOUT, app_event};
 use crate::{Server, store_err};
 
-/// checkSecretTarget: a secret's ID and, unless listing, a key name.
+/// A secret's ID and, unless listing, a key name.
 fn check_secret_target(secret: &str, key: &str, listing: bool) -> Result<(), Status> {
     if !valid_app_id(secret) {
         return Err(Status::new(

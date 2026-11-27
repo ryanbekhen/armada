@@ -1,7 +1,6 @@
-//! armadad init (Go's newInitCommand): a new cluster on this machine. The
-//! state is written through the pack's etcd, started from the
-//! configuration file `armadad etcd` writes for the command's length (ADR
-//! 0055), as Go's init runs the embedded member.
+//! armadad init: a new cluster on this machine. The state is written
+//! through the pack's etcd, started from the configuration file `armadad
+//! etcd` writes for the command's length (ADR 0055).
 
 use std::net::IpAddr;
 use std::path::Path;
@@ -31,7 +30,7 @@ fn s<E: ToString>(e: E) -> Error {
     Error::Msg(e.to_string())
 }
 
-/// clusterNetwork: --cluster-cidr and --network for a cluster whose
+/// --cluster-cidr and --network for a cluster whose
 /// first node has private_ip.
 fn cluster_network(
     cidr: &str,
@@ -44,7 +43,8 @@ fn cluster_network(
             quote(mode)
         ));
     }
-    let p = machine::parse_prefix_go(cidr).map_err(|e| format!("invalid --cluster-cidr: {e}"))?;
+    let p =
+        machine::parse_prefix_checked(cidr).map_err(|e| format!("invalid --cluster-cidr: {e}"))?;
     armada_store::network::check_cluster_cidr(&Some(p.clone()))
         .map_err(|e| format!("invalid --cluster-cidr: {e}"))?;
     if let Some(a) = parse_addr(&private_ip.to_string())
@@ -58,7 +58,7 @@ fn cluster_network(
     Ok((mode.to_string(), p))
 }
 
-/// firstSubnet: the node subnet the state gives a cluster's first node.
+/// The node subnet the state gives a cluster's first node.
 fn first_subnet(cluster: &Prefix) -> Prefix {
     Prefix::from(&cluster.addr, NODE_SUBNET_BITS)
 }
@@ -85,7 +85,7 @@ pub fn run(ctx: &mut Ctx<'_>, _: &[String]) -> Result {
             ));
         }
         ep = Some(machine::resolve_endpoint(&ctx.str("endpoint")).map_err(msg)?);
-        let p = machine::parse_prefix_go(&mesh_cidr)
+        let p = machine::parse_prefix_checked(&mesh_cidr)
             .map_err(|e| msg(format!("invalid --mesh-cidr: {e}")))?;
         armada_store::network::check_mesh_cidr(&Some(p.clone()))
             .map_err(|e| msg(format!("invalid --mesh-cidr: {e}")))?;

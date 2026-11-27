@@ -104,7 +104,7 @@ pub type Tap = Arc<dyn Fn(&[u8]) -> bool + Send + Sync>;
 pub enum Item {
     Msg(Vec<u8>),
     Err(Status),
-    /// Its end without an error (io.EOF to grpc-go).
+    /// Its end without an error.
     Eof,
 }
 
@@ -200,8 +200,8 @@ impl Stream {
         self.send = None;
     }
 
-    /// The next item; once the stream ended, its end again (grpc-go
-    /// returns the same error to every later read).
+    /// The next item; once the stream ended, its end again (every later
+    /// read returns the same error).
     pub async fn recv(&mut self) -> Item {
         if self.ended {
             return Item::Eof;
@@ -243,7 +243,7 @@ impl Stream {
     }
 }
 
-/// grpc-go's name of a code.
+/// A code's name as the recordings write it.
 pub fn code_name(c: Code) -> &'static str {
     match c {
         Code::Ok => "OK",

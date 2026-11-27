@@ -1,5 +1,5 @@
-//! `google.protobuf.Timestamp`, with the JSON Go's protojson reads and
-//! writes: RFC 3339 in UTC with a `Z`, and 0, 3, 6, or 9 digits of a
+//! `google.protobuf.Timestamp`, with protojson's JSON: RFC 3339 in UTC
+//! with a `Z`, and 0, 3, 6, or 9 digits of a
 //! second, within years 1 to 9999.
 
 use std::fmt;

@@ -1,10 +1,8 @@
-//! The node's resolver behind the agent's [`InternalDns`] seam (ADR 0055,
-//! item 16d): armada-dns (ADR 0053) in a systemd unit of its own, told the
-//! names and clients over its control socket, as Go's
-//! internal/dnsserver/process.go does. The unit's name comes from the
-//! program and its settings exactly as Go makes it, so an agent of either
-//! language finds the unit the other started and keeps it; a unit of
-//! another program or other settings hands what it knows to the new one
+//! The node's resolver behind the agent's [`InternalDns`] seam:
+//! armada-dns (ADR 0053) in a systemd unit of its own, told the names and
+//! clients over its control socket. The unit's name comes from the program
+//! and its settings, so a restarted agent finds the unit it started before
+//! and keeps it; a unit of another program or other settings hands what it knows to the new one
 //! (`--take-over`), which shares the port until the old one drained.
 //!
 //! The control protocol: one request line per connection (`names APP...`,
@@ -47,7 +45,7 @@ pub trait Launcher: Send + Sync + 'static {
     fn units(&self) -> BoxFut<'_, Result<Vec<String>, String>>;
 }
 
-/// What a DnsProcess runs with (Go's ProcessConfig).
+/// What a DnsProcess runs with.
 #[derive(Clone)]
 pub struct ProcessConfig {
     /// The armada-dns program.
@@ -77,7 +75,7 @@ struct Said {
     epoch: String,
 }
 
-/// The node-local resolver run by armada-dns (Go's dnsserver.Process).
+/// The node-local resolver run by armada-dns.
 pub struct DnsProcess {
     addr: Ipv4Addr,
     unit: String,
@@ -90,13 +88,15 @@ pub struct DnsProcess {
     said: Mutex<Said>,
 }
 
-/// netutil.IsPrivate for an IPv4 address.
+/// Whether an IPv4 address is private: RFC 1918, loopback, or shared
+/// (100.64.0.0/10).
 fn private4(a: Ipv4Addr) -> bool {
     let o = a.octets();
     a.is_private() || a.is_loopback() || (o[0] == 100 && (o[1] & 0xc0) == 64)
 }
 
-/// netip.ParsePrefix of an IPv4 prefix, masked: its text.
+/// An IPv4 prefix's text, masked; None when it is not one (no leading
+/// zeros in the length).
 fn masked4(s: &str) -> Option<String> {
     let (ip, bits) = s.split_once('/')?;
     let ip: Ipv4Addr = ip.parse().ok()?;
@@ -115,8 +115,8 @@ fn masked4(s: &str) -> Option<String> {
     Some(format!("{}/{bits}", Ipv4Addr::from(u32::from(ip) & mask)))
 }
 
-/// The unit's ID and its arguments, as Go makes them from the program's
-/// bytes and the settings.
+/// The unit's ID and its arguments, made from the program's bytes and
+/// the settings.
 pub fn unit_id(bin: &[u8], args: &[String]) -> String {
     let mut h = Sha256::new();
     h.update(bin);
@@ -688,7 +688,7 @@ mod tests {
     }
 
     #[test]
-    fn unit_names_as_go_makes_them() {
+    fn unit_names_from_program_and_settings() {
         let args: Vec<String> = [
             "--listen",
             "10.120.0.1:53",
@@ -702,8 +702,8 @@ mod tests {
         .iter()
         .map(|s| s.to_string())
         .collect();
-        // Go: StartProcess with Bin holding "program" and these settings
-        // (TestUnitNameMatchesRust in internal/dnsserver).
+        // The unit name earlier releases gave "program" and these
+        // settings, so an upgraded agent keeps them.
         assert_eq!(unit_id(b"program", &args), "77580d36485337b0");
         assert_eq!(masked4("10.120.0.9/24").unwrap(), "10.120.0.0/24");
         assert!(masked4("10.120.0.0/024").is_none());
@@ -793,7 +793,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
-    /// Units as plain processes (Go's procs in process_test.go).
+    /// Units as plain processes.
     #[derive(Default)]
     struct Procs {
         units: StdMutex<HashMap<String, std::process::Child>>,

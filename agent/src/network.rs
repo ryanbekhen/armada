@@ -1,11 +1,8 @@
-//! The network pass as the agent sees it (Go's applyNetwork,
-//! applyNetworkNow, listLocal, rotateNetworkKey, and reportPeers): the
-//! cluster network applied before the proxy, the node's containers handed
-//! to the proxy, the firewall, and the resolver in that order, the
-//! WireGuard key replaced on request, and what the network tells the
-//! leader. armada-node's network code behind [`Network`] is
-//! [`crate::clusternet::ClusterNet`] (ADR 0055, item 16d); the parity
-//! tests use a fake.
+//! The network pass as the agent sees it: the cluster network applied before
+//! the proxy, the node's containers handed to the proxy, the firewall, and the
+//! resolver in that order, the WireGuard key replaced on request, and what the
+//! network tells the leader. armada-node's network code behind [`Network`] is
+//! [`crate::clusternet::ClusterNet`]; the replays use a fake.
 
 use std::net::IpAddr;
 use std::sync::Arc;
@@ -16,8 +13,8 @@ use crate::agent::{Agent, Inner, lock, managed};
 use crate::proxy::{BoxFut, Clients};
 use crate::runtime::{self, LABEL_APP, Runtime, stopped};
 
-/// The cluster network on the node (ADR 0025), with the optional parts of
-/// Go's NetworkSwitcher, PeerChecker, WireGuardReporter, and KeyRotator.
+/// The cluster network on the node (ADR 0025), with its optional parts:
+/// mode switches, unreachable peers, the userspace device, and key rotation.
 pub trait Network: Send + Sync + 'static {
     /// Makes the node's tunnel, routes, and firewall match cfg; called
     /// again on every pass, so it repairs what drifted. local maps this
@@ -62,7 +59,7 @@ pub trait Network: Send + Sync + 'static {
     }
 }
 
-/// Go's netip.ParseAddr for the addresses runtimes report.
+/// Parses the addresses runtimes report.
 pub(crate) fn parse_addr(s: &str) -> Option<IpAddr> {
     s.parse().ok()
 }

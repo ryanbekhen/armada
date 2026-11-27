@@ -1,5 +1,4 @@
-//! Fake agents that answer volume sessions (internal/server/
-//! parity_volumes_test.go's volumeAgent.serve and volumeBucket): the
+//! Fake agents that answer volume sessions: the
 //! contents of the node's volumes, and a bucket the scenario's agents
 //! share.
 

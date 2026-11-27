@@ -1,5 +1,4 @@
-//! armada-shim processes as internal/runtime/supervisor's Shims reaches
-//! them (shim.go): one per group as the transient systemd unit
+//! armada-shim processes: one per group as the transient systemd unit
 //! armada-shim-<name>, socket DIR/<name>.sock, the OCI runtimes' state
 //! under DIR/<name>/crun and DIR/<name>/runc (oci.rs: crun for new
 //! containers, runc for those it created before ADR 0056), one request
@@ -9,8 +8,7 @@
 //! containers are ended only once it is really gone: nothing listens on
 //! its socket, or its unit is not active. A timeout or a closed connection
 //! says nothing about them. Starting and abandoning one group's shim are
-//! serialized by an flock on DIR/<name>.lock (Go's agent also holds its
-//! own lock around each call).
+//! serialized by an flock on DIR/<name>.lock.
 
 use super::errno_text;
 use super::oci::OciRuntime;
@@ -205,8 +203,8 @@ fn status_text(o: &Output) -> Option<String> {
 const DEADLINE: &str = "context deadline exceeded";
 
 /// Runs prog with args; stdout alone (Output) or stdout and stderr
-/// together (CombinedOutput), and the error as Go words it. A program
-/// still running at the deadline is killed, as CommandContext kills it.
+/// together, and the error's text ("PROG: ..." or the exit status). A
+/// program still running at the deadline is killed.
 fn run(
     prog: &str,
     args: &[&str],
@@ -366,9 +364,9 @@ impl Request {
 
     /// Whether the shim answers, within the probe's own ten seconds: a
     /// caller short of time must never make a live shim look silent
-    /// (Go's probe takes the caller's deadline). It gives up at most a
-    /// second past the caller's time (within the grace Go gives this
-    /// program), and a caller whose time ran out meanwhile gets that,
+    /// It gives up at most a second past the caller's time (within the
+    /// grace the caller gives this program), and a caller whose time ran
+    /// out meanwhile gets that,
     /// not the probe's outcome.
     fn probe(&self) -> Result<(), CallError> {
         let t = self.left().map_or(PROBE_TIMEOUT, |l| {
@@ -538,9 +536,8 @@ impl Request {
         }
     }
 
-    /// Shims.Abandon: whether the shim was gone, its containers ended.
-    /// A shim found gone whose containers could not all be ended is
-    /// gone with an error, as Go reports it.
+    /// Whether the shim was gone, its containers ended. A shim found gone
+    /// whose containers could not all be ended is gone with an error.
     pub fn abandon(&self) -> (bool, Option<String>) {
         let _l = match self.lock() {
             Ok(l) => l,
@@ -564,8 +561,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn names_as_go() {
-        // shimName("web") in Go.
+    fn names() {
+        // The shim and unit names of the group "web".
         assert_eq!(shim_name("web").len(), 17);
         assert!(shim_name("web").starts_with('s'));
         assert_eq!(

@@ -1,4 +1,4 @@
-//! armadad agent (Go's newAgentCommand and runAgent): this node's agent
+//! armadad agent: this node's agent
 //! (armada-agent's loop) on the supervisor runtime, with HAProxy as a
 //! system container, the cluster network and the resolver over
 //! armada-node's library, and the side seams through armada-node.
@@ -8,10 +8,9 @@
 //! /etc/armada/agent.env as on every node (never server.env, whose server
 //! flags it does not know). It holds the data directory's lock; the server
 //! takes none. With no --server, it starts with agent.json's control plane
-//! list and every server the local etcd member records, as Go's
-//! knownServers gives its embedded agent.
+//! list and every server the local etcd member records.
 //!
-//! The Rust agent has no containerd runtime (ADR 0055, "A node on
+//! The agent has no containerd runtime (ADR 0055, "A node on
 //! containerd"): on a node whose agent.json names it, it starts nothing
 //! and removes nothing; it logs why and waits to be stopped, so systemd
 //! does not restart it in a loop, and `armadad doctor` says the same.
@@ -51,7 +50,7 @@ const DIR_HAPROXY: &str = "haproxy";
 /// How often the agent checks whether its certificate needs renewal.
 const RENEW_CHECK: Duration = Duration::from_secs(3600);
 
-/// lockDataDir: one agent per data directory; the lock goes with the
+/// One agent per data directory; the lock goes with the
 /// process.
 pub fn lock_data_dir(dir: &str) -> std::result::Result<std::fs::File, String> {
     let f = std::fs::File::open(dir).map_err(|e| {
@@ -76,7 +75,6 @@ pub fn lock_data_dir(dir: &str) -> std::result::Result<std::fs::File, String> {
     Ok(f)
 }
 
-/// checkProxyKind.
 fn check_proxy_kind(kind: &str) -> std::result::Result<(), String> {
     if kind != "none" && kind != "haproxy" {
         return Err(format!(
@@ -101,7 +99,7 @@ pub fn check_tmpfs(dir: &str) -> std::result::Result<(), String> {
     }
     const TMPFS: i64 = 0x0102_1994;
     const RAMFS: i64 = 0x8584_58f6;
-    // The parity cases recorded from Go (test hooks only): the file
+    // The recorded parity cases (test hooks only): the file
     // system type of the machine they were recorded on, so a case
     // replays alike wherever its directory lives.
     let t = crate::hooks::get("FS_TYPE")
@@ -113,7 +111,7 @@ pub fn check_tmpfs(dir: &str) -> std::result::Result<(), String> {
     Ok(())
 }
 
-/// prepareSecretsDir: the secret files' directory, or "" (secret files
+/// The secret files' directory, or "" (secret files
 /// disabled) when it is not on tmpfs.
 fn prepare_secrets_dir(dir: &str, log: &Logger) -> String {
     if dir.is_empty() {
@@ -138,7 +136,6 @@ fn prepare_secrets_dir(dir: &str, log: &Logger) -> String {
     dir.to_string()
 }
 
-/// nosuidNodev.
 fn nosuid_nodev(dir: &str) -> std::result::Result<bool, String> {
     let c = std::ffi::CString::new(dir).map_err(|e| e.to_string())?;
     // SAFETY: plain data filled by statvfs.
@@ -231,9 +228,9 @@ fn host_upstreams(path: &str) -> std::result::Result<Vec<String>, String> {
     Ok(out)
 }
 
-/// startInternalDNS: armada-dns from the runtime pack on the bridge's
-/// gateway. Rust has no resolver inside armadad to fall back to (Go's
-/// dnsserver.Server): without armada-dns, or when it does not start,
+/// armada-dns from the runtime pack on the bridge's gateway. armadad has
+/// no resolver of its own to fall back to: without armada-dns, or when it
+/// does not start,
 /// internal ingress and DNS are off on this node and containers keep the
 /// runtime's default DNS.
 async fn start_internal_dns(
@@ -248,7 +245,7 @@ async fn start_internal_dns(
         );
         None
     };
-    // Go's Bridge ensures the network first: armada-dns binds the bridge's
+    // The network comes first: armada-dns binds the bridge's
     // gateway, which the bridge has only once it is set up.
     match tokio::time::timeout(Duration::from_secs(10), rt.ping()).await {
         Ok(Ok(())) => {}
@@ -286,7 +283,7 @@ async fn start_internal_dns(
     }
 }
 
-/// nodeNet: the cluster network, recording in agent.json the mode a
+/// The cluster network, recording in agent.json the mode a
 /// switch ends in (ADR 0050), so the node starts in it.
 struct NodeNet {
     net: ClusterNet,
@@ -356,7 +353,7 @@ impl Network for NodeNet {
     }
 }
 
-/// knownServers: on a server machine, agent.json's list and every
+/// On a server machine, agent.json's list and every
 /// server's API address the local etcd member records; None, and
 /// agent.json's list alone, when either cannot be read.
 async fn known_servers(data_dir: &str, ac: &AgentConfig, log: &Logger) -> Option<Vec<String>> {
@@ -436,7 +433,6 @@ struct Opts {
     internal_dns: bool,
 }
 
-/// runAgent.
 async fn run_agent(
     o: Opts,
     log: Logger,
@@ -599,7 +595,7 @@ async fn run_agent(
         }));
         side.conntrack = Some(Arc::new(armada_agent::side::conntrack::NodeConntrack {
             bin: bin.clone(),
-            // conntrack.New: the kernel's table and this machine's memory.
+            // The kernel's table and this machine's memory.
             dir: "/proc/sys/net/netfilter".to_string(),
             memory: Some(armada_node::conntrack::machine_memory()),
         }));

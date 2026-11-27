@@ -1,5 +1,4 @@
-//! A server's own certificates (Go's certRenewer in internal/daemon's
-//! renew.go): the API's, the etcd member's, the user certificate in the
+//! A server's own certificates: the API's, the etcd member's, the user certificate in the
 //! machine's shared admin config, and an expired node certificate, each
 //! renewed for the key it already has once pki::renew_due says so. Every
 //! server holds the CA, so it signs them itself; nothing restarts.
@@ -17,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use crate::log::Logger;
 use crate::tls::ServerCert;
 
-/// certRenewInterval: how often a server checks its own certificates.
+/// How often a server checks its own certificates.
 pub const RENEW_INTERVAL: Duration = Duration::from_secs(12 * 3600);
 
 pub const FILE_SERVER_CERT: &str = "server.crt";
@@ -48,8 +47,8 @@ fn secs(t: SystemTime) -> i64 {
         .unwrap_or_default()
 }
 
-/// The client config of a machine (clientconfig.Config), written as Go's
-/// json.MarshalIndent writes it.
+/// The client config of a machine, written as JSON indented by two
+/// spaces.
 #[derive(Serialize, Deserialize)]
 struct ClientConfig {
     #[serde(default)]
@@ -69,7 +68,7 @@ struct ClientConfig {
 }
 
 impl Renewer {
-    /// Checks the server's and the member's certificates (Go's check).
+    /// Checks the server's and the member's certificates.
     pub fn check(&self) {
         if let Err(e) = self.renew_server() {
             self.log
@@ -126,7 +125,7 @@ impl Renewer {
         Ok(())
     }
 
-    /// The etcd member's certificate (Go's Member.RenewCert).
+    /// The etcd member's certificate.
     fn renew_member(&self, dir: &Path) -> Result<bool, String> {
         let path = dir.join(FILE_MEMBER_CERT);
         let b = read_private_file(&path).map_err(|e| e.to_string())?;

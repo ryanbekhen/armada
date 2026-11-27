@@ -1,8 +1,7 @@
-//! SIGINT and SIGTERM end a running server or agent (Go's
-//! signal.NotifyContext in cmd/armadad): the first one turns a watch to
-//! true; later ones are swallowed while the command stops. A handler that
-//! writes to a pipe, so no signal is blocked for the programs the agent
-//! starts.
+//! SIGINT and SIGTERM end a running server or agent: the first one turns a
+//! watch to true; later ones are swallowed while the command stops. A
+//! handler that writes to a pipe, so no signal is blocked for the
+//! programs the agent starts.
 
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicI32, Ordering};

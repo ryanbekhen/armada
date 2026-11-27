@@ -1,6 +1,5 @@
-//! Notices about cluster events to people (ADR 0045; Go's internal/alert):
-//! a JSON webhook, Slack, Discord, Telegram, or email over SMTP. The
-//! checks, texts, and escapes are Go's; requests go out on a small
+//! Notices about cluster events to people (ADR 0045): a JSON webhook,
+//! Slack, Discord, Telegram, or email over SMTP. Requests go out on a small
 //! HTTP/1.1 client and SMTP client of this module (no redirects followed,
 //! errors never holding the channel's secret).
 
@@ -279,7 +278,6 @@ pub fn check_url(raw: &str) -> Result<(), String> {
     }
 }
 
-/// net.SplitHostPort.
 fn split_host_port(hp: &str) -> Option<(String, String)> {
     if let Some(r) = hp.strip_prefix('[') {
         let (h, rest) = r.split_once(']')?;
@@ -486,7 +484,7 @@ fn utc(t: &Time) -> Time {
     t.in_loc(&armada_spec::gotime::Location::utc())
 }
 
-/// oneLine: control characters as spaces.
+/// Control characters as spaces.
 fn one_line(s: &str) -> String {
     s.chars()
         .map(|c| {
@@ -499,7 +497,7 @@ fn one_line(s: &str) -> String {
         .collect()
 }
 
-/// slackEscape keeps text plain in Slack, whose <!here> and <url|label>
+/// Keeps text plain in Slack, whose <!here> and <url|label>
 /// would be mentions and links.
 pub fn slack_escape(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
@@ -514,7 +512,7 @@ pub fn slack_escape(s: &str) -> String {
     out
 }
 
-/// discordEscape keeps text plain in Discord: a backslash before every
+/// Keeps text plain in Discord: a backslash before every
 /// Markdown character; at most max runes, an escape never cut from its
 /// character.
 pub fn discord_escape(s: &str, max: usize) -> String {
@@ -595,7 +593,7 @@ pub fn warning(reason: &str) -> bool {
     WARNINGS.contains(&reason)
 }
 
-/// encoding/json's HTML escaping of encoded JSON.
+/// Compact JSON with <, >, &, U+2028, and U+2029 escaped.
 fn go_json<T: Serialize>(v: &T) -> Vec<u8> {
     let s = serde_json::to_string(v).unwrap_or_default();
     let mut out = String::with_capacity(s.len());
@@ -734,8 +732,8 @@ fn left(deadline: Instant) -> Result<Duration, String> {
     Ok(d)
 }
 
-/// Dials host:port within the deadline, as Go's dialer: every address in
-/// turn until one connects.
+/// Dials host:port within the deadline: every address in turn until one
+/// connects.
 fn dial(host: &str, port: u16, deadline: Instant) -> Result<TcpStream, String> {
     let addrs: Vec<SocketAddr> = match host.parse::<IpAddr>() {
         Ok(ip) => vec![SocketAddr::new(ip, port)],
@@ -759,7 +757,8 @@ fn dial(host: &str, port: u16, deadline: Instant) -> Result<TcpStream, String> {
     Err(last)
 }
 
-/// An io error as Go's syscall texts word the common ones.
+/// An io error, the common ones worded as the system's error strings
+/// (e.g. "connection refused").
 fn io_text(e: &std::io::Error) -> String {
     match e.kind() {
         std::io::ErrorKind::ConnectionRefused => "connection refused".into(),
@@ -910,7 +909,8 @@ pub fn message(c: &Channel, n: &Notice) -> Vec<u8> {
     out
 }
 
-/// time.RFC1123Z in UTC.
+/// RFC 1123 with a numeric zone (`Mon, 02 Jan 2006 15:04:05 +0000`), in
+/// UTC.
 fn rfc1123z(t: &Time) -> String {
     const DAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
     const MONTHS: [&str; 12] = [
@@ -1314,7 +1314,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn checks_as_go() {
+    fn checks() {
         assert!(check_name("ops-1").is_ok());
         assert!(check_name("A!").is_err());
         assert!(check_address("a.b@example.com").is_ok());
@@ -1332,7 +1332,7 @@ mod tests {
     }
 
     #[test]
-    fn escapes_as_go() {
+    fn escapes() {
         assert_eq!(slack_escape("<!here> & x"), "&lt;!here&gt; &amp; x");
         assert_eq!(discord_escape("[a](b)", 100), "\\[a\\]\\(b\\)");
         assert_eq!(discord_escape("abcdef", 4), "abc…");
@@ -1341,7 +1341,7 @@ mod tests {
     }
 
     #[test]
-    fn mail_encodings_as_go() {
+    fn mail_encodings() {
         assert_eq!(q_encode("plain"), "plain");
         assert_eq!(q_encode("café ok"), "=?utf-8?q?caf=C3=A9_ok?=");
         assert_eq!(

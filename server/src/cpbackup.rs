@@ -1,12 +1,11 @@
-//! Scheduled backups of the control plane to a bucket (ADR 0051; Go's
-//! cpbackup.go): the settings SetClusterConfig stores (the bucket's URL
+//! Scheduled backups of the control plane to a bucket (ADR 0051): the
+//! settings SetClusterConfig stores (the bucket's URL
 //! and the key sealed with the master key), the leader's loop that backs
 //! the control plane up when due into the repository at
 //! `<prefix>_control-plane/` (armada-node's volbackup) and prunes it with
 //! the keep policy, the state it keeps, its condition and metrics, and
 //! what ClusterStatus and the metrics endpoint show of it. What a backup
-//! holds is staged by the daemon ([`ControlPlaneBackup`], Go's
-//! Config.ControlPlaneBackup).
+//! holds is staged by the daemon ([`ControlPlaneBackup`]).
 
 use std::future::Future;
 use std::path::PathBuf;
@@ -55,7 +54,7 @@ impl Drop for Staged {
 }
 
 /// Stages the files of a backup of this server's control plane (what
-/// `armadad backup` writes) in a directory (Go's ControlPlaneBackup).
+/// `armadad backup` writes) in a directory.
 pub type ControlPlaneBackup =
     Arc<dyn Fn() -> Pin<Box<dyn Future<Output = Result<Staged, String>> + Send>> + Send + Sync>;
 
@@ -63,7 +62,7 @@ fn not_zero(n: &i64) -> bool {
     *n == 0
 }
 
-/// spec.BackupKeep as encoding/json writes it.
+/// A keep policy as JSON.
 #[derive(Clone, Default, Serialize, Deserialize)]
 struct KeepJson {
     #[serde(default, skip_serializing_if = "not_zero")]
@@ -78,7 +77,7 @@ struct KeepJson {
     monthly: i64,
 }
 
-/// The meta record of the settings (Go's cpBackupSettings).
+/// The meta record of the settings.
 #[derive(Clone, Default, Serialize, Deserialize)]
 struct CpRec {
     #[serde(rename = "everySeconds", default, skip_serializing_if = "not_zero")]
@@ -119,7 +118,7 @@ impl CpRec {
     }
 }
 
-/// The state record (Go's cpBackupState) as encoding/json writes it.
+/// The state record as JSON.
 #[derive(Serialize)]
 struct CpStateRec {
     #[serde(rename = "urlVersion")]
@@ -177,7 +176,7 @@ fn time(v: &Json, k: &str) -> Time {
         .unwrap_or_else(Time::zero)
 }
 
-/// The settings (Go's cpBackupSettings) the status and the loop need.
+/// The settings the status and the loop need.
 pub(crate) struct CpSettings {
     pub plan: VolumeBackup,
     pub bucket: String,
@@ -188,7 +187,7 @@ pub(crate) struct CpSettings {
     key: Option<SealedJson>,
 }
 
-/// The state (Go's cpBackupState).
+/// The state.
 pub(crate) struct CpState {
     pub last_at: Time,
     pub last_id: String,
@@ -216,7 +215,7 @@ impl Default for CpState {
 }
 
 impl Server {
-    /// cpBackupSettings, or none when backups are off.
+    /// The backup settings, or none when backups are off.
     pub(crate) async fn cp_backup_settings(
         &self,
     ) -> Result<Option<CpSettings>, armada_store::Error> {
@@ -253,7 +252,7 @@ impl Server {
         Ok(s.on.then_some(s))
     }
 
-    /// cpBackupState: the state of the settings' bucket and key; a new
+    /// The state of the settings' bucket and key; a new
     /// bucket or key starts afresh.
     pub(crate) async fn cp_backup_state(
         &self,
@@ -277,7 +276,7 @@ impl Server {
         })
     }
 
-    /// controlPlaneBackupStatus: none while backups are off.
+    /// None while backups are off.
     pub(crate) async fn control_plane_backup_status(
         &self,
     ) -> Result<Option<ControlPlaneBackupStatus>, armada_store::Error> {
@@ -318,7 +317,7 @@ impl Server {
 }
 
 impl Server {
-    /// setControlPlaneBackup: stores the backup settings the request
+    /// Stores the backup settings the request
     /// names. The URL and the key are sealed and never logged, audited,
     /// or returned.
     pub(crate) async fn set_control_plane_backup(
@@ -491,7 +490,7 @@ impl Server {
         Ok(())
     }
 
-    /// controlPlaneBackupLoop: backs the control plane up whenever it is
+    /// Backs the control plane up whenever it is
     /// due, one backup at a time, while this server leads.
     pub(crate) async fn control_plane_backup_loop(
         &self,
@@ -522,7 +521,7 @@ impl Server {
         }
     }
 
-    /// controlPlaneBackupPass: runs a backup when one is due.
+    /// Runs a backup when one is due.
     pub async fn control_plane_backup_pass(&self) -> Result<(), armada_store::Error> {
         let Some(set) = self.cp_backup_settings().await? else {
             self.condition(
@@ -546,7 +545,7 @@ impl Server {
         self.run_control_plane_backup(&set).await
     }
 
-    /// runControlPlaneBackup: backs the control plane up, prunes the
+    /// Backs the control plane up, prunes the
     /// bucket, and records how it went.
     async fn run_control_plane_backup(&self, set: &CpSettings) -> Result<(), armada_store::Error> {
         let (snap, usage, err) =
@@ -636,7 +635,7 @@ impl Server {
         Ok(())
     }
 
-    /// backUpControlPlane: a snapshot written to the bucket and the bucket
+    /// A snapshot written to the bucket and the bucket
     /// pruned. A snapshot comes back also when the error says only the
     /// pruning failed.
     async fn back_up_control_plane(
@@ -731,7 +730,7 @@ impl Server {
     }
 }
 
-/// cpBackupDue: when the next backup is due, on the plan after the last
+/// When the next backup is due, on the plan after the last
 /// success, and after a failure no later than backupRetry.
 fn cp_backup_due(set: &CpSettings, st: &CpState) -> Time {
     backup_due(

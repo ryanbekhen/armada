@@ -1,14 +1,12 @@
-//! What the Go driver samples of the supervisor runtime's containers
-//! (internal/runtime/containerd stats.go and members.go, on
-//! internal/runtime/supervisor's container.go and cgroup.go), for many
-//! containers in one call: each one's record, its shim's state, its
+//! What the agent samples of the supervisor runtime's containers, for
+//! many containers in one call: each one's record, its shim's state, its
 //! cgroup (v2), and its network namespace's counters, a replica's init
 //! containers and sidecars added to it.
 //!
-//! A container whose sample Go would answer with an error, or whose shim
-//! Go would find gone (and then end its containers), is answered "redo":
-//! Go samples that one itself, so its errors and what it does about a
-//! shim that is gone stay Go's.
+//! A container whose sample fails, or whose shim is gone (and whose
+//! containers must then be ended), is answered "redo": the caller samples
+//! that one itself, so its errors and what it does about a shim that is
+//! gone stay the caller's.
 
 use super::bundle::{self, Record};
 use super::shim::{self, CallError};
@@ -18,7 +16,7 @@ use std::fs;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-/// The driver's labels (internal/runtime/containerd).
+/// The labels the agent gives containers.
 const LABEL_KIND: &str = "armada.runtime/kind";
 const LABEL_POD: &str = "armada.runtime/pod";
 
@@ -77,7 +75,7 @@ pub fn locate(shim_dir: &str, rec: &Record, deadline: Option<Instant>) -> Locate
     match shim::call(&socket, &["state".to_string(), rec.id.clone()], timeout) {
         Ok(out) => match parse_state(&out) {
             Some(pid) => Located::Task((pid.max(0)) as u32),
-            // Go abandons the shim on an answer it cannot read.
+            // The caller abandons the shim on an answer it cannot read.
             None => Located::Redo("unexpected state".into()),
         },
         Err(CallError::Shim(t)) if t.ends_with(" not found") => Located::NotFound,
@@ -100,7 +98,7 @@ fn parse_state(out: &str) -> Option<i64> {
     }
 }
 
-/// strconv.Atoi (64-bit int): an optional sign, then decimal digits.
+/// A 64-bit integer: an optional sign, then decimal digits.
 fn go_atoi(s: &str) -> Option<i64> {
     let digits = s.strip_prefix(['+', '-']).unwrap_or(s);
     if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
@@ -109,7 +107,7 @@ fn go_atoi(s: &str) -> Option<i64> {
     s.parse().ok()
 }
 
-/// strconv.ParseUint(s, 10, 64).
+/// A decimal 64-bit unsigned integer.
 fn go_parse_uint(s: &[u8]) -> Option<u64> {
     if s.is_empty() || !s.iter().all(u8::is_ascii_digit) {
         return None;
@@ -158,8 +156,8 @@ fn get(m: &[(Vec<u8>, u64)], k: &str) -> u64 {
         .map_or(0, |e| e.1)
 }
 
-/// readCgroup and statsFromCgroup: CPU time, memory in use without
-/// inactive file pages, and out-of-memory kills; None where Go errs.
+/// A cgroup's CPU time, memory in use without inactive file pages, and
+/// out-of-memory kills; None when a file cannot be read or parsed.
 pub fn read_cgroup(dir: &Path) -> Option<Stats> {
     let cpu = keyed(&dir.join("cpu.stat"))?;
     let mem = keyed(&dir.join("memory.stat"))?;
@@ -202,8 +200,8 @@ pub fn net_dev(text: &str) -> (i64, bool) {
     (egress.unwrap_or(0), egress.is_some())
 }
 
-/// taskStats on a located task: its cgroup (from its bundle's spec) and
-/// its network namespace's counters; None where Go errs.
+/// A located task's sample: its cgroup (from its bundle's spec) and its
+/// network namespace's counters; None when it cannot be read.
 fn task_stats(r: &StatsRequest, rec: &Record, pid: u32) -> Option<Stats> {
     let spec = fs::read(Path::new(&r.dir).join(&rec.id).join("config.json")).ok()?;
     let spec: serde_json::Value = serde_json::from_slice(&spec).ok()?;
@@ -217,7 +215,7 @@ fn task_stats(r: &StatsRequest, rec: &Record, pid: u32) -> Option<Stats> {
     }
     let dir = gopath::join(&r.cgroup_root, &gopath::clean(&format!("/{cgroups}")));
     let mut st = read_cgroup(Path::new(&dir))?;
-    // Go reads /proc/PID/net/dev with the uint32 process ID, 0 for an
+    // /proc/PID/net/dev with the unsigned 32-bit process ID, 0 for an
     // exited container (which has none).
     let netdev = Path::new(&r.proc).join(pid.to_string()).join("net/dev");
     if let Ok(b) = fs::read(netdev) {
@@ -249,8 +247,8 @@ fn sample(r: &StatsRequest, recs: &[Record], id: &str, deadline: Option<Instant>
             let one = match locate(&r.shim_dir, m, deadline) {
                 Located::Task(p) => task_stats(r, m, p),
                 Located::NotFound => None,
-                // Go would end the containers of a member's shim that is
-                // gone: it samples the replica itself.
+                // The caller ends the containers of a member's shim that
+                // is gone: it samples the replica itself.
                 Located::Redo(why) => return Sample::Redo(why),
             };
             if let Some(one) = one {
@@ -264,14 +262,15 @@ fn sample(r: &StatsRequest, recs: &[Record], id: &str, deadline: Option<Instant>
 }
 
 /// Every requested container's sample, in order; Err when the bundles
-/// cannot be listed (Go's LoadContainer fails on each).
+/// cannot be listed.
 pub fn stats(r: &StatsRequest) -> Result<Vec<Sample>, String> {
     let deadline = (r.timeout_ms > 0).then(|| Instant::now() + Duration::from_millis(r.timeout_ms));
     let (recs, skipped) = match bundle::records(&r.dir) {
         Ok(v) => v,
         Err(e) => return Ok(r.ids.iter().map(|_| Sample::Redo(e.clone())).collect()),
     };
-    // A container whose record could not be read is left to Go, alone.
+    // A container whose record could not be read is left to the caller,
+    // alone.
     Ok(r.ids
         .iter()
         .map(|id| match skipped.iter().find(|s| &s.id == id) {
@@ -307,7 +306,7 @@ mod tests {
     }
 
     #[test]
-    fn numbers_as_go_parses_them() {
+    fn numbers_parsed() {
         assert_eq!(go_parse_uint(b"+1"), None);
         assert_eq!(go_parse_uint(b"18446744073709551615"), Some(u64::MAX));
         assert_eq!(go_parse_uint(b"18446744073709551616"), None);

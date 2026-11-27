@@ -1,12 +1,11 @@
 //! armadad runtime-log DIR (hidden): the logging process the shim runs for
-//! a container on nodes whose pack has no armada-log (Go's
-//! embedded.WriteLogs, which stays the reference): the output on fds 3
+//! a container on nodes whose pack has no armada-log: the output on fds 3
 //! (stdout) and 4 (stderr) stored as JSON lines `{"log","stream","time"}`
-//! as Go's encoding/json writes them, lines cut at 16 KiB, at most 1 MiB a
+//! (HTML characters escaped), lines cut at 16 KiB, at most 1 MiB a
 //! second with a burst of 4 MiB (the excess dropped and counted in one
 //! line), rotated at 10 MiB over 3 files, the oldest moved into history
 //! when the container has a meta file (ADR 0043). Closing fd 5 says it is
-//! ready. Unlike armada-log, and as Go, a stream stops at its first write
+//! ready. Unlike armada-log, a stream stops at its first write
 //! error, which the command then reports.
 
 use std::fs::{self, File, OpenOptions};
@@ -19,12 +18,12 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use armada_client::cli::{Ctx, Error, Result};
 
-/// runtime.LogMaxSize, LogMaxFiles, LogRate, LogBurst.
+/// The size a log file rotates at, the files kept, and the rate and
+/// burst of output per second.
 const MAX_SIZE: u64 = 10 << 20;
 const MAX_FILES: u32 = 3;
 const RATE: f64 = (1 << 20) as f64;
 const BURST: f64 = (4 << 20) as f64;
-/// maxLogChunk.
 const CHUNK: usize = 16 << 10;
 const HISTORY_DIR: &str = "history";
 const META_SUFFIX: &str = ".meta";
@@ -36,8 +35,8 @@ struct Limits {
     burst: f64,
 }
 
-/// The limits, or the parity tests' (ARMADA_DAEMON_TEST_LOG_LIMITS=
-/// SIZE,FILES,RATE,BURST, as Go's tests call writeLogs).
+/// The limits, or the replays' (ARMADA_DAEMON_TEST_LOG_LIMITS=
+/// SIZE,FILES,RATE,BURST).
 fn limits() -> Limits {
     let mut l = Limits {
         max_size: MAX_SIZE,
@@ -61,7 +60,7 @@ fn path_err(op: &str, p: &Path, e: &io::Error) -> String {
     format!("{op} {}: {}", p.display(), armada_fsutil::errno_text(e))
 }
 
-/// logFile: a size-rotated file shared by a container's two streams.
+/// A size-rotated file shared by a container's two streams.
 struct LogFile {
     dir: PathBuf,
     id: String,
@@ -75,7 +74,6 @@ struct LogFile {
 }
 
 impl LogFile {
-    /// openLogFile.
     fn open(dir: &Path, id: &str, limits: Limits) -> std::result::Result<LogFile, String> {
         let path = dir.join(format!("{id}.log"));
         crate::gofs::mkdir_all(dir, 0o700)?;
@@ -220,7 +218,7 @@ impl LogFile {
     }
 
     /// Close: the dropped output's line, then the file (its errors are
-    /// not reported, as Go's deferred Close).
+    /// not reported).
     fn close(&mut self) {
         let _ = self.flush_dropped();
         drop(self.file.take());
@@ -252,7 +250,7 @@ fn keep(dir: &Path, id: &str, path: &Path, seq: i64) -> std::result::Result<(), 
     }
 }
 
-/// encoding/json's string: HTML characters escaped, each invalid UTF-8
+/// A JSON string: HTML characters escaped, each invalid UTF-8
 /// byte replaced by U+FFFD.
 fn json_string(out: &mut Vec<u8>, s: &[u8]) {
     const HEX: &[u8; 16] = b"0123456789abcdef";
@@ -300,7 +298,7 @@ fn json_string(out: &mut Vec<u8>, s: &[u8]) {
     out.push(b'"');
 }
 
-/// time.RFC3339Nano of a UTC time.
+/// A UTC time in RFC 3339 with nanoseconds, trailing zeros dropped.
 fn rfc3339_nano(t: SystemTime) -> String {
     let d = t.duration_since(UNIX_EPOCH).unwrap_or_default();
     let secs = d.as_secs() as i64;
@@ -326,9 +324,8 @@ fn lock(l: &Mutex<LogFile>) -> MutexGuard<'_, LogFile> {
     l.lock().unwrap_or_else(|p| p.into_inner())
 }
 
-/// copyStream: r written to l line by line until EOF, as
-/// bufio.Reader.ReadSlice over a 16 KiB buffer; a write or read error
-/// ends the stream.
+/// r written to l line by line until EOF, a line longer than 16 KiB cut
+/// into pieces of that size; a write or read error ends the stream.
 fn copy_stream(
     l: &Mutex<LogFile>,
     stream: &str,
@@ -374,7 +371,7 @@ fn copy_stream(
     }
 }
 
-/// validID: ^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$.
+/// ^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$.
 fn valid_id(id: &str) -> bool {
     let b = id.as_bytes();
     !b.is_empty()
@@ -384,8 +381,7 @@ fn valid_id(id: &str) -> bool {
             .all(|&c| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'.' | b'-'))
 }
 
-/// The descriptor as a file when it is open (os.NewFile wraps any number;
-/// reading a closed one fails with EBADF).
+/// The descriptor as a file when it is open.
 fn fd_file(fd: i32) -> Option<File> {
     // SAFETY: F_GETFD only asks whether the descriptor is open.
     if unsafe { libc::fcntl(fd, libc::F_GETFD) } < 0 {
@@ -455,7 +451,7 @@ mod tests {
     }
 
     #[test]
-    fn json_like_go() {
+    fn json_string_escapes() {
         let j = |s: &[u8]| {
             let mut v = Vec::new();
             json_string(&mut v, s);

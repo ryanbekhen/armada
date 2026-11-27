@@ -1,5 +1,5 @@
-//! runtime.CheckContainerSpec (internal/runtime/validate.go): what every
-//! driver refuses before running an app container, with Go's error texts.
+//! The container spec check: what every driver refuses before running an
+//! app container, with its error texts.
 
 use super::gopath::clean;
 use super::user::errno_text;
@@ -102,7 +102,7 @@ fn abs_clean(p: &str) -> bool {
     p.starts_with('/') && clean(p) == p && p != "/"
 }
 
-/// os.Lstat's mode bits (S_IFMT), or Go's error text.
+/// lstat's file type bits (S_IFMT), or the error's text ("lstat PATH: ERRNO TEXT").
 fn lstat(p: &str) -> Result<u32, String> {
     let c = std::ffi::CString::new(p)
         .map_err(|_| format!("lstat {p}: {}", errno_text(libc::EINVAL)))?;

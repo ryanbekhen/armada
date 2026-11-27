@@ -1,17 +1,14 @@
-//! The cluster network behind the agent's [`Network`] seam (ADR 0055, item
-//! 16d): armada-node's network code (`net apply`, `net up`, `net
-//! unreachable`, `net key rotate`, `net remove`) called in process, with
-//! what Go's `Net` keeps between passes (program_linux.go's programState)
-//! kept here and handed to every pass. The switch's probe runs as
-//! `armada-node net probe` beside the agent, as Go runs it: a pass that
-//! starts one marks the switch probing; the probe records who answered and
-//! clears probing `PROBE_EVERY` after its start.
+//! The cluster network behind the agent's [`Network`] seam: armada-node's
+//! network code (`net apply`, `net up`, `net unreachable`, `net key
+//! rotate`, `net remove`) called in process, with the state kept between
+//! passes here and handed to every pass. The switch's probe runs as
+//! `armada-node net probe` beside the agent: a pass that starts one marks
+//! the switch probing; the probe records who answered and clears probing
+//! `PROBE_EVERY` after its start.
 //!
-//! There is no Go code to fall back to: a pass armada-node fails is the
-//! pass's error, retried on the next one (a full, idempotent sync of the
-//! node). The userspace WireGuard device is not part of this agent (ADR
-//! 0055, "If time runs out"): a pass that needs it fails with what to
-//! install.
+//! A pass armada-node fails is the pass's error, retried on the next one (a
+//! full, idempotent sync of the node). The agent has no userspace WireGuard
+//! device: a pass that needs one fails with what to install.
 
 use std::collections::BTreeSet;
 use std::io::Write as _;
@@ -30,12 +27,12 @@ use crate::log::Logger;
 use crate::network::Network;
 use crate::proxy::{BoxFut, Clients};
 
-/// How often a switch's probe may start (Go's probeEvery), and how long one
-/// waits for answers (probeWait, armada-node's PROBE_WAIT).
+/// How often a switch's probe may start, and how long one
+/// waits for answers (armada-node's PROBE_WAIT).
 pub const PROBE_EVERY: Duration = Duration::from_secs(5);
 pub const PROBE_WAIT: Duration = Duration::from_secs(2);
 
-/// What a pass fails with where Go would start the userspace device.
+/// What a pass fails with when it needs the userspace WireGuard device.
 pub const ERR_NO_KERNEL_WIREGUARD: &str = "the kernel has no WireGuard, which this node's cluster network needs; use a kernel with WireGuard (Linux 5.6 or later)";
 
 /// The kernel side of the cluster network, a seam so the agent's side runs
@@ -83,8 +80,7 @@ impl NetKernel for Kernel {
     }
 }
 
-/// Runs `armada-node net probe` with req on stdin (probeVia without Go's
-/// ping to fall back on).
+/// Runs `armada-node net probe` with req on stdin.
 pub fn run_probe(
     bin: &std::path::Path,
     req: &probe::Request,
@@ -133,7 +129,7 @@ pub fn run_probe(
     (reached, err)
 }
 
-/// What the node's cluster network is set up with (Go's clusternet.Config).
+/// What the node's cluster network is set up with.
 #[derive(Clone, Debug, Default)]
 pub struct NetConfig {
     pub node: String,
@@ -149,17 +145,17 @@ pub struct NetConfig {
     pub key_path: PathBuf,
 }
 
-/// The node's cluster network (Go's clusternet.Net with Config.Program).
+/// The node's cluster network.
 pub struct ClusterNet {
     cfg: NetConfig,
     kernel: Arc<dyn NetKernel>,
     log: Logger,
     /// The private key as text, "" for none.
     key: StdMutex<String>,
-    /// What every pass reads and gives back; held across a pass, as Go
-    /// holds Net.mu, so a probe's result waits for the pass to end.
+    /// What every pass reads and gives back; held across a pass, so a
+    /// probe's result waits for the pass to end.
     st: Arc<Mutex<State>>,
-    /// The last error of each call, to log a failure once (Go's note).
+    /// The last error of each call, to log a failure once.
     errs: StdMutex<std::collections::HashMap<&'static str, String>>,
     clock: fn() -> SystemTime,
 }
@@ -170,15 +166,14 @@ fn unix(t: SystemTime) -> i64 {
         .unwrap_or(0)
 }
 
-/// The NetworkConfig as armada-node reads it: protojson, as Go sends it.
+/// The NetworkConfig as armada-node reads it: the protobuf JSON mapping.
 pub fn node_config(cfg: &pb::NetworkConfig) -> Result<NetworkConfig, String> {
     let v = serde_json::to_value(cfg).map_err(|e| e.to_string())?;
     serde_json::from_value(v).map_err(|e| e.to_string())
 }
 
 impl ClusterNet {
-    /// A network with the key at cfg.key_path, made when there is none
-    /// (LoadOrCreateKey).
+    /// A network with the key at cfg.key_path, made when there is none.
     pub fn new(
         cfg: NetConfig,
         kernel: Arc<dyn NetKernel>,
@@ -208,8 +203,7 @@ impl ClusterNet {
             .unwrap_or_default()
     }
 
-    /// Logs what a call ended in, once per change, in the words of Go's
-    /// Net with armada-node and no fallback (program_linux.go's note), which
+    /// Logs what a call ended in, once per change, in the words
     /// operators and the end-to-end test read in the journal.
     fn note(&self, op: &'static str, err: Option<&str>) {
         let msg = err.unwrap_or("").to_string();
@@ -317,7 +311,7 @@ impl ClusterNet {
         });
     }
 
-    /// Brings the tunnels up before the control plane (Net.Up): from cfg,
+    /// Brings the tunnels up before the control plane: from cfg,
     /// or from the peer list kept in mesh.json when cfg is None.
     pub async fn up(&self, cfg: Option<&pb::NetworkConfig>) -> Result<(), String> {
         self.run("up", cfg, None).await
@@ -338,7 +332,7 @@ impl ClusterNet {
 }
 
 /// Removes the node's tunnels, isolation tables, and firewall chains
-/// (clusternet.Remove, armadad runtime reset).
+/// (`armadad runtime reset`).
 pub fn remove() -> Result<(), String> {
     netapply::remove()
 }
@@ -410,7 +404,7 @@ impl Network for ClusterNet {
             if self.cfg.key_path.as_os_str().is_empty() {
                 return Err("the node's key file is unknown".to_string());
             }
-            // Between passes, as Go holds Net.mu.
+            // Between passes.
             let _st = self.st.lock().await;
             let kernel = self.kernel.clone();
             let path = self.cfg.key_path.clone();
@@ -514,7 +508,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn passes_send_what_go_sends_and_keep_the_state() {
+    async fn passes_send_the_request_and_keep_the_state() {
         let dir = tmp("state");
         let fake = Arc::new(Fake::default());
         *fake.answer.lock().unwrap() = Some(Box::new(|req: &Request| {
@@ -577,7 +571,7 @@ mod tests {
                 a.state.last = "x".into();
             } else {
                 a.needs_userspace = true;
-                a.error = "the kernel has no WireGuard; the Go agent runs it in userspace".into();
+                a.error = "the kernel has no WireGuard".into();
             }
             a
         }));

@@ -1,10 +1,8 @@
-//! Commands in a running container through `armada-node runtime exec`
-//! (ADR 0054 step 5, last part; internal/runtime/supervisor
-//! nativeexec.go), which becomes the parent of the container's OCI
-//! runtime (crun, or runc for a container runc created: ADR 0056) and
-//! copies its output: a
-//! probe's command (output dropped, the drain's grace of ExecApp) and a
-//! system container's command (its whole output, as Driver.Exec). The
+//! Commands in a running container through `armada-node runtime exec`,
+//! which becomes the parent of the container's OCI runtime (crun, or runc
+//! for a container runc created: ADR 0056) and copies its output: a
+//! probe's command (output dropped after the drain's grace) and a system
+//! container's command (its whole output). The
 //! request goes on descriptor 3, the control socket is descriptor 4, and
 //! the output both descriptors 6 and 7, so it arrives as one stream.
 
@@ -20,7 +18,7 @@ use armada_node::runtime::container::oci::OciRuntime;
 use serde::Deserialize;
 use serde_json::Value;
 
-/// The exec's request (nativeExec).
+/// The exec's request.
 pub struct ExecRequest<'a> {
     pub bundle: &'a str,
     pub dir: &'a str,
@@ -32,11 +30,12 @@ pub struct ExecRequest<'a> {
     pub args: &'a [String],
     /// Whether the output is wanted (descriptors 6 and 7).
     pub output: bool,
-    /// ExecApp's ioDrainGrace; 0 copies the output to its end.
+    /// How long output is copied once it went quiet after the exit; 0
+    /// copies the output to its end.
     pub drain_grace: Duration,
 }
 
-/// ExecApp's and execProcess's graces.
+/// How long output is copied once quiet: from pipes, and from a terminal.
 pub const DRAIN_GRACE: Duration = Duration::from_secs(2);
 pub const TERMINAL_DRAIN_GRACE: Duration = Duration::from_secs(2);
 
@@ -219,17 +218,15 @@ fn console_socket(rt: OciRuntime) -> bool {
     rt == OciRuntime::Crun
 }
 
-/// execProcess.Start's error once the runtime wrote no pid in time (Go's
-/// text for runc, the runtime named).
+/// The error once the runtime wrote no pid in time, the runtime named.
 fn not_started(rt: OciRuntime) -> String {
     format!("exec: {} exec did not start the process", rt.name())
 }
 
-/// ExecApp's bound on killing a process the call left running
-/// (execCleanupTimeout).
+/// The bound on killing a process the call left running.
 pub const CLEANUP_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// An exec session's request (nativeExec) with a terminal and streams.
+/// An exec session's request with a terminal and streams.
 pub struct SessionRequest {
     pub bundle: String,
     pub dir: String,
@@ -267,7 +264,7 @@ struct Line {
 
 /// The agent's side of the control socket: lines to send, answers
 /// received. Dropped before the exit, the session is cleaned up beside
-/// the caller as ExecApp's deferred Delete does: the kill, the exit
+/// the caller: the kill, the exit
 /// awaited within CLEANUP_TIMEOUT, then the socket's end (abandon).
 struct Control {
     tx: Option<tokio::sync::mpsc::UnboundedSender<Vec<u8>>>,
@@ -328,12 +325,12 @@ fn nonblocking(fd: OwnedFd) -> std::io::Result<OwnedFd> {
     Ok(fd)
 }
 
-/// An exec session armada-node runs whole (Store.NativeExec and
-/// ExecApp's flow): the caller's input until its channel ends, the
-/// output in the order each stream is written (stdout true), the
+/// An exec session armada-node runs whole: the caller's input until its channel
+/// ends, the output in the order each stream is written (stdout true), the
 /// terminal's sizes, the exit code once the output was drained. A failure
-/// before runc ran answers with ExecApp's texts; dropping the future
-/// kills the command (within CLEANUP_TIMEOUT) and abandons the session.
+/// before runc ran answers with the exec's own texts ("exec: ..."); dropping
+/// the future kills the command (within CLEANUP_TIMEOUT) and abandons the
+/// session.
 pub async fn session(
     node: &Path,
     r: SessionRequest,
@@ -496,7 +493,7 @@ pub async fn session(
         }
     }
 
-    // execProcess.Start.
+    // The start: armada-node says whether the process started.
     loop {
         match c.next().await {
             None => return Err("exec: armada-node: ended the exec session".into()),

@@ -20,15 +20,15 @@ use super::cni::{BRIDGE_NAME, Bridge, bridge_mac};
 /// The machine as the supervisor runtime uses it. Every call blocks; the
 /// runtime makes them off its async tasks.
 pub trait Host: Send + Sync + 'static {
-    /// A new network namespace bind-mounted on a new file in dir
-    /// (containerd's netns.NewNetNS); its path.
+    /// A new network namespace bind-mounted on a new file in dir; its
+    /// path.
     fn new_netns(&self, dir: &Path) -> Result<String, String>;
     /// Unmounts and removes a namespace; one that is gone is no error.
     fn remove_netns(&self, path: &str) -> Result<(), String>;
     /// A new network namespace pinned with a bind mount on path, which
-    /// must not exist (newPinnedNetNS); the file is gone on failure.
+    /// must not exist; the file is gone on failure.
     fn new_pinned_netns(&self, path: &Path) -> Result<(), String>;
-    /// Whether path is a pinned network namespace (isNetNS).
+    /// Whether path is a pinned network namespace.
     fn is_netns(&self, path: &Path) -> bool;
     /// The bridge with the gateway's address, its fixed hardware address,
     /// the MTU (0 leaves it), IPv6 off, and up.
@@ -36,9 +36,9 @@ pub trait Host: Send + Sync + 'static {
     /// Deletes the connection tracking entries any of whose addresses is
     /// addr.
     fn forget_connections(&self, addr: Ipv4Addr) -> Result<(), String>;
-    /// mount.All of a bundle's root filesystem.
+    /// Mounts a bundle's root filesystem, every mount in order.
     fn mount_all(&self, mounts: &[Mount], target: &Path) -> Result<(), String>;
-    /// UnmountAll, with the errno of a failure.
+    /// Unmounts everything on target, with the errno of a failure.
     fn unmount_all(&self, target: &Path) -> Result<(), (String, i32)>;
     /// Runs f with the root filesystem mounts give, read-only, mounted
     /// somewhere for the moment (containerd's WithReadonlyTempMount): the
@@ -48,16 +48,16 @@ pub trait Host: Send + Sync + 'static {
         mounts: &[Mount],
         f: &mut dyn FnMut(&str) -> Result<Vec<u8>, String>,
     ) -> Result<Vec<u8>, String>;
-    /// Whether AppArmor confines containers here (aa.HostSupports).
+    /// Whether AppArmor confines containers here.
     fn apparmor_supported(&self) -> bool;
     /// Loads (or replaces) a profile with apparmor_parser.
     fn load_apparmor(&self, name: &str, text: &str) -> Result<(), String>;
-    /// selinux.GetEnabled.
+    /// Whether SELinux is on.
     fn selinux_enabled(&self) -> bool;
-    /// The policy's container contexts (go-selinux's lxc_contexts); None
+    /// The policy's container contexts (its lxc_contexts file); None
     /// when there are none to read.
     fn selinux_contexts(&self) -> Option<Vec<u8>>;
-    /// selinux.SecurityCheckContext: whether the kernel knows label.
+    /// Whether the kernel knows label.
     fn selinux_check_context(&self, label: &str) -> Result<(), String>;
     /// A file's label, its symbolic links not followed (lgetxattr).
     fn lfile_label(&self, p: &Path) -> std::io::Result<String>;
@@ -127,7 +127,7 @@ fn sys_mount(src: &str, target: &str, flags: libc::c_ulong) -> std::io::Result<(
     Ok(())
 }
 
-/// readonlyMounts: an overlay keeps its upper directory as a lower one;
+/// An overlay keeps its upper directory as a lower one;
 /// anything else gets "ro".
 pub fn readonly_mounts(mounts: &[Mount]) -> Vec<Mount> {
     mounts
@@ -409,7 +409,7 @@ impl Host for LinuxHost {
         if let Ok(b) = fs::read("/usr/share/containers/selinux/contexts") {
             return Some(b);
         }
-        // policyRoot: /etc/selinux/ and the config's SELINUXTYPE.
+        // /etc/selinux/ and the config's SELINUXTYPE.
         let ty = fs::read("/etc/selinux/config")
             .ok()
             .and_then(|b| selinux_config(&b, "SELINUXTYPE"))
@@ -483,7 +483,7 @@ impl Host for LinuxHost {
     }
 }
 
-/// readConfig: the value of key in /etc/selinux/config, quotes trimmed.
+/// The value of key in /etc/selinux/config, quotes trimmed.
 pub fn selinux_config(b: &[u8], key: &str) -> Option<String> {
     b.split(|&c| c == b'\n').find_map(|l| {
         let l = l.trim_ascii();
@@ -600,8 +600,7 @@ fn tuple(b: &[u8]) -> (Option<[u8; 4]>, Option<[u8; 4]>) {
 }
 
 /// Whether a dumped flow (its attributes after the nfgenmsg) has addr as
-/// its original source or destination, or either reply address: the
-/// filters forgetConnections gives ConntrackDeleteFilters.
+/// its original source or destination, or either reply address.
 pub fn flow_matches(attrs: &[u8], addr: Ipv4Addr) -> bool {
     let want = Some(addr.octets());
     for (t, d) in netlink::attrs(attrs) {
@@ -615,7 +614,7 @@ pub fn flow_matches(attrs: &[u8], addr: Ipv4Addr) -> bool {
     false
 }
 
-/// forgetConnections: the IPv4 table dumped, each matching flow deleted by
+/// The IPv4 table dumped, each matching flow deleted by
 /// sending its attributes back, as vishvananda's ConntrackDeleteFilters
 /// does.
 pub fn forget_connections(addr: Ipv4Addr) -> Result<(), String> {

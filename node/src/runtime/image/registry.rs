@@ -1,10 +1,9 @@
-//! The registry protocol as containerd's docker resolver speaks it for the
-//! Go driver: resolving a reference (HEAD, then GET when the registry
+//! The registry protocol as containerd's docker resolver speaks it:
+//! resolving a reference (HEAD, then GET when the registry
 //! sends no digest), fetching manifests and blobs, the retries of
 //! doWithRetries, and the authorizer (bearer tokens from the token service
 //! a challenge names, basic credentials) with the credentials the app gave
-//! only for the registry they were given for (credentials in
-//! internal/runtime/containerd).
+//! only for the registry they were given for.
 
 use super::digest::Digest;
 use super::http::{self, Client, Request, Response, Url};
@@ -790,8 +789,7 @@ impl<'a> Registry<'a> {
             format!("{}, */*", desc.media_type)
         };
         // Layer URLs a manifest names (non-distributable layers) are never
-        // fetched: the Go agent drops them too (registryOnly), so every blob
-        // comes from the registry.
+        // fetched, so every blob comes from the registry.
         let endpoint = if is_manifest(&desc.media_type) || is_index(&desc.media_type) {
             "manifests"
         } else {

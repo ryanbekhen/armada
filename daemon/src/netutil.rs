@@ -1,12 +1,12 @@
-//! The address checks of Go's internal/netutil the machine commands use,
-//! and the machine's interfaces as Go's net package lists them.
+//! The address checks the machine commands use, and the machine's
+//! interfaces with their addresses.
 
 use std::ffi::CStr;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use armada_spec::go::{parse_addr, quote};
 
-/// netutil.IsPrivate: RFC 1918, IPv6 ULA, loopback, or carrier-grade NAT.
+/// RFC 1918, IPv6 ULA, loopback, or carrier-grade NAT.
 pub fn is_private(ip: &IpAddr) -> bool {
     let ip = unmap(ip);
     match ip {
@@ -48,7 +48,6 @@ fn is_global_unicast(ip: &IpAddr) -> bool {
     }
 }
 
-/// netutil.CheckEndpoint.
 pub fn check_endpoint(s: &str) -> Result<Ipv4Addr, String> {
     let a = match parse_addr(s) {
         Some(a) if a.is4 && a.string() == s => a,
@@ -69,7 +68,6 @@ pub fn check_endpoint(s: &str) -> Result<Ipv4Addr, String> {
     Ok(v)
 }
 
-/// netutil.CheckPrivateIP.
 pub fn check_private_ip(s: &str) -> Result<IpAddr, String> {
     let a = match parse_addr(s) {
         Some(a) if a.zone.is_empty() => a,
@@ -110,14 +108,14 @@ pub struct IfaceAddr {
     pub ip: IpAddr,
 }
 
-/// Every address of every interface, in Go's order: interfaces by index,
+/// Every address of every interface: interfaces by index,
 /// each one's addresses as the kernel lists them (IPv4 first). With up,
 /// only interfaces that are up, not loopback, and not container or VM
-/// bridges (interfaceAddrs).
+/// bridges.
 pub fn interface_addrs(up_only: bool) -> Vec<IfaceAddr> {
     let mut raw: Vec<(u32, String, IpAddr)> = Vec::new();
-    // The parity cases recorded from Go (test hooks only): the machine's
-    // addresses as Go read them, `INDEX NAME FLAGS IP` entries separated by
+    // The recorded parity cases (test hooks only): the recording machine's
+    // addresses, `INDEX NAME FLAGS IP` entries separated by
     // `;`, FLAGS holding u when the interface is up and l when it is
     // loopback, so a case replays alike on another machine.
     if let Some(v) = crate::hooks::get("INTERFACES") {
@@ -188,7 +186,6 @@ pub fn interface_addrs(up_only: bool) -> Vec<IfaceAddr> {
         .collect()
 }
 
-/// virtualInterface.
 fn virtual_interface(name: &str) -> bool {
     [
         "docker", "br-", "veth", "cni", "flannel", "virbr", "lxc", "lxd", "podman", "tun", "tap",
@@ -198,7 +195,6 @@ fn virtual_interface(name: &str) -> bool {
     .any(|p| name.starts_with(p))
 }
 
-/// netutil.DetectEndpoint.
 pub fn detect_endpoint() -> Result<Ipv4Addr, String> {
     one_endpoint(&interface_addrs(true))
 }
@@ -225,8 +221,8 @@ fn one_endpoint(found: &[IfaceAddr]) -> Result<Ipv4Addr, String> {
     }
 }
 
-/// netutil.DetectPrivateIP: the machine's only private IPv4 address, or,
-/// in the parity tests, one of ARMADA_DAEMON_TEST_PRIVATE_IPS (a
+/// The machine's only private IPv4 address, or,
+/// in the replays, one of ARMADA_DAEMON_TEST_PRIVATE_IPS (a
 /// comma-separated list standing for the interfaces' addresses).
 pub fn detect_private_ip() -> Result<IpAddr, String> {
     if let Some(v) = crate::hooks::get("PRIVATE_IPS") {
@@ -264,7 +260,7 @@ fn one_private_ipv4(found: &[IfaceAddr]) -> Result<IpAddr, String> {
     }
 }
 
-/// netutil.CheckNodeIP: a private address that is not loopback.
+/// A private address that is not loopback.
 pub fn check_node_ip(s: &str) -> Result<IpAddr, String> {
     let a = check_private_ip(s)?;
     if a.is_loopback() {
@@ -273,7 +269,6 @@ pub fn check_node_ip(s: &str) -> Result<IpAddr, String> {
     Ok(a)
 }
 
-/// netutil.CheckPrivateListen.
 pub fn check_private_listen(s: &str) -> Result<(), String> {
     armada_client::config::check_private_listen(s)
 }

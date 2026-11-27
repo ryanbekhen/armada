@@ -1,6 +1,5 @@
-//! The control plane's terms (internal/server's TestArmadaServerTerms,
-//! which needs no Go to compare with: it checks the Rust server alone):
-//! armada-server-parity in election mode campaigns on the member, runs a
+//! The control plane's terms (checked on the server alone, with no
+//! recording): armada-server-parity in election mode campaigns on the member, runs a
 //! term on a store fenced on its key (migrating the keyspace first: here
 //! one schema behind, which shows the migration ran),
 //! runs the term's server again when the cluster's server settings

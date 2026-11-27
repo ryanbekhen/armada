@@ -1,9 +1,9 @@
-//! Archives of a control plane (Go's internal/backup): a snapshot of its
+//! Archives of a control plane: a snapshot of its
 //! etcd keyspace, the secrets master key, the cluster CA, the server
 //! certificate, and the embedded agent's identity, with a manifest of
 //! their SHA-256s first. The layout, the manifest, the file modes, the
-//! limits, and every check of a restore are Go's, so an archive either
-//! side wrote restores on the other.
+//! limits, and every check of a restore are fixed, so an archive any
+//! release wrote restores on another.
 //!
 //! A restore treats the archive as untrusted input: only known file names
 //! are extracted, sizes are capped, every file is checked against the
@@ -26,7 +26,7 @@ use crate::manifest::{Created, Manifest};
 use crate::state::{self, Programs};
 use crate::{netutil, pack};
 
-/// The data directory's files a backup covers (Go's constants).
+/// The data directory's files a backup covers.
 pub const FILE_STATE: &str = "etcd.snapshot";
 pub const FILE_MASTER_KEY: &str = "master.key";
 pub const FILE_CA_CERT: &str = "ca.crt";
@@ -38,7 +38,7 @@ pub const FILE_NODE_KEY: &str = "node.key";
 pub const FILE_AGENT: &str = "agent.json";
 pub const DIR_ETCD: &str = "etcd";
 
-/// etcdPrefix: where the control plane's records live in etcd.
+/// Where the control plane's records live in etcd.
 pub const ETCD_PREFIX: &str = "/armada/";
 pub const META_MASTER_KEY: &str = "master_key_id";
 const MANIFEST_NAME: &str = "manifest.json";
@@ -66,7 +66,7 @@ fn errno(op: &str, p: &Path, e: &io::Error) -> String {
     format!("{op} {}: {}", p.display(), armada_fsutil::errno_text(e))
 }
 
-/// filepath.Join of a directory and a plain name.
+/// A directory and a plain name joined, cleaned.
 fn join(dir: &Path, name: &str) -> PathBuf {
     PathBuf::from(crate::gopath::join(&dir.to_string_lossy(), name))
 }
@@ -93,7 +93,7 @@ impl Drop for Staged {
     }
 }
 
-/// serverName: the control plane node a server certificate is for.
+/// The control plane node a server certificate is for.
 fn server_name(cert_pem: &[u8]) -> Result<String, String> {
     let leaf = parse_cert_pem(cert_pem).map_err(|e| format!("server certificate: {e}"))?;
     match leaf.identity() {
@@ -217,7 +217,7 @@ fn write_new(dst: &Path, r: &mut dyn Read, mut h: Option<&mut Sha256>) -> Result
     Ok(())
 }
 
-/// writeSnapshot: etcd's snapshot of the keyspace (ending with its
+/// etcd's snapshot of the keyspace (ending with its
 /// SHA-256, which a restore verifies) into a new file.
 async fn write_snapshot(c: &Client, dst: &Path) -> Result<(), String> {
     let mut f = fs::OpenOptions::new()
@@ -286,9 +286,8 @@ fn octal(b: &mut [u8], v: i64) {
     b[n] = 0;
 }
 
-/// writeEntry: one regular file (mode 0600, the current second) with a
-/// USTAR header, as Go's tar.Writer writes a FormatPAX header that needs
-/// no records, and its size bytes read from r.
+/// One regular file (mode 0600, the current second) with a plain USTAR
+/// header (no PAX records needed), and its size bytes read from r.
 fn write_entry(
     w: &mut dyn Write,
     name: &str,
@@ -335,7 +334,7 @@ fn write_entry(
         .map_err(|e| e.to_string())
 }
 
-/// A restore handed the backup file by file (Go's Restorer): Add each,
+/// A restore handed the backup file by file: Add each,
 /// then Finish. Nothing reaches the data directory unless all of it
 /// verifies; what Finish did not use is removed when it is dropped.
 pub struct Restorer {
@@ -519,7 +518,7 @@ fn io_text(e: &io::Error) -> String {
     }
 }
 
-/// writeFile: size bytes of r into a new file name below dir; its SHA-256.
+/// size bytes of r into a new file name below dir; its SHA-256.
 fn write_file(dir: &Path, name: &str, r: &mut dyn Read, size: i64) -> Result<String, String> {
     let dst = join(dir, name);
     let mut f = fs::OpenOptions::new()

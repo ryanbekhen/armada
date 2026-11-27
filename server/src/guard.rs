@@ -1,4 +1,4 @@
-//! Stream checks (Go's streamguard.go): a user's or service's AdminService
+//! Stream checks: a user's or service's AdminService
 //! stream stays within the access the cluster gives it now, not only when
 //! it opened (ADR 0033). Every recheck interval the principal's roles are
 //! read again, as a new call would, and the checks the handler asked for
@@ -35,7 +35,7 @@ pub struct Guard {
 }
 
 impl Guard {
-    /// Starts a guard for a principal's stream (guardStream).
+    /// Starts a guard for a principal's stream.
     pub(crate) fn start(
         srv: &Server,
         acc: Access,

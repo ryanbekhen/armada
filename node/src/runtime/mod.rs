@@ -1,23 +1,19 @@
-//! Containers' OCI runtime specs (ADR 0054 step 4, first part; not used by
-//! nodes yet): what internal/runtime/containerd builds before it hands a
-//! spec to its backend, and runtime.CheckContainerSpec.
+//! Containers' OCI runtime specs: what the supervisor runtime builds
+//! before it creates a container's bundle, and the container spec check.
 //!
-//!   armada-node runtime spec       stdin: a SpecRequest (below) as Go's
-//!                                  encoding/json writes it; stdout: the
-//!                                  config.json bytes Go writes, or
-//!                                  {"error": TEXT} with Go's error text
+//!   armada-node runtime spec       stdin: a SpecRequest (below) as JSON;
+//!                                  stdout: the config.json bytes, or
+//!                                  {"error": TEXT}
 //!   armada-node runtime check      stdin: a runtime.ContainerSpec; stdout:
 //!                                  {} or {"error": TEXT}
 //!   armada-node runtime seccomp    stdin: {"Arch", "Bounding", "Kernel48"};
 //!                                  stdout: the default seccomp profile
 //!   armada-node runtime apparmor NAME
 //!                                  Armada's AppArmor profile for NAME as
-//!                                  this machine makes it (appArmorProfile)
+//!                                  this machine makes it
 //!
-//! Go's TestArmadaNodeSpecMatchesGo, TestArmadaNodeCheckMatchesGo,
-//! TestArmadaNodeSeccompMatchesGo, and TestArmadaNodeAppArmorMatchesGo
-//! (internal/runtime/containerd) compare them with Go. Image pulls and the
-//! image store are in image/ (runtime pull, images, prune).
+//! Image pulls and the image store are in image/ (runtime pull, images,
+//! prune).
 
 pub mod apparmor;
 pub mod check;
@@ -34,7 +30,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
 
-/// Go writes a nil slice or map as null.
+/// A null list or map reads as an empty one.
 fn nullable<'de, D, T>(d: D) -> Result<T, D::Error>
 where
     D: Deserializer<'de>,
@@ -172,8 +168,9 @@ fn yes() -> bool {
 /// Tini; system containers: System. Every spec: the image's config blob
 /// (and its descriptor's media type when known), the root filesystem its
 /// users and groups are read from, the cgroup, the SELinux labels, and
-/// whether seccomp and which AppArmor profile apply. Arch is Go's GOARCH
-/// name, this program's own when empty.
+/// whether seccomp and which AppArmor profile apply. Arch is the
+/// architecture's release name (amd64, arm64), this program's own when
+/// empty.
 #[derive(Deserialize, Default)]
 #[serde(rename_all = "PascalCase", default)]
 pub struct SpecRequest {
@@ -209,7 +206,7 @@ impl SpecRequest {
 }
 
 /// What WithImageConfigArgs reads of an image's config blob (v1.Image's
-/// config), parsed as encoding/json does: field names matched exactly or
+/// config): field names matched exactly or
 /// case-insensitively, the last of repeated keys kept, null as nothing.
 #[derive(Default, Clone, Debug)]
 pub struct ImageConfig {
@@ -220,7 +217,7 @@ pub struct ImageConfig {
     pub working_dir: String,
 }
 
-/// encoding/json's key match: equal under simple case folding, where
+/// A JSON key match: equal under simple case folding, where
 /// only ASCII letters, U+017F (s), and U+212A (k) fold to the ASCII
 /// letters of the names read here.
 fn key_is(key: &str, field: &str) -> bool {
@@ -374,14 +371,14 @@ fn member_container_spec(replica: &ContainerSpec, m: &MemberSpec) -> ContainerSp
     }
 }
 
-/// hostname: a valid hostname for a container's name (the Rust agent's
-/// /etc/hostname and /etc/hosts use it as the spec does).
+/// A valid hostname for a container's name (the agent's /etc/hostname and
+/// /etc/hosts use it as the spec does).
 #[allow(dead_code)]
 pub fn container_hostname(name: &str) -> String {
     oci::hostname(name)
 }
 
-/// Go's GOARCH name for this program's architecture.
+/// The release name (amd64, arm64) of this program's architecture.
 fn own_arch() -> &'static str {
     if cfg!(target_arch = "aarch64") {
         "arm64"
@@ -392,7 +389,7 @@ fn own_arch() -> &'static str {
     }
 }
 
-/// The config.json bytes of a request, or Go's error text.
+/// The config.json bytes of a request, or the error's text.
 pub fn build(r: &SpecRequest) -> Result<Vec<u8>, String> {
     if !r.image_media_type.is_empty() && !is_config_type(&r.image_media_type) {
         return Err(format!(

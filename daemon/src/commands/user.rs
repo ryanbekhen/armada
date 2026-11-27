@@ -1,4 +1,4 @@
-//! armadad user renew (Go's internal/daemon user.go): a user certificate
+//! armadad user renew: a user certificate
 //! signed with the cluster CA on this server, the name recorded in the
 //! cluster's state first.
 
@@ -17,8 +17,8 @@ fn msg(s: impl Into<String>) -> Error {
     Error::Msg(s.into())
 }
 
-/// recordUser: name recorded with cluster-admin when the cluster has no
-/// record of it (store.KnowUser), within a minute.
+/// name recorded with cluster-admin when the cluster has no
+/// record of it, within a minute.
 async fn record_user(data_dir: &str, name: &str) -> std::result::Result<(), String> {
     let work = async {
         let st = state::state_client(data_dir).await?;

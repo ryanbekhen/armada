@@ -1,10 +1,9 @@
-//! Obtaining and renewing certificates with ACME (Go's internal/certs
-//! ACME manager on certmagic, ADR 0055 pull request 14): [`Acme`]
-//! implements [`Certs`] the way certmagic does for Armada's options, so a
-//! Go server and a Rust server share one ACME account, obtain and renew
+//! Obtaining and renewing certificates with ACME: [`Acme`] implements
+//! [`Certs`] in certmagic's storage layout in etcd ([`EtcdStorage`]), so
+//! the servers of a cluster share one ACME account, obtain and renew
 //! each other's certificates, answer each other's HTTP-01 challenges, and
-//! wait for each other's locks, all in certmagic's storage in etcd
-//! ([`EtcdStorage`]).
+//! wait for each other's locks, and what earlier releases stored stays in
+//! use.
 //!
 //! What it keeps of certmagic: the account per CA and email
 //! (`acme/<CA>/users/<email>/...`, registered once under the
@@ -72,7 +71,7 @@ pub fn b64url(b: &[u8]) -> String {
     s
 }
 
-/// acmeDirectory: --acme-ca (or the cluster's ACME CA) as a directory URL.
+/// --acme-ca (or the cluster's ACME CA) as a directory URL.
 pub fn directory(v: &str) -> Result<String, String> {
     match v {
         "letsencrypt" => return Ok(LETS_ENCRYPT.to_string()),
@@ -84,8 +83,8 @@ pub fn directory(v: &str) -> Result<String, String> {
     })
 }
 
-/// What the manager tells its caller (certmagic's cert_obtained and
-/// cert_failed events, which Go's Options.OnObtained and OnFailed hear).
+/// What the manager tells its caller: a certificate obtained or renewed,
+/// or a failure.
 #[derive(Clone, Debug)]
 pub enum Event {
     Obtained {
@@ -99,7 +98,7 @@ pub enum Event {
     },
 }
 
-/// The manager's options (certs.Options and what Go's daemon sets).
+/// The manager's options.
 #[derive(Clone)]
 pub struct Options {
     pub storage: Arc<EtcdStorage>,
@@ -109,8 +108,8 @@ pub struct Options {
     /// The cluster's DNS provider credentials (DNS-01 for wildcards, the
     /// root domain, and the names under it).
     pub dns: Option<Dns>,
-    /// Providers for credentials Manage is given for a name (Go's
-    /// NewProvider, which the daemon always sets).
+    /// Providers for credentials Manage is given for a name (always set
+    /// by armadad).
     pub named_dns: bool,
     pub on_event: Option<Arc<dyn Fn(Event) + Send + Sync>>,
     pub log: Logger,
@@ -139,8 +138,8 @@ impl Options {
     }
 }
 
-/// Cancellation of a name's work (the context Go's Manage cancels when a
-/// name is dropped, or Close).
+/// Cancellation of a name's work (when Manage drops the name, or on
+/// Close).
 #[derive(Clone)]
 pub(crate) struct Cancel(watch::Receiver<bool>);
 
@@ -209,7 +208,6 @@ pub(crate) struct Cached {
     pub issuer: String,
 }
 
-/// renewalBackoffState.
 struct Backoff {
     next: Instant,
     idx: Option<usize>,
@@ -222,7 +220,7 @@ pub(crate) struct Inner {
     pub(crate) issuer: String,
     pub(crate) http: Arc<HttpClient>,
     opts_email: String,
-    /// The email PreCheck settled on (setEmail).
+    /// The email PreCheck settled on.
     pub(crate) email: Mutex<Option<String>>,
     root_solver: Option<Arc<Solver>>,
     http_solver: Arc<Solver>,
@@ -377,7 +375,7 @@ impl Inner {
         }
     }
 
-    /// setNamed: the names with credentials of their own, keeping the
+    /// The names with credentials of their own, keeping the
     /// solvers of credentials still in use. A name whose provider cannot
     /// be made keeps HTTP-01 and is reported.
     fn set_named(&self, names: &[String], dns: &BTreeMap<String, Dns>) -> Result<(), String> {
@@ -432,7 +430,7 @@ impl Inner {
         &self.opts_email
     }
 
-    /// getConfigForCert: the solver for a cached certificate's names.
+    /// The solver for a cached certificate's names.
     fn solver_for(&self, names: &[String]) -> Arc<Solver> {
         for n in names {
             let v = self.via(n);
@@ -495,7 +493,7 @@ impl Inner {
         }
     }
 
-    /// queueRenewalTask: one renewal try, backed off after failures.
+    /// One renewal try, backed off after failures.
     fn queue_renewal(self: Arc<Self>, cert: Cached) {
         let name = cert.names[0].clone();
         let job = format!("renew_{name}");
@@ -563,7 +561,7 @@ impl Inner {
         st.next = now + issue::RETRY_INTERVALS[idx];
     }
 
-    /// manageOne: a name's certificate from storage (renewed when due), or
+    /// A name's certificate from storage (renewed when due), or
     /// obtained when storage has none.
     async fn manage_one(self: Arc<Self>, name: String, via: String, cancel: Cancel) {
         if self
@@ -665,7 +663,6 @@ impl Inner {
         Ok(cert)
     }
 
-    /// reloadManagedCertificate.
     async fn reload(&self, name: &str) -> Result<Cached, String> {
         let r = self.cache_managed(name).await;
         r.map_err(|e| {
@@ -678,7 +675,6 @@ impl Inner {
         })
     }
 
-    /// managedCertInStorageNeedsRenewal.
     async fn stored_needs_renewal(&self, name: &str) -> Result<bool, String> {
         let res = self
             .load_resource(name)
@@ -732,7 +728,7 @@ impl Certs for Acme {
             let via = inner.via(n);
             let (tx, rx) = watch::channel(false);
             managed.insert(n.clone(), (tx, via.clone()));
-            // manageAll lowercases and trims each name.
+            // Each name lowercased and trimmed.
             let name = n.trim().to_lowercase();
             tokio::spawn(inner.clone().manage_one(name, via, Cancel(rx)));
         }

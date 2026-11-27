@@ -1,4 +1,4 @@
-//! Spaces (ADR 0026; Go's spaces.go).
+//! Spaces (ADR 0026).
 
 use std::collections::HashMap;
 

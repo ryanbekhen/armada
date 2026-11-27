@@ -402,7 +402,7 @@ mod tests {
     }
 
     #[test]
-    fn strings_as_go() {
+    fn platform_strings_sorted() {
         let got = platform_strings(&[
             p("linux", "arm64", "v8"),
             p("linux", "aarch64", ""),

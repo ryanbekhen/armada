@@ -1,5 +1,5 @@
-//! One scenario's replay: its steps against the Rust server, each answer
-//! normalized and compared with Go's.
+//! One scenario's replay: its steps against the server, each answer
+//! normalized and compared with the recorded one.
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicI64, Ordering};
@@ -29,7 +29,7 @@ use super::watch::Watch;
 
 const CONNECT: &str = "/armada.v1.AgentService/Connect";
 
-/// A recording (internal/server/parity_record_test.go writes them).
+/// A recording.
 pub struct Fixture {
     pub name: String,
     pub skip: Option<String>,
@@ -60,7 +60,7 @@ pub struct Shared {
     pub n: std::sync::atomic::AtomicUsize,
 }
 
-/// A fake agent's session (Go's parityAgent).
+/// A fake agent's session.
 struct Agent {
     node: String,
     stream: Stream,
@@ -76,7 +76,7 @@ struct Agent {
     ch: Channel,
     volume: Arc<Mutex<Option<volumes::Handler>>>,
     /// What answers its log and exec requests once the scenario serves
-    /// them (watchAgent).
+    /// them.
     watch: Arc<Mutex<Option<Arc<Watch>>>>,
 }
 
@@ -91,7 +91,7 @@ struct Acme {
     other: Arc<EtcdStorage>,
     lock: Option<tokio::task::JoinHandle<Result<(), String>>>,
     taken: Option<bool>,
-    /// A lock held as Go's mutex holds it: its lease and key.
+    /// A lock held as an etcd mutex is held: its lease and key.
     foreign: Option<(i64, String)>,
 }
 
@@ -122,7 +122,7 @@ struct Run<'a> {
     acme: Option<Acme>,
     start_ms: i64,
     /// The metrics listener's port and the one recorded: the cluster's
-    /// metrics port is the listener's, so the replay's reads as Go's.
+    /// metrics port is the listener's, so the replay's reads as recorded.
     metrics_port: Option<(i64, i64)>,
 }
 
@@ -134,7 +134,7 @@ fn n(v: &Value, k: &str) -> i64 {
     v.get(k).and_then(Value::as_i64).unwrap_or_default()
 }
 
-/// The test's master key (Go's parityFixtures: bytes 1 to 32).
+/// The test's master key: bytes 1 to 32.
 fn master_key() -> Vec<u8> {
     (1..=32).collect()
 }
@@ -144,7 +144,7 @@ fn free_addr() -> String {
     l.local_addr().expect("an address").to_string()
 }
 
-/// Replays f, returning the differences from Go's answers (empty when
+/// Replays f, returning the differences from the recorded answers (empty when
 /// there are none).
 pub async fn replay(shared: &Shared, f: &Fixture) -> Result<Vec<String>, String> {
     let cfg = &f.config;
@@ -330,7 +330,7 @@ pub async fn replay(shared: &Shared, f: &Fixture) -> Result<Vec<String>, String>
     Ok(run.diffs)
 }
 
-/// A step's outcome to compare: Go's answer and the replay's.
+/// A step's outcome to compare: the recorded answer and the replay's.
 struct Seen {
     key: &'static str,
     got: Value,
@@ -363,7 +363,7 @@ impl Run<'_> {
         Ok(())
     }
 
-    /// Compares what a step saw with Go's answers, keeping its raw answer
+    /// Compares what a step saw with the recorded answers, keeping its raw answer
     /// for later references; the differences.
     fn compare(&mut self, step: &Value, seen: Vec<Seen>) -> Vec<String> {
         let mut out = Vec::new();
@@ -377,8 +377,8 @@ impl Run<'_> {
             }
             let mut got = self.norm.encode(&got);
             if store {
-                // The store's answers as its parity tests compare them:
-                // an empty list or map reads as none (Go's nil), and
+                // The store's answers as the recordings compare them:
+                // an empty list or map reads as none, and
                 // events of one instant in any order (their keys end in
                 // random hex).
                 canon(&mut want, events);
@@ -394,7 +394,7 @@ impl Run<'_> {
         out
     }
 
-    /// A poll: its reads repeated until they give Go's answers.
+    /// A poll: its reads repeated until they give the recorded answers.
     async fn poll(&mut self, i: usize, step: &Value) -> Result<(), String> {
         let inner = step["steps"].as_array().cloned().unwrap_or_default();
         let deadline = Instant::now() + Duration::from_secs(15);
@@ -1079,7 +1079,7 @@ impl Run<'_> {
                 Ok(Vec::new())
             }
             "acmePut" => {
-                // What Go's storage wrote, byte for byte.
+                // What the recording's storage held, byte for byte.
                 for kv in step["kvs"].as_array().cloned().unwrap_or_default() {
                     let mut v = if kv["recent"].as_bool() == Some(true) {
                         now_nanos().to_be_bytes().to_vec()
@@ -1143,7 +1143,7 @@ impl Run<'_> {
                 Ok(one(none_if_empty(keys)))
             }
             "acmeForeignLock" => {
-                // Held as Go's concurrency.Mutex holds it: a key named
+                // Held as an etcd mutex is held: a key named
                 // after its session's lease under the lock's prefix.
                 let lease = client.grant(60).await.map_err(|e| e.to_string())?;
                 let key = format!("{}locks/{name}/{lease:x}", a.prefix);
@@ -1185,7 +1185,7 @@ impl Run<'_> {
                 Ok(one(json!(a.taken.unwrap_or(false))))
             }
             "acmeForeignWait" => {
-                // A waiter as Go's mutex waits: its own key, which holds the
+                // A waiter as an etcd mutex waits: its own key, which holds the
                 // lock only once it is the oldest under the prefix.
                 let lease = client.grant(60).await.map_err(|e| e.to_string())?;
                 let pfx = format!("{}locks/{name}/", a.prefix);
@@ -1247,7 +1247,7 @@ impl Run<'_> {
     }
 
     /// An agent's session: connected once the server records it, or the
-    /// stream's error (Go's connectAgent).
+    /// stream's error.
     async fn agent(&mut self, step: &Value) -> Result<Vec<Seen>, String> {
         let node = s(step, "node").to_string();
         let before = self.connected(&node).await?;
@@ -1347,7 +1347,7 @@ impl Run<'_> {
             .sum())
     }
 
-    /// The server's keyspace as Go's keyspaceOf writes it.
+    /// The server's keyspace as the recordings write it.
     async fn keyspace(&mut self) -> Result<Value, String> {
         let r = self
             .shared
@@ -1460,8 +1460,7 @@ impl Run<'_> {
     }
 }
 
-/// Reads what the server sent until nothing new came for a moment (Go's
-/// parityAgent.drain).
+/// Reads what the server sent until nothing new came for a moment.
 async fn drain(a: &mut Agent) -> Result<(), String> {
     while let Some(m) = a.queue.pop_front() {
         take(a, &m)?;
@@ -1491,7 +1490,7 @@ fn take(a: &mut Agent, m: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
-/// Waits for the session's end (Go's parityAgent.end): assignments sent
+/// Waits for the session's end: assignments sent
 /// before it count.
 async fn wait_end(a: &mut Agent) -> Result<Value, String> {
     while let Some(m) = a.queue.pop_front() {
@@ -1528,8 +1527,8 @@ async fn wait_end(a: &mut Agent) -> Result<Value, String> {
     })
 }
 
-/// The directory certmagic's ACME issuer stores certificates under
-/// (internal/server's parityACMECA).
+/// The directory the ACME issuer stores certificates under in the
+/// recordings.
 const ACME_DIRECTORY: &str = "https://acme.test:14000/dir";
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -1555,8 +1554,8 @@ fn bundle_served(b: &(Vec<u8>, Vec<u8>)) -> (Vec<u8>, Vec<u8>) {
     (out, sum.as_ref().to_vec())
 }
 
-/// What certmagic's storage holds for keys naming name, described as
-/// Go's harness describes it (scenario.acmeKVs).
+/// What certmagic's storage holds for keys naming name, described as the
+/// recordings describe it.
 async fn acme_kvs(c: &Client, a: &Acme, name: &str) -> Result<Value, String> {
     let pfx = format!("{}data/", a.prefix);
     let resp = c
@@ -1619,8 +1618,7 @@ async fn listening(addr: &str, tls: Option<rustls::ClientConfig>) -> bool {
     )
 }
 
-/// Reads a Logs stream's entries as Go's harness does (readLogs and the
-/// follows' reads): n of them (-1: to its end), as replica|stream|data
+/// Reads a Logs stream's entries: n of them (-1: to its end), as replica|stream|data
 /// (rsd) or replica|data (rd), sorted from sortFrom on, and the error that
 /// ended them.
 async fn logs_take(call: &mut Stream, step: &Value) -> Result<Value, String> {
@@ -1683,7 +1681,7 @@ fn metrics_port(v: &mut Value, own: i64, recorded: i64) {
     }
 }
 
-/// A list as Go's nil slice writes it when empty.
+/// A list, or null when empty (as the recordings write it).
 fn none_if_empty(l: Vec<Value>) -> Value {
     if l.is_empty() {
         Value::Null
@@ -1721,7 +1719,7 @@ pub fn status_tree(st: &tonic::Status) -> Value {
     Norm::error(grpc::code_name(st.code()), st.message())
 }
 
-/// io.EOF as grpc-go's status.Convert reads it.
+/// A stream's end as a status: Unknown, "EOF".
 pub fn eof() -> Value {
     Norm::error("Unknown", "EOF")
 }
@@ -1760,8 +1758,8 @@ fn what(step: &Value) -> String {
     }
 }
 
-/// Go's and the replay's answers, around their first difference when long
-/// (as compareTranscripts shows them).
+/// The recorded and the replay's answers, around their first difference
+/// when long.
 fn diff(key: &str, want: &Value, got: &Value) -> String {
     let (mut w, mut g) = (gojson::marshal(want), gojson::marshal(got));
     if w.len() > 400 || g.len() > 400 {

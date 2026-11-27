@@ -1,7 +1,8 @@
-//! The production health check (Go's DefaultCheck): an HTTP GET of a path,
-//! or a TCP connect when the path is empty, with Go's error texts, which
-//! reach reports as "readiness probe failed: ...". The request follows no
-//! redirect and uses no proxy: probes reach the container and nothing else.
+//! The production health check: an HTTP GET of a path, or a TCP connect
+//! when the path is empty, with error texts such as "dial tcp ADDR:
+//! connect: connection refused", which reach reports as "readiness probe
+//! failed: ...". The request follows no redirect and uses no proxy: probes
+//! reach the container and nothing else.
 
 use std::future::Future;
 use std::pin::Pin;
@@ -23,7 +24,7 @@ pub fn default_check() -> CheckFn {
     Arc::new(|addr, path, timeout| Box::pin(check(addr, path, timeout, crate::VERSION)))
 }
 
-/// Go's net error text of a failed connect.
+/// The text of a failed connect: `dial tcp ADDR: connect: ERRNO TEXT`.
 fn dial_error(addr: &str, e: &std::io::Error) -> String {
     format!("dial tcp {addr}: connect: {}", armada_fsutil::errno_text(e))
 }

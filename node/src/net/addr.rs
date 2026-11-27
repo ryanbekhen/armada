@@ -1,7 +1,7 @@
-//! Addresses and prefixes as Go's net/netip parses, compares, and prints
-//! them: the cluster network's checks depend on exactly what Go accepts
-//! (no leading zeros, zones only on IPv6, canonical text) and on how it
-//! orders and prints addresses.
+//! Addresses and prefixes, parsed, compared, and printed strictly: the
+//! cluster network's checks depend on exactly what is accepted (no leading
+//! zeros, zones only on IPv6, canonical text) and on how addresses are
+//! ordered and printed.
 
 use std::cmp::Ordering;
 use std::fmt;
@@ -31,7 +31,7 @@ impl PartialOrd for Addr {
     }
 }
 
-/// parseIPv4Fields: four decimal fields, no leading zeros, each at most 255.
+/// Four decimal fields, no leading zeros, each at most 255.
 fn parse_v4_fields(s: &[u8]) -> Option<[u8; 4]> {
     let mut fields = [0u8; 4];
     let (mut val, mut pos, mut dig) = (0u32, 0usize, 0usize);
@@ -66,7 +66,8 @@ fn parse_v4_fields(s: &[u8]) -> Option<[u8; 4]> {
     Some(fields)
 }
 
-/// parseIPv6, with Go's rules for groups, "::", embedded IPv4, and zones.
+/// An IPv6 address: at most four hex digits a group, one "::", an
+/// embedded IPv4 address only last, and a zone after '%'.
 fn parse_v6(input: &str) -> Option<Addr> {
     let (mut s, zone) = match input.find('%') {
         Some(i) => {
@@ -306,7 +307,7 @@ impl fmt::Display for Addr {
     }
 }
 
-/// Go's text of an address that may be missing (the zero netip.Addr).
+/// The text of an address that may be missing ("invalid IP").
 pub fn addr_text(a: &Option<Addr>) -> String {
     a.as_ref()
         .map_or_else(|| "invalid IP".to_string(), Addr::to_string)
@@ -343,7 +344,7 @@ fn mask(b: &mut [u8], bits: usize) {
 }
 
 impl Prefix {
-    /// netip.ParsePrefix.
+    /// Parses an address and a prefix length.
     pub fn parse(s: &str) -> Option<Prefix> {
         let i = s.rfind('/')?;
         let addr = Addr::parse(&s[..i])?;
@@ -454,7 +455,7 @@ impl fmt::Display for Prefix {
     }
 }
 
-/// Go's text of a prefix that may be missing (the zero netip.Prefix).
+/// The text of a prefix that may be missing ("invalid Prefix").
 pub fn prefix_text(p: &Option<Prefix>) -> String {
     p.as_ref()
         .map_or_else(|| "invalid Prefix".to_string(), Prefix::to_string)
@@ -465,8 +466,9 @@ pub fn opt_contains(p: &Option<Prefix>, ip: &Addr) -> bool {
     p.as_ref().is_some_and(|p| p.contains(ip))
 }
 
-/// Go's strconv.Quote, which `%q` writes: ASCII exactly as Go escapes it;
-/// other characters kept unless they are control characters.
+/// A double-quoted string: `"` and `\` escaped, \a \b \f \n \r \t \v,
+/// other ASCII control bytes as \xHH; other characters kept unless they
+/// are control characters (\uXXXX, \UXXXXXXXX).
 pub fn quote(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 2);
     out.push('"');
@@ -506,7 +508,7 @@ mod tests {
     }
 
     #[test]
-    fn parses_as_go() {
+    fn parses_strictly() {
         assert_eq!(p("10.0.0.1").as_deref(), Some("10.0.0.1"));
         assert_eq!(p("010.0.0.1"), None);
         assert_eq!(p("1.2.3"), None);
@@ -531,7 +533,7 @@ mod tests {
     }
 
     #[test]
-    fn prefixes_as_go() {
+    fn prefixes_parse_strictly() {
         let pr = |s: &str| Prefix::parse(s).map(|p| p.to_string());
         assert_eq!(pr("10.120.0.1/16").as_deref(), Some("10.120.0.1/16"));
         assert_eq!(pr("10.120.0.0/016"), None);
@@ -555,7 +557,7 @@ mod tests {
     }
 
     #[test]
-    fn quotes_as_go() {
+    fn quotes_with_escapes() {
         assert_eq!(quote("a\"b\\\n\x01"), "\"a\\\"b\\\\\\n\\x01\"");
     }
 }

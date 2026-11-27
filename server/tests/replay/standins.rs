@@ -1,8 +1,6 @@
-//! Stand-ins the scenarios reach besides the server (internal/server/
-//! parity_watching_test.go's alertSinks and parity_cpbackup_test.go's
-//! cpBucket): an HTTP server for webhooks, Slack, Discord, and the
-//! Telegram Bot API, an SMTP server, and an S3 bucket; and a client of the
-//! metrics endpoint (scenario.scrape).
+//! Stand-ins the scenarios reach besides the server: an HTTP server for
+//! webhooks, Slack, Discord, and the Telegram Bot API, an SMTP server, and
+//! an S3 bucket; and a client of the metrics endpoint.
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::{AtomicI64, Ordering};
@@ -199,12 +197,12 @@ fn clock_utc(b: &[u8]) -> bool {
         && b[8..].starts_with(b" UTC")
 }
 
-/// sinkTime: `\d{4}-\d\d-\d\d \d\d:\d\d:\d\d UTC`.
+/// `\d{4}-\d\d-\d\d \d\d:\d\d:\d\d UTC`.
 fn sink_time(b: &[u8]) -> Option<usize> {
     (b.len() >= 23 && date(b) && b[10] == b' ' && clock_utc(&b[11..])).then_some(23)
 }
 
-/// sinkTimeQ: `\d{4}-\d\d-\d\d =?\r?\n?\d\d:\d\d:\d\d UTC`.
+/// `\d{4}-\d\d-\d\d =?\r?\n?\d\d:\d\d:\d\d UTC`.
 fn sink_time_q(b: &[u8]) -> Option<usize> {
     if b.len() < 11 || !date(b) || b[10] != b' ' {
         return None;
@@ -218,7 +216,7 @@ fn sink_time_q(b: &[u8]) -> Option<usize> {
     (b.len() >= i + 12 && clock_utc(&b[i..])).then_some(i + 12)
 }
 
-/// sinkDate: `(?m)^Date: .*\r$` replaced by `Date: <date>\r`.
+/// `(?m)^Date: .*\r$` replaced by `Date: <date>\r`.
 fn sink_date(s: &str) -> String {
     s.split('\n')
         .map(|l| {
@@ -408,7 +406,7 @@ fn civil(days: i64) -> (i64, i64, i64) {
     (yoe + era * 400 + i64::from(m <= 2), m, d)
 }
 
-/// ms as Go's `2006-01-02T15:04:05.000Z` in UTC.
+/// ms as `YYYY-MM-DDTHH:MM:SS.mmmZ` in UTC.
 fn s3_time(ms: i64) -> String {
     let (secs, milli) = (ms.div_euclid(1000), ms.rem_euclid(1000));
     let (days, rem) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
@@ -540,8 +538,8 @@ fn xml_escape(s: &str) -> String {
         .replace('\'', "&#39;")
 }
 
-/// A scrape of the metrics endpoint: the status and body (Go's runtime
-/// metrics left out), or an error.
+/// A scrape of the metrics endpoint: the status and body (any `go_`
+/// families left out, as the recordings leave them out), or an error.
 pub async fn scrape(
     addr: &str,
     mut tls: rustls::ClientConfig,

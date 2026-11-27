@@ -1,5 +1,5 @@
 //! Secret files on the node's tmpfs and the directories of persistent
-//! volumes (Go's secretfiles.go and volume.go's prepareVolumes).
+//! volumes.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -16,7 +16,7 @@ use crate::runtime::{FileMount, Runtime, VolumeMount};
 /// secrets directory.
 pub const NO_SECRETS_DIR: &str = "this node cannot mount secret files: the agent has no tmpfs secrets directory (see --secrets-dir)";
 
-/// Go's replicaIDRe, `^[a-z0-9]([a-z0-9.-]{0,126}[a-z0-9])?$`: replica IDs
+/// `^[a-z0-9]([a-z0-9.-]{0,126}[a-z0-9])?$`: replica IDs
 /// before they name directories.
 pub(crate) fn valid_replica_id(id: &str) -> bool {
     let b = id.as_bytes();

@@ -1,17 +1,16 @@
-//! The reconcile pass (Go's Reconcile and reconciler.go, remove.go):
+//! The reconcile pass:
 //! scheduling, rollouts (ADR 0005), drains, evacuation of cordoned and
 //! lost nodes and self-healing (ADR 0008), rebalancing (ADR 0013),
 //! placement (ADR 0014), traffic splitting (ADR 0022), and the removal of
 //! apps, then every connected node's assignment.
 //!
-//! Jobs and their queue triggers (pull request 10 of ADR 0055) run after
-//! the apps (`jobs`, `triggers`); the autoscaler (11) runs on its own
-//! loop (`autoscale`), and a pass tells the usage store whose replicas
-//! are whose. Apps with local volumes (12) are reconciled by `volumes`.
-//! A network switch moves on, the runtime move takes its step, and every
-//! assignment carries the cluster network (13: `network`,
-//! `runtimemove`) and the proxy configuration (14, `ingress`). Go's
-//! server runs the same parts in the scenario parity tests (`coreParts`).
+//! Jobs and their queue triggers run after the apps (`jobs`,
+//! `triggers`); the autoscaler runs on its own loop (`autoscale`), and a
+//! pass tells the usage store whose replicas are whose. Apps with local
+//! volumes are reconciled by `volumes`. A network switch moves on, the
+//! runtime move takes its step, and every assignment carries the cluster
+//! network (`network`, `runtimemove`) and the proxy configuration
+//! (`ingress`).
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::atomic::{AtomicI64, Ordering as AtomicOrdering};
@@ -41,22 +40,22 @@ pub(crate) const ROLLOUT: &str = "rollout";
 
 const SECOND: i64 = 1_000_000_000;
 const MILLISECOND: i64 = 1_000_000;
-/// maxSurge: at most one replica above the desired count during a rollout.
+/// At most one replica above the desired count during a rollout.
 const MAX_SURGE: i64 = 1;
 pub(crate) const DEFAULT_DRAIN_TIMEOUT: Duration = Duration::from_secs(10);
 pub(crate) const DEFAULT_WARMUP: Duration = Duration::from_secs(3);
 pub(crate) const DEFAULT_PROGRESS_DEADLINE: Duration = Duration::from_secs(3 * 60);
-/// rebalanceBackoff: how long an app is left alone after a move whose
+/// How long an app is left alone after a move whose
 /// replacement never served.
 const REBALANCE_BACKOFF: i64 = 10 * 60 * SECOND;
-/// failedMoveAfter: how long a replica keeps failing to start on its node
+/// How long a replica keeps failing to start on its node
 /// before it is tried on another one.
 const FAILED_MOVE_AFTER: i64 = 60 * SECOND;
-/// awayHold bounds how long a drained replica waits for nodes that are
-/// away (finishDrain).
+/// Bounds how long a drained replica waits for nodes that are
+/// away.
 const AWAY_HOLD: i64 = 60 * SECOND;
 
-/// Go's Time.Sub in nanoseconds.
+/// a minus b in nanoseconds.
 pub(crate) fn sub(a: &Time, b: &Time) -> i64 {
     (a.unix - b.unix)
         .saturating_mul(SECOND)
@@ -81,7 +80,7 @@ fn replica_event(r: &Replica, reason: &str, msg: &str) -> Event {
 }
 
 /// The rollout progress, moves, and failures the server remembers between
-/// passes (Go's progress, rebalanceAfter, and failedSince).
+/// passes.
 #[derive(Default)]
 pub(crate) struct Memory {
     progress: HashMap<String, (String, usize)>,
@@ -96,15 +95,14 @@ enum Undo {
     Pushed,
 }
 
-/// What each app of a pass needs to know about all the replicas (Go's
-/// replicaView).
+/// What each app of a pass needs to know about all the replicas.
 pub(crate) struct View {
     pub by_app: HashMap<String, Vec<Replica>>,
     pub use_: Use,
     pub moving: bool,
 }
 
-/// The state of one pass (Go's reconcileRun).
+/// The state of one pass.
 pub(crate) struct Run<'a> {
     pub now: Time,
     /// The earliest time something becomes due, relative to now (0: none).
@@ -229,12 +227,11 @@ impl<'a> Run<'a> {
     }
 }
 
-/// nodeLost: n has been disconnected for at least timeout.
+/// n has been disconnected for at least timeout.
 pub(crate) fn node_lost(n: &Node, now: &Time, timeout: i64) -> bool {
     n.state != NODE_READY && !n.last_seen.is_zero() && sub(now, &n.last_seen) >= timeout
 }
 
-/// publishesPort.
 pub(crate) fn publishes_port(sp: &Spec) -> bool {
     sp.ingress.as_ref().is_some_and(|i| i.typ != INGRESS_NONE)
 }
@@ -245,7 +242,7 @@ fn working(r: &Replica, publishes: bool) -> bool {
     r.state == REPLICA_RUNNING && r.ready && !r.draining() && (!publishes || !r.address.is_empty())
 }
 
-/// trafficWeight: rev's weight in app's traffic, or -1.
+/// rev's weight in app's traffic, or -1.
 pub(crate) fn traffic_weight(app: &App, rev: &str) -> i64 {
     app.traffic
         .iter()
@@ -253,7 +250,7 @@ pub(crate) fn traffic_weight(app: &App, rev: &str) -> i64 {
         .map_or(-1, |t| t.weight)
 }
 
-/// trafficShares: replicas per traffic target, at least one each.
+/// Replicas per traffic target, at least one each.
 pub(crate) fn traffic_shares(total: i64, traffic: &[TrafficTarget]) -> Vec<i64> {
     traffic
         .iter()
@@ -261,7 +258,7 @@ pub(crate) fn traffic_shares(total: i64, traffic: &[TrafficTarget]) -> Vec<i64> 
         .collect()
 }
 
-/// probeBudget: how long a healthy replica may need to pass its startup
+/// How long a healthy replica may need to pass its startup
 /// and readiness probes.
 fn probe_budget(sp: &Spec) -> i64 {
     let Some(p) = &sp.probes else { return 0 };
@@ -319,7 +316,7 @@ impl Server {
         true
     }
 
-    /// A reconcile pass (Go's Reconcile, the parts ported so far).
+    /// A reconcile pass.
     pub async fn reconcile(&self) -> Result<()> {
         let _pass = self.0.pass.lock().await;
         let res = self.pass().await;
@@ -421,7 +418,7 @@ impl Server {
         Ok(())
     }
 
-    /// wakeAfter: a reconcile after d nanoseconds unless one is due sooner.
+    /// A reconcile after d nanoseconds unless one is due sooner.
     pub(crate) fn wake_after(&self, d: i64) {
         let d = Duration::from_nanos(d.max(0) as u64);
         let at = tokio::time::Instant::now() + d;
@@ -443,7 +440,7 @@ impl Server {
         *w = Some((at, h.abort_handle()));
     }
 
-    /// lostNodes: the nodes disconnected for longer than the lost timeout,
+    /// The nodes disconnected for longer than the lost timeout,
     /// none when more are lost than ready.
     async fn lost_nodes(&self, rc: &mut Run<'_>, nodes: &[Node]) -> HashSet<String> {
         let timeout = nanos(self.0.node_lost_timeout);
@@ -526,7 +523,7 @@ impl Server {
         Ok(())
     }
 
-    /// reconcileRevision: converges app's replicas toward its target
+    /// Converges app's replicas toward its target
     /// revision, leaving those of the revisions in others alone.
     async fn reconcile_revision(
         &self,
@@ -817,7 +814,7 @@ impl Server {
         Ok(())
     }
 
-    /// abortStuckMoves: gives up moves whose replacement has not served
+    /// Gives up moves whose replacement has not served
     /// within the progress deadline.
     async fn abort_stuck_moves(
         &self,
@@ -936,7 +933,7 @@ impl Server {
         Ok(())
     }
 
-    /// checkRollout: records a rollout's progress and aborts it once no new
+    /// Records a rollout's progress and aborts it once no new
     /// replica became serving within the progress deadline.
     pub(crate) async fn check_rollout(
         &self,
@@ -1037,7 +1034,7 @@ impl Server {
         Ok(())
     }
 
-    /// finishDrain: removes a draining replica once its drain timeout
+    /// Removes a draining replica once its drain timeout
     /// passed, counted from this leader's start for drains a previous one
     /// began; with hold, it also waits up to awayHold while a node is away.
     pub(crate) async fn finish_drain(
@@ -1060,7 +1057,7 @@ impl Server {
         self.delete_replica(r).await
     }
 
-    /// drainFor: how long r drains.
+    /// How long r drains.
     async fn drain_for(&self, rc: &mut Run<'_>, r: &Replica) -> i64 {
         if let Ok(rev) = rc.revs.get(&r.revision).await
             && rev.spec().drain.0 != 0
@@ -1080,7 +1077,7 @@ impl Server {
         Ok(())
     }
 
-    /// placeReplica: records a new replica of target on node.
+    /// Records a new replica of target on node.
     async fn place_replica(&self, app: &App, target: &Revision, node: &str) -> Result<Replica> {
         let r = Replica {
             id: format!("{}-r{}-{}", app.name, target.seq, (self.0.new_id)(5)),
@@ -1108,7 +1105,7 @@ impl Server {
         Ok(r)
     }
 
-    /// moveFailed: replaces, on another node, a replica that has kept
+    /// Replaces, on another node, a replica that has kept
     /// failing to start for failedMoveAfter; the first of an app moves at a
     /// time.
     async fn move_failed(
@@ -1173,7 +1170,7 @@ impl Server {
         Ok(())
     }
 
-    /// reconcileRemoval: drains the replicas of an app being removed and,
+    /// Drains the replicas of an app being removed and,
     /// when none is left, removes the app; true once it is gone.
     async fn reconcile_removal(&self, rc: &mut Run<'_>, app: &App) -> Result<bool> {
         for r in rc.all.clone() {

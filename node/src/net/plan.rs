@@ -1,5 +1,5 @@
-//! The validated cluster network (clusternet.go, peers.go, policy.go's
-//! parsers): what the control plane sent, checked again before anything of
+//! The validated cluster network: what the control plane sent, checked
+//! again before anything of
 //! it reaches routes or firewall rules, and the paths between nodes behind
 //! NAT (ADR 0050).
 
@@ -184,7 +184,7 @@ impl Plan {
     }
 }
 
-/// pairRelay: the relay of the site of a and b that sorts first, else of the
+/// The relay of the site of a and b that sorts first, else of the
 /// other, else of the first site of all with one.
 fn pair_relay<'a>(relays: &'a HashMap<String, Peer>, a: &Peer, b: &Peer) -> Option<&'a Peer> {
     let (first, second) = if a.site <= b.site {
@@ -250,7 +250,7 @@ fn parse_switch(cfg: &NetworkConfig) -> Result<(String, String), String> {
     Ok((to.clone(), step.clone()))
 }
 
-/// containerAddr: an address the bridge of a node subnet may give a
+/// An address the bridge of a node subnet may give a
 /// container.
 pub fn container_addr(a: &Addr, cidr: &Prefix) -> bool {
     match a {
@@ -259,7 +259,7 @@ pub fn container_addr(a: &Addr, cidr: &Prefix) -> bool {
     }
 }
 
-/// parseEndpoints: addresses claimed twice are left out.
+/// Addresses claimed twice are left out.
 fn parse_endpoints(
     eps: &[NetworkEndpoint],
     cidr: &Prefix,
@@ -293,7 +293,7 @@ fn parse_endpoints(
     Ok(out)
 }
 
-/// parseTCPPorts: sorted and unique.
+/// Sorted and unique.
 fn parse_tcp_ports(ports: &[super::config::U32]) -> Result<Vec<u16>, String> {
     if ports.len() > MAX_TCP_PORTS {
         return Err(format!(
@@ -572,7 +572,7 @@ pub fn shadowed(p: &Plan, locals: &[LocalPrefix]) -> Vec<String> {
 pub const CHECK_OK: i64 = 0;
 pub const CHECK_FAIL: i64 = 2;
 
-/// relayCheck: what doctor's relay check says of a plan, or None.
+/// What doctor's relay check says of a plan, or None.
 pub fn relay_check(p: &Plan) -> Option<(i64, String)> {
     if !p.unreachable.is_empty() {
         return Some((

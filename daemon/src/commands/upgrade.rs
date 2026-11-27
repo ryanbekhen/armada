@@ -20,12 +20,12 @@ const OIDC_ISSUER: &str = "https://token.actions.githubusercontent.com";
 const MAX_DOWNLOAD: u64 = 512 << 20;
 const INSTALLED_BINARY: &str = "/usr/local/bin/armadad";
 
-/// needrestart's settings (Go's needrestart.go).
+/// needrestart's settings.
 pub const NEEDRESTART_DIR: &str = "/etc/needrestart/conf.d";
 pub const NEEDRESTART_FILE: &str = "armada.conf";
 pub const NEEDRESTART_CONF: &str = "# Written by Armada: needrestart lists Armada's services but never restarts\n# them; armadad upgrade restarts what it upgrades.\n$nrconf{override_rc}{qr(^armada-)} = 0;\n";
 
-/// writeNeedrestart: the setting written into dir when needrestart is
+/// The setting written into dir when needrestart is
 /// installed and the file differs; whether it wrote.
 pub fn write_needrestart(dir: &Path) -> std::result::Result<bool, String> {
     if !fs::metadata(dir).is_ok_and(|m| m.is_dir()) {
@@ -49,7 +49,7 @@ pub fn write_needrestart(dir: &Path) -> std::result::Result<bool, String> {
     Ok(true)
 }
 
-/// os.WriteFile(name, b, perm).
+/// b written to p, created with perm or truncated.
 fn write_file(p: &Path, b: &[u8], perm: u32) -> std::result::Result<(), String> {
     let mut f = fs::OpenOptions::new()
         .write(true)
@@ -84,7 +84,6 @@ fn goarch() -> &'static str {
     }
 }
 
-/// exec.LookPath.
 fn look_path(name: &str) -> Option<PathBuf> {
     let path = std::env::var_os("PATH")?;
     for dir in std::env::split_paths(&path) {
@@ -161,7 +160,7 @@ pub fn run(ctx: &mut Ctx<'_>, _: &[String]) -> Result {
     u.run(&current, &target).map_err(Error::Msg)
 }
 
-/// time.Duration.Round(100ms).String().
+/// The time since start, to a tenth of a second (`1.2s`).
 fn since(start: Instant) -> String {
     let ns = start.elapsed().as_nanos() as i64;
     let unit = 100_000_000;
@@ -170,7 +169,6 @@ fn since(start: Instant) -> String {
     armada_spec::go::format_duration(rounded)
 }
 
-/// sizeString.
 fn size_string(n: u64) -> String {
     if n >= 1 << 20 {
         format!("{:.1} MiB", n as f64 / (1u64 << 20) as f64)
@@ -483,7 +481,6 @@ fn percent_decode(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-/// verifyChecksum.
 fn verify_checksum(sums: &Path, file: &Path, name: &str) -> std::result::Result<(), String> {
     let f = fs::File::open(sums)
         .map_err(|e| format!("open {}: {}", sums.display(), armada_fsutil::errno_text(&e)))?;
@@ -506,7 +503,7 @@ fn verify_checksum(sums: &Path, file: &Path, name: &str) -> std::result::Result<
     Ok(())
 }
 
-/// extractRelease: the binaries and the systemd units, by name.
+/// The binaries and the systemd units, by name.
 fn extract_release(
     archive: &Path,
     dir: &Path,
@@ -518,7 +515,7 @@ fn extract_release(
             armada_fsutil::errno_text(&e)
         )
     })?;
-    // gzip.NewReader reads the header first.
+    // The gzip header is read first.
     let mut head = Vec::new();
     (&mut f)
         .take(10)
@@ -585,7 +582,7 @@ pub fn gzip_header_error(head: &[u8]) -> Option<&'static str> {
     None
 }
 
-/// installFile: dst replaced with src (changed by edit) atomically.
+/// dst replaced with src (changed by edit) atomically.
 fn install_file(
     src: &Path,
     dst: &Path,

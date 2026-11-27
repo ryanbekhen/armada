@@ -1,9 +1,9 @@
-//! Certificates of the public frontends (Go's internal/certs, the parts the
-//! leader reads; ADR 0055, pull request 14): the manager's interface the
+//! Certificates of the public frontends, the parts the leader reads: the
+//! manager's interface the
 //! server builds the proxy configuration with, the DNS credentials of an
 //! app's custom domains (ADR 0047), and certmagic's storage in etcd
-//! ([`EtcdStorage`], `/armada-acme/`) with its key layout, so either side
-//! serves what the other's certificate manager obtained. Obtaining and
+//! ([`EtcdStorage`], `/armada-acme/`) with its key layout, so every
+//! server serves what another's certificate manager obtained. Obtaining and
 //! renewing certificates is [`crate::acme`]'s.
 
 use std::collections::BTreeMap;
@@ -14,8 +14,8 @@ use armada_store::election::{Mutex as EtcdMutex, Session};
 use armada_store::{Client, Error, Result};
 use tonic::codegen::async_trait;
 
-/// DNS are a DNS provider's credentials for a name's certificate (Go's
-/// certs.DNS). They redact themselves when printed.
+/// DNS are a DNS provider's credentials for a name's certificate. They
+/// redact themselves when printed.
 #[derive(Clone, PartialEq, Eq)]
 pub struct Dns {
     pub provider: String,
@@ -41,8 +41,7 @@ impl Dns {
     }
 }
 
-/// What the server needs from certificate management (Go's
-/// certs.Manager).
+/// What the server needs from certificate management.
 #[async_trait]
 pub trait Certs: Send + Sync {
     /// Makes names the set of managed certificates; a name in dns uses
@@ -65,7 +64,7 @@ pub trait Certs: Send + Sync {
     }
 }
 
-/// Looks up DNS TXT records (Go's TXTResolver).
+/// Looks up DNS TXT records.
 #[async_trait]
 pub trait TxtResolver: Send + Sync {
     async fn lookup_txt(&self, name: &str) -> std::result::Result<Vec<String>, String>;
@@ -81,10 +80,10 @@ impl TxtResolver for NoTxt {
     }
 }
 
-/// The machine's resolvers (Go's net.DefaultResolver, the default): a TXT
+/// The machine's resolvers: a TXT
 /// query to each nameserver of /etc/resolv.conf in turn over UDP, again
 /// over TCP when the answer is cut short; each record's strings joined
-/// into one, as Go's LookupTXT joins them.
+/// into one.
 pub struct SystemTxt;
 
 #[async_trait]
@@ -307,8 +306,8 @@ pub fn issuer_key(ca: &str) -> String {
 pub fn safe(s: &str) -> String {
     let s = s.to_lowercase();
     let s = s.trim();
-    // strings.NewReplacer replaces at each position the first old string
-    // that matches, left to right.
+    // At each position the first old string that matches is replaced,
+    // left to right.
     let mut out = String::new();
     let b = s.as_bytes();
     let mut i = 0;
@@ -334,7 +333,7 @@ pub fn safe(s: &str) -> String {
             i += c.len_utf8();
         }
     }
-    // safeKeyRE: [^\w@.-] removed (\w is ASCII in Go's regexp).
+    // Anything but ASCII letters, digits, _, @, ., and - removed.
     out.chars()
         .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '@' | '.' | '-'))
         .collect()
@@ -352,7 +351,7 @@ pub fn site_private_key(issuer: &str, name: &str) -> String {
     format!("certificates/{}/{n}/{n}.key", safe(issuer))
 }
 
-/// loadBundle: the certificate of name followed by its key, as the
+/// The certificate of name followed by its key, as the
 /// proxies take it.
 pub async fn load_bundle(s: &EtcdStorage, issuer: &str, name: &str) -> Option<Vec<u8>> {
     let crt = s.load(&site_cert(issuer, name)).await.ok()??;
@@ -365,10 +364,10 @@ pub async fn load_bundle(s: &EtcdStorage, issuer: &str, name: &str) -> Option<Ve
     Some(out)
 }
 
-/// lockTTL: how long a lock outlives a crashed holder.
+/// How long a lock outlives a crashed holder.
 const LOCK_TTL: i64 = 60;
 
-/// What [`EtcdStorage::stat`] finds (certmagic.KeyInfo).
+/// What [`EtcdStorage::stat`] finds.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct KeyInfo {
     pub key: String,
@@ -378,11 +377,11 @@ pub struct KeyInfo {
     pub terminal: bool,
 }
 
-/// certmagic's data in etcd (Go's certs.EtcdStorage): each value is an
+/// certmagic's data in etcd: each value is an
 /// 8-byte big-endian modification time (Unix nanoseconds) followed by the
 /// data, under `<prefix>data/`, and locks are etcd mutexes under
-/// `<prefix>locks/` on a session with a 60-second lease, so a lock taken
-/// by Go's server holds against Rust's and the other way round.
+/// `<prefix>locks/` on a session with a 60-second lease, so a lock one
+/// server takes holds against every other.
 pub struct EtcdStorage {
     c: Client,
     prefix: String,
@@ -528,8 +527,8 @@ impl EtcdStorage {
         Ok(())
     }
 
-    /// Lock, given up when `stop` ends first (Go's Lock with a cancelled
-    /// context): the waiting key is removed and Ok(false) returned.
+    /// Lock, given up when `stop` ends first: the waiting key is removed
+    /// and Ok(false) returned.
     pub async fn lock_unless(
         &self,
         name: &str,

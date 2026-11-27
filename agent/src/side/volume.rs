@@ -1,15 +1,14 @@
-//! Volume sessions (ADR 0023, ADR 0041; Go's volume.go, backup.go,
-//! nativevolume.go, nativesnapshot.go): the control plane offers a
+//! Volume sessions (ADR 0023, ADR 0041): the control plane offers a
 //! VolumeRequest on the Connect stream, and the agent opens AgentService's
 //! VolumeSession to back a volume up as a gzipped tar, restore one, remove
 //! it, or back it up to, list, and restore it from its bucket, with the
-//! app paused under the reconcile lock where Go pauses it. Volumes are
-//! measured for usage reports.
+//! app paused under the reconcile lock. Volumes are measured for usage
+//! reports.
 //!
 //! The work on the volume's files is [`Volumes`]; [`NodeVolumes`] runs the
 //! runtime pack's armada-node `volume archive|restore|size|snapshot|prune|
-//! snapshots|restore-snapshot` with Go's protocol (the archive on standard
-//! streams, answers on descriptors 3 and 4, backup requests on stdin).
+//! snapshots|restore-snapshot` (the archive on standard streams, answers on
+//! descriptors 3 and 4, backup requests on stdin).
 
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -44,7 +43,7 @@ const VOLUME_ANSWER_LIMIT: u64 = 4 << 20;
 /// Why a container stopped for a volume operation is started again.
 const RESUMED: &str = "stopped for a volume backup or restore";
 
-/// A snapshot in a volume's bucket (volbackup.Snapshot).
+/// A snapshot in a volume's bucket.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Snapshot {
     pub id: String,
@@ -61,7 +60,7 @@ pub struct BackupStats {
     pub uploaded: i64,
 }
 
-/// What a prune left (volbackup.Usage).
+/// What a prune left.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Usage {
     pub snapshots: i64,
@@ -80,12 +79,12 @@ pub struct Keep {
     pub monthly: i64,
 }
 
-/// What a backup call reads (Go's snapshotRequest). Its Debug leaves the
+/// What a backup call reads. Its Debug leaves the
 /// URL and the key out.
 #[derive(Clone, Default, serde::Serialize)]
 pub struct SnapshotRequest {
     pub url: String,
-    /// Base64 in JSON, as Go's []byte.
+    /// Base64 in JSON, null when empty.
     #[serde(serialize_with = "b64")]
     pub key: Vec<u8>,
     pub app: String,
@@ -116,7 +115,7 @@ fn is_zero(n: &i64) -> bool {
 
 fn b64<S: serde::Serializer>(k: &[u8], s: S) -> Result<S::Ok, S::Error> {
     if k.is_empty() {
-        // Go's json writes a nil []byte as null.
+        // An empty key is written as null.
         return s.serialize_none();
     }
     s.serialize_str(&armada_node::http::base64(k))
@@ -202,7 +201,7 @@ fn extra_files(cmd: &mut std::process::Command, fds: Vec<RawFd>) {
     }
 }
 
-/// programFailed: "armada-node: WHAT: exit: stderr", valid UTF-8.
+/// "armada-node: WHAT: exit: stderr", valid UTF-8.
 fn program_failed(what: &str, status: Option<std::process::ExitStatus>, stderr: &[u8]) -> String {
     let mut msg = what.to_string();
     if let Some(s) = status.filter(|s| !s.success()) {
@@ -356,7 +355,7 @@ fn restore_blocking(
     }
 }
 
-/// One armada-node volume backup call (Go's nativeCall).
+/// One armada-node volume backup call.
 struct Call {
     child: Child,
     guard: KillGuard,
@@ -603,7 +602,7 @@ impl Volumes for NodeVolumes {
     }
 }
 
-/// Volumes through armada-node's code in process (ADR 0055, item 16e):
+/// Volumes through armada-node's code in process:
 /// the archives, restores, sizes, and the snapshot repository the
 /// program runs, called as a library on blocking threads.
 pub struct LibVolumes;
@@ -900,14 +899,12 @@ impl Volumes for LibVolumes {
     }
 }
 
-/// The zone as armada-node counts days in it (Go's zoneTable): each
-/// offset from UTC and when it starts (Unix seconds), the first also
-/// before. Go walks the zone with Time.ZoneBounds from 1900 towards 2300,
-/// which past the zone file's last transition answers from its rule and
-/// gives a year's end as its start plus 365 days: in a leap year that end
-/// does not move past itself, and Go's table stops there. This table
-/// stops where Go's does (the zone file read as Go reads it), so both
-/// agents send armada-node the same table.
+/// The zone as armada-node counts days in it: each offset from UTC and
+/// when it starts (Unix seconds), the first also before. The table covers
+/// 1900 towards 2300; for a zone whose file has a last transition it stops
+/// at the end of the 365th day of the first leap year from that
+/// transition, where the table has always stopped, so every release sends
+/// armada-node the same table.
 pub fn zone_table(loc: &armada_spec::gotime::Location) -> Vec<[i64; 2]> {
     const DAY: i64 = 86_400;
     // Steps of six hours: no zone changes its offset twice within one.
@@ -915,8 +912,8 @@ pub fn zone_table(loc: &armada_spec::gotime::Location) -> Vec<[i64; 2]> {
     let start = -2_208_988_800; // 1900-01-01T00:00:00Z
     let mut end = year_start(2301);
     if let Some(last) = last_transition(loc.name()) {
-        // The first leap year from the last transition's on: its 366th
-        // day is where Go's walk stops.
+        // The first leap year from the last transition's on: the table
+        // stops at its 366th day.
         let mut y = civil_year(last);
         while !(y % 4 == 0 && (y % 100 != 0 || y % 400 == 0)) {
             y += 1;
@@ -966,9 +963,8 @@ fn year_start(y: i64) -> i64 {
     (365 * (y - 1970) + leaps(y - 1) - leaps(1969)) * 86_400
 }
 
-/// The last transition of the zone file Go reads for name (ZONEINFO, then
-/// the system's directories); None for UTC, Local, or a zone Go takes from
-/// its embedded database.
+/// The last transition of the zone file for name (ZONEINFO, then the
+/// system's directories); None for UTC, Local, or a zone with no file.
 fn last_transition(name: &str) -> Option<i64> {
     if name.is_empty() || name == "UTC" || name == "Local" {
         return None;
@@ -1095,7 +1091,7 @@ impl<R: Runtime> Inner<R> {
             .ok_or_else(|| "this node cannot back up or restore volumes".to_string())
     }
 
-    /// One volume request (serveVolume).
+    /// One volume request.
     pub(crate) async fn serve_volume(self: Arc<Self>, req: pb::VolumeRequest) {
         let Some(conn) = lock(&self.side.conn).clone() else {
             return;
@@ -1246,7 +1242,7 @@ impl<R: Runtime> Inner<R> {
         Some(r)
     }
 
-    /// Restores dir from the session's VolumeData (chunkReader).
+    /// Restores dir from the session's VolumeData.
     async fn restore_archive(
         &self,
         dir: &str,
@@ -1300,8 +1296,8 @@ impl<R: Runtime> Inner<R> {
         }
     }
 
-    /// A backup, a listing, or a restore against the volume's bucket
-    /// (snapshotOp): a message, an error, or both (a backup whose cleanup
+    /// A backup, a listing, or a restore against the volume's bucket: a
+    /// message, an error, or both (a backup whose cleanup
     /// failed).
     async fn snapshot_op(
         self: Arc<Self>,
@@ -1457,7 +1453,7 @@ impl<R: Runtime> Inner<R> {
         }
     }
 
-    /// Adds up the size of every volume on this node (measureVolumes);
+    /// Adds up the size of every volume on this node;
     /// None when it cannot measure them.
     pub(crate) async fn measure_volumes(&self) -> Option<Vec<pb::VolumeUsage>> {
         let vols = self.cfg.side.volumes.clone()?;
@@ -1503,7 +1499,7 @@ impl<R: Runtime> Inner<R> {
     }
 }
 
-/// os.ReadDir: names sorted, and whether each is a directory (not
+/// A directory's names sorted, and whether each is a directory (not
 /// following links).
 fn read_dir_entries(p: &Path) -> std::io::Result<Vec<(String, bool)>> {
     let mut out: Vec<(String, bool)> = std::fs::read_dir(p)?
@@ -1517,7 +1513,7 @@ fn read_dir_entries(p: &Path) -> std::io::Result<Vec<(String, bool)>> {
     Ok(out)
 }
 
-/// The request's keep policy and the zone it counts in (backupKeep).
+/// The request's keep policy and the zone it counts in.
 fn backup_keep(b: &pb::BackupTarget) -> (Keep, armada_spec::gotime::Location) {
     let k = b.keep.unwrap_or_default();
     let keep = Keep {
@@ -1586,7 +1582,7 @@ mod tests {
             assert!(t.len() > 100);
             // 2026-03-29T01:00:00Z: summer time starts.
             assert!(t.contains(&[1_774_746_000, 7200]));
-            // Go's walk stops in a leap year past the file's transitions.
+            // The table stops in a leap year past the file's transitions.
             assert!(t.last().unwrap()[0] < year_start(2301));
         }
         assert_eq!(year_start(2040), 2_208_988_800);

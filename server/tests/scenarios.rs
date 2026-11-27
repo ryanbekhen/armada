@@ -1,14 +1,12 @@
-//! The control plane's scenarios replayed against the Rust server (ADR
-//! 0055, item 20): Go's scenario parity tests, recorded once against Go's
-//! server before the Go code was removed, into
-//! tests/testdata/scenarios: every step a scenario took at the server's
-//! boundaries (calls of the API, fake agents' sessions, the store's
-//! methods, clock moves, passes, the fake etcd membership) and Go's
-//! answer to each. Each recording is replayed here against
+//! The control plane's recorded scenarios replayed against the server.
+//! tests/testdata/scenarios holds every step a scenario took at the
+//! server's boundaries (calls of the API, fake agents' sessions, the
+//! store's methods, clock moves, passes, the fake etcd membership) and
+//! the recorded answer to each. Each recording is replayed here against
 //! armada-server-parity on an etcd member of the test's own (the pinned
 //! etcd that scripts/etcd-cache.sh puts in .cache/etcd, or
 //! ARMADA_ETCD_DIR), and every answer, normalized as the transcripts
-//! were, must equal Go's. ARMADA_SCENARIO=NAME replays only the
+//! were, must equal the recorded one. ARMADA_SCENARIO=NAME replays only the
 //! recordings whose names contain NAME.
 
 mod replay;
@@ -72,7 +70,11 @@ fn scenarios() {
             match replay(&shared, f).await {
                 Ok(d) if d.is_empty() => eprintln!("scenarios: {} ok", f.name),
                 Ok(d) => {
-                    eprintln!("scenarios: {} differs from Go:\n{}", f.name, d.join("\n"));
+                    eprintln!(
+                        "scenarios: {} differs from the recording:\n{}",
+                        f.name,
+                        d.join("\n")
+                    );
                     failed.push(f.name.clone());
                 }
                 Err(e) => {
@@ -87,15 +89,14 @@ fn scenarios() {
         drop(member);
         assert!(
             failed.is_empty(),
-            "{} of {ran} scenarios differ from Go's: {}",
+            "{} of {ran} scenarios differ from their recordings: {}",
             failed.len(),
             failed.join(", ")
         );
     });
 }
 
-/// TestArmadaServerTerms without Go: the Rust server's terms on a member
-/// of the test's own (replay/terms.rs).
+/// The server's terms on a member of the test's own (replay/terms.rs).
 #[test]
 fn terms() {
     let Some(prog) = etcd::program() else {

@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "The control plane, a port of Go's internal/server and the server side of `armadad server` (ADR 0055)"
+description = "The control plane: the server side of `armadad server` (ADR 0055)"
 
 [dependencies]
 armada-fsutil = { path = "../fsutil" }
@@ -38,8 +38,8 @@ x509-parser.workspace = true
 # test names (armada-node's test hooks).
 parity = ["armada-node/test-hooks", "armada-store/parity"]
 
-# The scenarios recorded from Go's server replayed against the Rust one
-# (tests/scenarios.rs, ADR 0055 item 20): gRPC calls by method path, the
+# The recorded scenarios replayed against the server
+# (tests/scenarios.rs): gRPC calls by method path, the
 # fake agents' sessions, and the store's methods by name.
 [dev-dependencies]
 hyper-util.workspace = true

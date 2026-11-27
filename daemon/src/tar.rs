@@ -1,6 +1,6 @@
 //! A reader of the tar archives armadad opens (the runtime pack, release
-//! archives): USTAR, PAX extended headers, and GNU long names, as Go's
-//! archive/tar reads the ones Go's writers and GoReleaser make.
+//! archives): USTAR, PAX extended headers, and GNU long names, the
+//! formats armadad's own writers and GoReleaser make.
 
 use std::io::Read;
 

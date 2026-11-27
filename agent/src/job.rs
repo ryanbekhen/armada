@@ -1,4 +1,4 @@
-//! Job attempts (ADR 0019, Go's job.go): a container that runs once, never
+//! Job attempts (ADR 0019): a container that runs once, never
 //! restarted; its exit code is reported, and a done attempt is stopped if
 //! it still runs, never started, and kept for its logs.
 

@@ -825,7 +825,7 @@ async fn init_containers_and_sidecars_start_in_order() {
         .shim
         .lines()
         .into_iter()
-        // A wait is asked beside the start, as Go's goroutine asks it.
+        // A wait is asked beside the start.
         .filter(|l| l.starts_with("create") || l.starts_with("start"))
         .map(|l| {
             let w: Vec<&str> = l.split(' ').collect();
@@ -1122,7 +1122,7 @@ async fn prunes_images_no_container_uses() {
 }
 
 #[test]
-fn times_parse_as_go() {
+fn times_parse() {
     let t = parse_time("2026-01-01T00:00:00.000005Z").unwrap();
     assert_eq!(t, UNIX_EPOCH + Duration::new(1_767_225_600, 5_000));
     assert_eq!(

@@ -1,11 +1,12 @@
-//! os.MkdirAll with Go's errors: the directory that could not be made is
+//! Making a directory and its parents, with errors where the directory
+//! that could not be made is
 //! named (`mkdir /run/armada: permission denied`).
 
 use std::fs;
 use std::os::unix::fs::DirBuilderExt;
 use std::path::Path;
 
-/// os.MkdirAll(path, mode).
+/// Makes path and every missing parent with mode.
 pub fn mkdir_all(path: &Path, mode: u32) -> Result<(), String> {
     if let Ok(m) = fs::metadata(path) {
         if m.is_dir() {

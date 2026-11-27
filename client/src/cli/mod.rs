@@ -1,7 +1,7 @@
-//! The command tree, as spf13/cobra v1.10.2 runs Go's client together with
-//! internal/cli's usage.go and root.go: finding the command in the
-//! arguments, flags, argument checks and the errors `explain` makes of them,
-//! help (`writeHelp`), suggestions, nouns that refuse unknown verbs, the
+//! The command tree, run as spf13/cobra v1.10.2 runs commands: finding the
+//! command in the arguments, flags, argument checks and the errors
+//! `explain` makes of them, help (`write_help`), suggestions, nouns that
+//! refuse unknown verbs, the
 //! `help` command, and the hidden `completion` and `__complete` commands.
 
 pub mod clidoc;
@@ -183,7 +183,7 @@ pub struct Group {
 pub struct Tree {
     pub nodes: Vec<Node>,
     pub groups: Vec<Group>,
-    /// verbHints: what to type for a verb a noun has not got, by
+    /// What to type for a verb a noun has not got, by
     /// "NOUN VERB" (the client's; armadad has none).
     pub verb_hints: fn(&str) -> Option<&'static str>,
 }
@@ -572,7 +572,7 @@ impl<'a> Ctx<'a> {
         (&self.rt, &mut *self.stdin, &mut *self.out)
     }
 
-    /// Writes to stdout, ignoring errors as Go's commands mostly do.
+    /// Writes to stdout, ignoring errors.
     pub fn print(&mut self, s: &str) {
         let _ = self.out.write_all(s.as_bytes());
     }
@@ -655,7 +655,7 @@ fn is_arg_word(f: &str) -> bool {
         .all(|&c| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'=' | b'|' | b'.'))
 }
 
-/// argError: which arguments are missing, or how many are too many.
+/// Which arguments are missing, or how many are too many.
 pub fn arg_error(tree: &Tree, i: usize, args: &[String]) -> String {
     let words = arg_words(tree.node(i));
     let mut required = Vec::new();
@@ -688,14 +688,14 @@ pub fn arg_error(tree: &Tree, i: usize, args: &[String]) -> String {
     )
 }
 
-/// verbLine: a verb with its arguments.
+/// a verb with its arguments.
 fn verb_line(n: &Node) -> String {
     format!("{} {}", n.name(), arg_words(n).join(" "))
         .trim()
         .to_string()
 }
 
-/// writeHelp: usage, examples, with describe the description, then verbs
+/// Usage, examples, with describe the description, then verbs
 /// and flags.
 pub fn write_help(tree: &Tree, i: usize, fs: &FlagSet, describe: bool) -> String {
     let n = tree.node(i);
@@ -785,8 +785,7 @@ pub fn write_help(tree: &Tree, i: usize, fs: &FlagSet, describe: bool) -> String
 /// What is set up before a command runs: the root's persistent pre-run.
 pub type PreRun = fn(&mut Ctx<'_>) -> Result;
 
-/// Runs the tree with args (cobra's ExecuteC with internal/cli's Run) and
-/// returns the exit code.
+/// Runs the tree with args and returns the exit code.
 pub fn run(
     tree: &mut Tree,
     args: &[String],

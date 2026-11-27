@@ -1,5 +1,5 @@
-//! The Rust agent's parity program (src/bin/armada-agent-parity.rs), driven
-//! as Go's harness drove it: requests on stdin, its runtime calls answered
+//! The agent's parity program (src/bin/armada-agent-parity.rs), driven as
+//! the recordings say: requests on stdin, its runtime calls answered
 //! by the fakes.
 
 use std::collections::HashMap;

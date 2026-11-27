@@ -1,4 +1,4 @@
-//! Dialing the control plane as Go's clientconfig.Dial does: TLS 1.3 with
+//! Dialing the control plane: TLS 1.3 with
 //! the user's certificate, the server verified against the config's CA as
 //! armada-server, the config's servers tried in order (only the leader
 //! answers) and then the machine's, and through `ssh -W` when the config
@@ -151,8 +151,8 @@ pub fn dial(c: &Config) -> Result<Channel, String> {
     Ok(ep.connect_with_connector_lazy(connector))
 }
 
-/// The text of a failed TLS handshake: an I/O error as Go's net package
-/// words it, or rustls's own.
+/// The text of a failed TLS handshake: an I/O error's errno text, or
+/// rustls's own.
 fn handshake_error(e: &io::Error) -> String {
     if e.raw_os_error().is_some() {
         return armada_fsutil::errno_text(e);
@@ -217,7 +217,7 @@ fn dial_ssh(dest: &str, addr: &str) -> io::Result<SshStream> {
     })
 }
 
-/// exec's error for a program that could not start, as Go's os/exec says it.
+/// The error for a program that could not start.
 fn exec_error(e: &io::Error) -> String {
     if e.kind() == io::ErrorKind::NotFound {
         return format!("exec: \"{SSH_PROGRAM}\": executable file not found in $PATH");

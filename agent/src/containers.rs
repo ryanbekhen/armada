@@ -1,4 +1,4 @@
-//! Init containers and sidecars (ADR 0038, Go's containers.go): the runtime
+//! Init containers and sidecars (ADR 0038): the runtime
 //! runs them with the replica's own container; the agent pulls their
 //! images, gives them the files and volumes they name, and reads their
 //! state to tell a crash from a running replica.
@@ -59,7 +59,7 @@ pub(crate) fn with_member_mounts(
     let (files, volumes) = (cs.files.clone(), cs.volumes.clone());
     let a = fill(&mut cs.init, &s.init_containers, &files, &volumes);
     let b = fill(&mut cs.sidecars, &s.sidecars, &files, &volumes);
-    // errors.Join: the texts one per line.
+    // Both errors: the texts one per line.
     match (a, b) {
         (Ok(()), Ok(())) => Ok(()),
         (Err(a), Ok(())) => Err(a),

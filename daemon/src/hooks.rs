@@ -1,7 +1,7 @@
-//! The ARMADA_DAEMON_TEST_* hooks of Go's daemon parity tests: read only
-//! by builds with the test-hooks feature (`make daemon-replay`), never by
-//! release builds. Each stands for what Go's tests replace in the package
-//! (runDir, upgrade's paths, being root, the version).
+//! The ARMADA_DAEMON_TEST_* hooks of the daemon's replays: read only by
+//! builds with the test-hooks feature (`make daemon-replay`), never by
+//! release builds. Each stands for something a replay replaces (the run
+//! directory, upgrade's paths, being root, the version).
 
 /// The hook's value, or None (always None without the feature).
 pub fn get(name: &str) -> Option<String> {
@@ -18,8 +18,8 @@ pub fn get(name: &str) -> Option<String> {
 
 /// The time now: the machine's clock, moved in test-hooks builds so it
 /// starts at ARMADA_DAEMON_TEST_NOW (Unix nanoseconds) when that is set.
-/// The replay of the parity cases recorded from Go (tests/parity) sets it
-/// to the time Go's run started, for what doctor and a restore's checks
+/// The replay of the recorded parity cases (tests/parity) sets it to the
+/// time the recording started, for what doctor and a restore's checks
 /// read of certificates' times.
 pub fn now() -> std::time::SystemTime {
     let wall = std::time::SystemTime::now();

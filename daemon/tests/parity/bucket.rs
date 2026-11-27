@@ -1,4 +1,4 @@
-//! The control plane's bucket stand-in (Go's stateBucket): bucket
+//! The control plane's bucket stand-in: bucket
 //! "backups" answering the path-style S3 requests armada-node sends
 //! (ARMADA_NODE_TEST_BUCKET_ADDR), over plain HTTP/1.1 with keep-alive.
 
@@ -39,7 +39,7 @@ fn unhex(c: u8) -> Option<u8> {
     (c as char).to_digit(16).map(|d| d as u8)
 }
 
-/// url.PathUnescape / QueryUnescape.
+/// s with its %XX escapes decoded (and + as a space in a query).
 fn unescape(s: &str, query: bool) -> String {
     let b = s.as_bytes();
     let mut out = Vec::new();

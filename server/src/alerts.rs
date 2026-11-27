@@ -1,4 +1,4 @@
-//! Alerts (ADR 0045; Go's alerts.go): channels kept in meta `alerts` with
+//! Alerts (ADR 0045): channels kept in meta `alerts` with
 //! their secrets sealed, one worker and queue per channel so a slow
 //! channel holds up no other, notices queued by source (a space, or the
 //! cluster) with a rate per source, and the AdminService methods.
@@ -27,12 +27,12 @@ use crate::settings::{SealedJson, TOKEN_SCOPE};
 use crate::{Server, store_err};
 
 const META_ALERTS: &str = "alerts";
-/// alertQueue bounds the notices waiting per channel, alertSourceQueue
-/// those of one source; more are dropped and counted.
+/// The notices waiting per channel, and those of one source; more are
+/// dropped and counted.
 pub(crate) const ALERT_QUEUE: usize = 256;
 pub(crate) const ALERT_SOURCE_QUEUE: usize = 64;
-/// alertBurst notices of one source may go at once per channel, then
-/// alertBurst per minute; the rest are summed up in one notice.
+/// How many notices of one source may go at once per channel, and then
+/// per minute; the rest are summed up in one notice.
 pub(crate) const ALERT_BURST: f64 = 20.0;
 const ALERT_TRIES: usize = 3;
 const ALERT_RETRY: Duration = Duration::from_secs(2);
@@ -75,7 +75,7 @@ struct Source {
 }
 
 /// A channel's waiting notices by source: each source has its own place
-/// and rate, and sources take turns (Go's noticeQueue).
+/// and rate, and sources take turns.
 pub(crate) struct NoticeQueue {
     sources: HashMap<String, Source>,
     order: std::collections::VecDeque<String>,
@@ -195,7 +195,7 @@ impl NoticeQueue {
     }
 }
 
-/// heldNotice sums up the notices of n's source that were held back.
+/// Sums up the notices of n's source that were held back.
 pub(crate) fn held_notice(n: &Notice, held: usize) -> Notice {
     let about = if n.space.is_empty() {
         "the cluster".to_string()
@@ -238,12 +238,12 @@ struct AlertState {
     started: bool,
 }
 
-/// Delivers notices (Go's alerter).
+/// Delivers notices.
 pub(crate) struct Alerter {
     st: Mutex<AlertState>,
     ends: Endpoints,
     tls: Arc<rustls::ClientConfig>,
-    /// One channel change at a time (Go's alertMu).
+    /// One channel change at a time.
     pub(crate) change: tokio::sync::Mutex<()>,
 }
 
@@ -259,7 +259,7 @@ fn same_channel(a: &Channel, b: &Channel) -> bool {
         && a.secret == b.secret
 }
 
-/// The machine's roots, as Go's default HTTP client and net/smtp trust.
+/// The machine's roots, for HTTPS and SMTP alike.
 fn client_tls() -> Arc<rustls::ClientConfig> {
     let mut roots = rustls::RootCertStore::empty();
     armada_node::http::system_roots(&mut roots);
@@ -455,7 +455,7 @@ async fn deliver(srv: &Server, name: &str, send: &Sender, stats: &Mutex<Stats>, 
     }
 }
 
-/// noticeOf turns an event into a notice.
+/// Turns an event into a notice.
 pub(crate) fn notice_of(e: &Event, kind: &str) -> Notice {
     let time = if e.last.is_zero() {
         armada_store::gojson::now()
@@ -514,7 +514,7 @@ fn trim_all(v: &[String]) -> Vec<String> {
     out
 }
 
-/// applyChannel copies the fields req names onto c.
+/// Copies the fields req names onto c.
 fn apply_channel(c: &mut Channel, req: &AlertChannelRequest, create: bool) {
     let p = req.channel.clone().unwrap_or_default();
     if create || req.set_chat_id {
@@ -555,7 +555,7 @@ impl Server {
         self.store().set_meta(META_ALERTS, &s).await
     }
 
-    /// loadAlerts opens every channel's secret and hands the channels to
+    /// Opens every channel's secret and hands the channels to
     /// the alerter.
     pub(crate) async fn load_alerts(&self) -> Result<(), armada_store::Error> {
         let ac = self.alert_config().await?;
@@ -817,7 +817,7 @@ impl Server {
     }
 }
 
-/// encoding/json's HTML escaping of encoded JSON.
+/// Compact JSON with <, >, &, U+2028, and U+2029 escaped.
 fn go_json<T: Serialize>(v: &T) -> Vec<u8> {
     let s = serde_json::to_string(v).unwrap_or_default();
     let mut out = String::with_capacity(s.len());
@@ -845,7 +845,6 @@ mod tests {
         n
     }
 
-    /// Go's TestAlertRateLimit.
     #[test]
     fn rate_limit() {
         let mut q = NoticeQueue::new();
@@ -870,7 +869,6 @@ mod tests {
         assert!(s.message.contains("space noisy") && s.space == "noisy");
     }
 
-    /// Go's TestAlertQueueFair.
     #[test]
     fn queue_fair() {
         let mut q = NoticeQueue::new();
@@ -894,7 +892,7 @@ mod tests {
     }
 
     #[test]
-    fn records_as_go_writes_them() {
+    fn records_written() {
         let ac = AlertConfig {
             channels: vec![AlertRec {
                 ch: Channel {

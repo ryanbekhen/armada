@@ -7,7 +7,7 @@
 //! directories a layer creates implicitly take their parents' owner,
 //! mode, times, and attributes.
 //!
-//! Names are resolved as Go resolves them: absolute names are taken from
+//! Names are resolved lexically: absolute names are taken from
 //! the layer's root, and symbolic links are followed only within it. On
 //! top of that, every change is made through a descriptor of its parent
 //! directory opened with openat2 beneath the root and with no symbolic
@@ -36,7 +36,7 @@ use std::os::unix::ffi::OsStrExt;
 const WHITEOUT: &[u8] = b".wh.";
 const OPAQUE: &[u8] = b".wh..wh..opq";
 
-// --- Go's path/filepath on bytes ---------------------------------------
+// --- lexical paths on bytes --------------------------------------------
 
 pub fn clean(p: &[u8]) -> Vec<u8> {
     if p.is_empty() {
@@ -102,12 +102,13 @@ fn show(p: &[u8]) -> String {
     String::from_utf8_lossy(p).into_owned()
 }
 
-/// Go's %q of a path.
+/// A path quoted: " and \ escaped, non-printable bytes as \x, \u, or \U
+/// escapes.
 fn quote(p: &[u8]) -> String {
     crate::volume::quote(p)
 }
 
-// --- errors as Go words them -------------------------------------------
+// --- error texts -------------------------------------------------------
 
 fn errno_text(e: &io::Error) -> String {
     match e.raw_os_error() {
@@ -126,7 +127,7 @@ fn errno_text(e: &io::Error) -> String {
     }
 }
 
-/// An os.PathError's text.
+/// A failed file operation's text: "OP PATH: ERRNO TEXT".
 fn path_err(op: &str, p: &[u8], e: &io::Error) -> String {
     format!("{op} {}: {}", show(p), errno_text(e))
 }
@@ -466,7 +467,7 @@ impl Root {
 
     fn lchown(&self, p: &[u8], uid: i64, gid: i64) -> io::Result<()> {
         let (d, b) = self.at(p)?;
-        // Go passes ints the kernel reads as 32-bit IDs (-1: unchanged).
+        // The kernel reads the IDs as 32-bit (-1: unchanged).
         // SAFETY: valid descriptor and C string.
         if unsafe {
             libc::fchownat(
@@ -531,7 +532,7 @@ impl Root {
         Ok(())
     }
 
-    /// os.RemoveAll: p and everything under it, never following a link.
+    /// Removes p and everything under it, never following a link.
     fn remove_all(&self, p: &[u8]) -> io::Result<()> {
         if base(p) == b"." || p.ends_with(b"/.") {
             return Err(io::Error::from_raw_os_error(libc::EINVAL));
@@ -664,7 +665,7 @@ fn dir_names(p: &[u8]) -> io::Result<Vec<Vec<u8>>> {
 
 // --- times ------------------------------------------------------------
 
-/// Go's zero time.Time, in nanoseconds since the epoch.
+/// The zero time (0001-01-01T00:00:00Z), in nanoseconds since the epoch.
 const ZERO_TIME: i128 = -62_135_596_800 * 1_000_000_000;
 
 fn time_of(t: Time) -> i128 {
@@ -1201,7 +1202,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn paths_as_go() {
+    fn lexical_paths() {
         assert_eq!(clean(b"../x"), b"../x");
         assert_eq!(join(b"/", b".."), b"/");
         assert_eq!(split(b"a/b/c"), (&b"a/b/"[..], &b"c"[..]));

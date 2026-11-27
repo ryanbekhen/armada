@@ -1,5 +1,5 @@
-//! What replicas, nodes, and spaces use (ADR 0016, ADR 0026; Go's Top and
-//! topSpaces in top.go), from the latest samples of the nodes' agents.
+//! What replicas, nodes, and spaces use (ADR 0016, ADR 0026), from the
+//! latest samples of the nodes' agents.
 
 use std::collections::HashMap;
 
@@ -112,7 +112,7 @@ impl Server {
         Ok(resp)
     }
 
-    /// topSpaces adds up what the replicas in resp use per space, for the
+    /// Adds up what the replicas in resp use per space, for the
     /// spaces the caller may manage (ADR 0026).
     async fn top_spaces(
         &self,

@@ -1,8 +1,8 @@
-//! The cluster network (Go's network.go and netswitch.go; ADR 0025, 0026,
-//! 0049, 0050): the configuration every agent applies with its peers,
-//! their keys, endpoints, sites, and relays, and the container addresses
-//! the firewalls keep apart; and switches of a running cluster's mode
-//! between plain and wireguard, step by step as the nodes report them.
+//! The cluster network (ADR 0025, 0026, 0049, 0050): the configuration
+//! every agent applies with its peers, their keys, endpoints, sites, and
+//! relays, and the container addresses the firewalls keep apart; and
+//! switches of a running cluster's mode between plain and wireguard, step
+//! by step as the nodes report them.
 //!
 //! The ports of internal TCP apps (`NetworkConfig.tcp_ports`) come from
 //! the pass's proxy configuration (`ingress`).
@@ -25,22 +25,22 @@ use crate::grpc::Auth;
 use crate::reconcile::{nanos, node_lost};
 use crate::{Server, store_err};
 
-/// maxSwitchUnreached bounds the peers a node's switch status names.
+/// Bounds the peers a node's switch status names.
 const MAX_SWITCH_UNREACHED: usize = 32;
-/// maxSwitchWaiting bounds the nodes a switch's progress lists.
+/// Bounds the nodes a switch's progress lists.
 const MAX_SWITCH_WAITING: usize = 50;
-/// switchRecheck: how often the leader looks at a switch again without
+/// How often the leader looks at a switch again without
 /// news from the nodes.
 const SWITCH_RECHECK: i64 = 10 * 1_000_000_000;
 
-/// netip.Prefix's String, "invalid Prefix" for none.
+/// A prefix as text, "invalid Prefix" for none.
 fn prefix_text(p: &Option<armada_spec::go::Prefix>) -> String {
     p.as_ref()
         .map(armada_spec::go::Prefix::string)
         .unwrap_or_else(|| "invalid Prefix".to_string())
 }
 
-/// networkEndpoints: the container address of every replica whose node
+/// The container address of every replica whose node
 /// has a subnet, with its app ID, sorted by address; an address two apps
 /// claim is left out.
 pub(crate) fn network_endpoints(
@@ -67,7 +67,7 @@ pub(crate) fn network_endpoints(
         .collect()
 }
 
-/// cleanSwitchStatus: what a node reports about its side of a switch,
+/// What a node reports about its side of a switch,
 /// bounded: known modes and steps, peer names that are node names, and a
 /// printable error. Anything else is none.
 pub(crate) fn clean_switch_status(st: Option<&NetworkSwitchStatus>) -> Option<NetworkSwitchStatus> {
@@ -108,7 +108,7 @@ impl Server {
         }
     }
 
-    /// buildNetwork: the cluster network every agent applies (ADR 0025):
+    /// The cluster network every agent applies (ADR 0025):
     /// the mode, the cluster CIDR, every node that has a subnet, and the
     /// container addresses of replicas; none for a cluster without one.
     pub(crate) async fn build_network(
@@ -132,7 +132,7 @@ impl Server {
             cfg.switch_to = sw.to.clone();
             cfg.switch_step = sw.step.clone();
         }
-        // siteRelays (apps.rs, which Status shares).
+        // Each site's relay (apps.rs, which Status shares).
         let relays = self.site_relays(nodes);
         let mut subnets = HashMap::new();
         for node in nodes {
@@ -155,7 +155,7 @@ impl Server {
         Ok(Some(cfg))
     }
 
-    /// meshNetwork: the cluster network a machine joining a mesh, or from
+    /// The cluster network a machine joining a mesh, or from
     /// another site, brings its tunnels up with: every node, the new one
     /// included.
     pub(crate) async fn mesh_network(&self) -> Result<Option<NetworkConfig>, armada_store::Error> {
@@ -163,7 +163,7 @@ impl Server {
         self.build_network(&nodes, &[]).await
     }
 
-    /// switchProgress: which nodes the step of n's switch waits for: every
+    /// Which nodes the step of n's switch waits for: every
     /// node with a subnet that has connected and is not lost, until it
     /// reports the step done.
     pub(crate) fn switch_progress(
@@ -213,7 +213,7 @@ impl Server {
         p
     }
 
-    /// advanceSwitch: takes a network switch (ADR 0050) to its next step
+    /// Takes a network switch (ADR 0050) to its next step
     /// once no node holds the current one up.
     pub(crate) async fn advance_switch(
         &self,
@@ -269,7 +269,7 @@ impl Server {
         Ok(())
     }
 
-    /// setNetwork: starts a switch of the cluster network's mode (ADR
+    /// Starts a switch of the cluster network's mode (ADR
     /// 0050), or gives one up during its prepare step.
     pub(crate) async fn set_network(&self, a: &Auth, to: &str) -> Result<(), Status> {
         if to != NETWORK_PLAIN && to != NETWORK_WIREGUARD {

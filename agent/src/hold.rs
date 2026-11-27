@@ -1,4 +1,4 @@
-//! Held replicas (ADR 0023, Go's hold.go): during a rollout of an app with
+//! Held replicas (ADR 0023): during a rollout of an app with
 //! volumes the server first sends the new replica held. The agent pulls its
 //! images and says so, but starts nothing while the old replica still uses
 //! the volume.

@@ -1,4 +1,4 @@
-//! Sessions with agents (Go's agents.go): the Connect stream, the Hello
+//! Sessions with agents: the Connect stream, the Hello
 //! that opens it, the queue of messages each session sends, and the
 //! reports agents send back, checked as untrusted input before they reach
 //! the store. Usage samples go to the usage store (`usage`: replica
@@ -32,7 +32,7 @@ use crate::grpc::auth;
 use crate::join::valid_network_key;
 use crate::netutil::check_endpoint;
 
-/// The queue of one session (Go's buffered channel of 64).
+/// The queue of one session.
 const QUEUE: usize = 64;
 const MAX_NODE_CPU_MILLIS: i64 = 1024 * 1000;
 const MAX_NODE_MEMORY: i64 = 16 << 40;
@@ -112,8 +112,7 @@ impl Session {
         self.ready.notify_one();
     }
 
-    /// Queues m when there is room, without waiting (Go's send with a
-    /// default case).
+    /// Queues m when there is room, without waiting.
     pub fn try_offer(&self, m: ServerMessage) -> bool {
         let mut q = self.q.lock().unwrap_or_else(|p| p.into_inner());
         if q.msgs.len() >= QUEUE {
@@ -163,7 +162,7 @@ impl Session {
         m
     }
 
-    /// Ends the session (Go's close(sess.done)).
+    /// Ends the session.
     pub fn close(&self) {
         self.done.send_replace(true);
     }
@@ -174,7 +173,7 @@ impl Session {
 }
 
 /// What reports already recorded about revisions, so repeating it costs
-/// no reads (Go's learnedRevisions).
+/// no reads.
 #[derive(Default)]
 pub struct Learned(Mutex<HashMap<String, u8>>);
 
@@ -200,7 +199,7 @@ impl Learned {
     }
 }
 
-/// Go's truncate: at most n bytes.
+/// At most the first n bytes of s (a cut character becomes U+FFFD).
 fn truncate(s: &str, n: usize) -> String {
     if s.len() <= n {
         return s.to_string();
@@ -208,7 +207,7 @@ fn truncate(s: &str, n: usize) -> String {
     String::from_utf8_lossy(&s.as_bytes()[..n]).into_owned()
 }
 
-/// versionRe: `^[A-Za-z0-9][A-Za-z0-9.+_-]{0,63}$`.
+/// A version as `^[A-Za-z0-9][A-Za-z0-9.+_-]{0,63}$` matches it.
 fn valid_version(v: &str) -> bool {
     let b = v.as_bytes();
     !b.is_empty()
@@ -232,7 +231,7 @@ fn in_node_subnet(a: &armada_spec::go::Addr, subnet: &str) -> bool {
     p.bits == 24 && host != 0 && host != 1 && host != 255
 }
 
-/// validReplicaAddress: "<node private IP>:<port>", or with the cluster
+/// "<node private IP>:<port>", or with the cluster
 /// network "<address in the node's subnet>:<port>", canonical.
 pub(crate) fn valid_replica_address(addr: &str, node_ip: &str, subnet: &str) -> bool {
     let (host, port) = if let Some(rest) = addr.strip_prefix('[') {
@@ -276,13 +275,13 @@ fn port_text(addr: &str) -> &str {
     addr.rsplit_once(':').map(|(_, p)| p).unwrap_or("")
 }
 
-/// validReplicaIP: a container address in the node's subnet, canonical.
+/// A container address in the node's subnet, canonical.
 pub(crate) fn valid_replica_ip(ip: &str, subnet: &str) -> bool {
     parse_addr(ip)
         .is_some_and(|a| a.zone.is_empty() && a.string() == ip && in_node_subnet(&a, subnet))
 }
 
-/// digestRe: `@sha256:[a-f0-9]{64}$`.
+/// `@sha256:[a-f0-9]{64}$`.
 fn digest_ok(d: &str) -> bool {
     let Some(i) = d.rfind("@sha256:") else {
         return false;
@@ -312,7 +311,7 @@ fn normalize_repo(r: &str) -> &str {
     r.strip_prefix("library/").unwrap_or(r)
 }
 
-/// cleanPlatforms: valid "os/arch" entries, sorted, without duplicates.
+/// Valid "os/arch" entries, sorted, without duplicates.
 fn clean_platforms(reported: &[String]) -> Option<Vec<String>> {
     if reported.len() > MAX_NODE_LABELS {
         return None;
@@ -567,7 +566,7 @@ impl Server {
         )))
     }
 
-    /// The end of a session (Go's deferred cleanup in Connect).
+    /// The end of a session.
     async fn end_session(&self, node: &Node, hello: &Hello, sess: &Arc<Session>) {
         let current = {
             let mut m = self.0.sessions.lock().unwrap_or_else(|p| p.into_inner());

@@ -1,10 +1,8 @@
-//! The logger cases recorded from Go (ADR 0055, item 20): before the Go
-//! code was removed, Go's TestRecordLoggerCases ran every case of compareLoggers through Go's WriteLogs and wrote
-//! testdata/logwriter.json.gz (each output, its limits, the history meta
-//! file it starts with, and the files WriteLogs left, times blanked).
-//! `armadad runtime-log` must store the same files (TestRuntimeLogMatchesGo
-//! compared them with Go's), and so must armada-log (logger/,
-//! TestArmadaLogMatchesGo) when ARMADA_LOG_BIN names a build of it.
+//! The recorded logger cases: testdata/logwriter.json.gz holds each case
+//! (its output, its limits, the history meta file it starts with, and the
+//! files the logger left, times blanked). `armadad runtime-log` must
+//! store the same files, and so must armada-log (logger/) when
+//! ARMADA_LOG_BIN names a build of it.
 
 use std::io::{Read, Write};
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
@@ -52,7 +50,7 @@ fn pipe() -> (OwnedFd, OwnedFd) {
     (high(fds[0]), high(fds[1]))
 }
 
-/// runLogger: output on fds 3 and 4, fd 5 closed once ready.
+/// Output on fds 3 and 4, fd 5 closed once ready.
 fn run_logger(bin: &str, args: &[String], env: &[(&str, String)], stdout: &[u8], stderr: &[u8]) {
     let (out_r, out_w) = pipe();
     let (err_r, err_w) = pipe();
@@ -139,7 +137,7 @@ fn now() -> i128 {
         .map_or(0, |d| d.as_nanos() as i128)
 }
 
-/// logFiles: history files by their sequence (named by their position),
+/// History files by their sequence (named by their position),
 /// then the live files; every time recent and in UTC, then blanked.
 fn log_files(dir: &Path, start: i128) -> Vec<(String, String)> {
     let list = |d: &Path, keep: &dyn Fn(&str) -> bool| -> Vec<String> {
@@ -250,7 +248,7 @@ fn replay(run: &dyn Fn(&Path, &Value)) {
             .collect();
         if got != want {
             eprintln!(
-                "{}: files differ:\n--- Go\n{want:?}\n--- Rust\n{got:?}",
+                "{}: files differ:\n--- recorded\n{want:?}\n--- got\n{got:?}",
                 s(c, "name")
             );
             failed.push(s(c, "name"));

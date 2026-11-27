@@ -4,11 +4,10 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "armadad in Rust: the machine commands of Go's internal/daemon (ADR 0055)"
+description = "armadad: the commands that set up and run a machine (ADR 0055)"
 
 # armadad is its own program (ADR 0027, ADR 0055): it links the client's
-# command framework and version as Go's daemon imports internal/cli, never
-# the other way round.
+# command framework and version, never the other way round.
 [dependencies]
 # The node's agent (armadad agent) and the tunnels of a mesh node.
 armada-agent = { path = "../agent" }
@@ -39,7 +38,7 @@ tokio-rustls.workspace = true
 tower.workspace = true
 
 [features]
-# The runtime pack compiled in (Go's build tag bundle): the pack
+# The runtime pack compiled in: the pack
 # `make runtime-bundle` writes for the target, or ARMADA_RUNTIME_PACK.
 bundle = []
 # The ARMADA_DAEMON_TEST_* hooks of the daemon's replays (src/hooks.rs):
@@ -54,15 +53,15 @@ path = "src/lib.rs"
 name = "armadad"
 path = "src/main.rs"
 
-# The parity cases recorded from Go's armadad (ADR 0055, item 20), replayed
-# against this one (tests/parity): its own harness, since the cases run one
+# The recorded parity cases, replayed against armadad (tests/parity): its
+# own harness, since the cases run one
 # after another against stand-ins and the pinned etcd.
 [[test]]
 name = "parity"
 harness = false
 required-features = ["test-hooks"]
 
-# The logger cases recorded from Go's WriteLogs, replayed against
+# The recorded logger cases, replayed against
 # armadad runtime-log (and armada-log with ARMADA_LOG_BIN).
 [[test]]
 name = "logwriter"

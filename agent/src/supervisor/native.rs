@@ -1,7 +1,6 @@
 //! Dials and queue readings from containers' and sandboxes' network
-//! namespaces, and the sandboxes themselves (ADR 0034, ADR 0040; Go's
-//! internal/runtime/containerd dial_linux.go and sandbox_linux.go, and
-//! supervisor's nativedial_linux.go and nativequeue.go). armada-node's
+//! namespaces, and the sandboxes themselves (ADR 0034, ADR 0040).
+//! armada-node's
 //! `runtime dial` and `queue redis|rabbitmq` run as processes: they enter
 //! the namespace on their only thread, which this process never does
 //! (its threads run every task). A dial's socket comes back over
@@ -17,7 +16,7 @@ use serde_json::{Value, json};
 use crate::runtime::{Error, Result};
 use crate::side::nodeprog;
 
-/// sandboxPrefix: the network plugins' container ID of a sandbox.
+/// The network plugins' container ID of a sandbox.
 pub const SANDBOX_PREFIX: &str = "sandbox-";
 
 fn other(e: impl Into<String>) -> Error {
@@ -64,7 +63,7 @@ impl Target<'_> {
     }
 }
 
-/// checkDial: only an IP address and port over TCP or UDP.
+/// Only an IP address and port over TCP or UDP.
 pub fn check_dial(network: &str, address: &str) -> std::result::Result<(), String> {
     let (host, _) = split_host_port(address)?;
     if armada_node::net::addr::Addr::parse(host).is_none() {
@@ -82,7 +81,8 @@ pub fn check_dial(network: &str, address: &str) -> std::result::Result<(), Strin
     }
 }
 
-/// net.SplitHostPort's texts for the forms an address may take here.
+/// Splits `host:port` or `[host]:port`, with texts such as "address HP:
+/// missing port in address".
 fn split_host_port(hp: &str) -> std::result::Result<(&str, &str), String> {
     let err = |why: &str| format!("address {hp}: {why}");
     let i = hp
@@ -101,8 +101,8 @@ fn split_host_port(hp: &str) -> std::result::Result<(&str, &str), String> {
     Ok((host, port))
 }
 
-/// The dial's request (dialPlan); None for what Go's own dialer would
-/// handle: a zone, a service name, or a family the network refuses.
+/// The dial's request; None for what armada-node does not dial: a zone, a
+/// service name, or a family the network refuses.
 fn dial_plan(network: &str, address: &str) -> Option<serde_json::Map<String, Value>> {
     let (host, port) = split_host_port(address).ok()?;
     let port: u16 = port.parse().ok()?;
@@ -157,8 +157,8 @@ struct DialAnswer {
     timeout: bool,
 }
 
-/// A connected socket from armada-node's runtime dial (NativeDial), with
-/// Go's errors: net.OpError's text for a failed connect, NotFound for a
+/// A connected socket from armada-node's runtime dial, with errors such as
+/// "dial NETWORK ADDRESS: TEXT" for a failed connect, NotFound for a
 /// container with no task, the namespace's errno otherwise.
 pub async fn dial(
     node: &Path,
@@ -222,7 +222,7 @@ pub async fn dial(
     )))
 }
 
-/// receiveConn: the one descriptor sent over c.
+/// The one descriptor sent over c.
 fn receive_fd(c: &std::os::unix::net::UnixStream) -> std::result::Result<OwnedFd, String> {
     let mut buf = [0u8; 1];
     // Room for one descriptor's control message.
@@ -277,10 +277,10 @@ struct QueueAnswer {
     redo: Option<String>,
 }
 
-/// A queue's length through armada-node's queue readers (NativeQueue):
-/// queuelen's texts on failure. A reading armada-node leaves to Go (a
-/// broker named by a name with no addresses, a zone) cannot reach the
-/// broker here.
+/// A queue's length through armada-node's queue readers: the readings'
+/// fixed texts on failure. A reading armada-node does not take (a broker
+/// named by a name with no addresses, a zone) cannot reach the broker
+/// here.
 pub async fn read_queue(
     node: &Path,
     target: Target<'_>,
@@ -333,7 +333,7 @@ pub fn sandbox_path(run_dir: &Path, id: &str) -> PathBuf {
     run_dir.join("sandboxes").join(id)
 }
 
-/// CheckSandboxID's error.
+/// An error unless id may name a sandbox.
 pub fn check_sandbox_id(id: &str) -> Result<()> {
     if crate::side::sandbox::check_sandbox_id(id) {
         Ok(())

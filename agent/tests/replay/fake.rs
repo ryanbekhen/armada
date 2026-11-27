@@ -1,8 +1,7 @@
-//! pfake and the fakes beside it (internal/agent/parity_test.go,
-//! parity_ingress_test.go, parity_side_test.go) in Rust: the runtime, the
-//! proxy, the cluster network, the resolver, the certificate source, and
-//! the runtime move hooks, answering the program's calls as Go's harness
-//! answered them and recording each call as Go's harness recorded it.
+//! pfake and the fakes beside it: the runtime, the proxy, the cluster
+//! network, the resolver, the certificate source, and the runtime move
+//! hooks, answering the program's calls as the recordings say and noting
+//! each call in the recordings' form.
 //! What a scenario sets on them comes from the recording (`fake` steps:
 //! the whole script after each change).
 
@@ -89,7 +88,7 @@ fn empty(v: &Value) -> bool {
     }
 }
 
-/// Sets k on m when v is not empty (Go's omitempty).
+/// Sets k on m when v is not empty.
 fn omit(m: &mut serde_json::Map<String, Value>, k: &str, v: &Value) {
     if !empty(v) {
         m.insert(k.into(), v.clone());
@@ -145,7 +144,7 @@ fn wire_member(x: &Value) -> Value {
     Value::Object(m)
 }
 
-/// The spec as Go's wireSpec writes it after reading it back.
+/// The spec in the recordings' form after reading it back.
 fn wire_spec(x: &Value) -> Value {
     let mut m = serde_json::Map::new();
     m.insert("name".into(), json!(s(&x["name"])));
@@ -182,12 +181,12 @@ fn strings(v: &Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// Go's strconv.Quote of a plain name.
+/// A plain name quoted (see gofmt::quote).
 fn q(name: &str) -> String {
     super::gofmt::quote(name.as_bytes())
 }
 
-/// A Go duration as the scripts write them ("300ms", "2s").
+/// A duration as the scripts write them ("300ms", "2s").
 fn parse_duration(d: &str) -> Duration {
     if let Some(n) = d.strip_suffix("ms") {
         return Duration::from_millis(n.parse().unwrap_or(0));
@@ -660,7 +659,7 @@ impl Fake {
         match method {
             "proxyApply" => {
                 let mut cfg = c["config"].clone();
-                // proxy.Config has no digests: Go's harness never saw them.
+                // The recorded configuration has no digests.
                 if let Some(certs) = cfg.get_mut("certificates").and_then(Value::as_array_mut) {
                     for crt in certs {
                         if let Some(o) = crt.as_object_mut() {

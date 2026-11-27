@@ -54,7 +54,7 @@ pub fn unmap(ip: IpAddr) -> IpAddr {
     }
 }
 
-/// nodeOnly: loopback, link-local (cloud metadata), unspecified, and
+/// Loopback, link-local (cloud metadata), unspecified, and
 /// multicast addresses reach the node or its link, never a bucket.
 pub fn node_only(ip: IpAddr) -> bool {
     match unmap(ip) {
@@ -121,8 +121,8 @@ fn to_valid_utf8(b: &[u8]) -> String {
     out
 }
 
-/// ParseTarget. With several unknown parameters, the first in byte order
-/// is named (Go's code sorts them the same way).
+/// A bucket target from its URL. With several unknown parameters, the
+/// first in byte order is named.
 pub fn parse(raw: &str) -> Result<Target, String> {
     let raw = std::str::from_utf8(crate::gostr::trim_space(raw.as_bytes())).unwrap_or(raw);
     if raw.len() > 2048 {
@@ -233,7 +233,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_and_refuses_as_go() {
+    fn parses_and_refuses_targets() {
         let t = parse(" https://AK:se%2Fc@s3.example.com:9000/bk1/a/b?region=eu-1 ").unwrap();
         assert_eq!(
             (

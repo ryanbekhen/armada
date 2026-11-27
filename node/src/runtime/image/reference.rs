@@ -1,4 +1,4 @@
-//! Image references as the Go driver reads them (distribution/reference's
+//! Image references as the agent reads them (distribution/reference's
 //! ParseDockerRef and FamiliarName), and the registry a reference or a
 //! credential names (registryHost, pullKey).
 

@@ -1,7 +1,5 @@
-//! What the commands that set a machine up and run it share (Go's
-//! datadir.go, group.go, mesh.go, init.go's helpers, runtime.go's
-//! runtimeFlags, and clientconfig's SaveShared and WriteMachineServers):
-//! names, accounts, addresses, the container subnet, the machine's admin
+//! What the commands that set a machine up and run it share: names,
+//! accounts, addresses, the container subnet, the machine's admin
 //! config and server list, and the tunnels a mesh node brings up before
 //! the control plane.
 
@@ -40,16 +38,15 @@ pub const DEFAULT_CONTAINER_SUBNET: &str = "10.121.0.0/24";
 pub const DEFAULT_CLUSTER_CIDR: &str = "10.120.0.0/16";
 pub const DEFAULT_MESH_CIDR: &str = "10.122.0.0/16";
 pub const NODE_SUBNET_BITS: u8 = 24;
-/// clusternet.WireGuardPort and MinUplinkMTU.
+/// The WireGuard port, and the smallest uplink MTU a machine may have.
 pub const WIREGUARD_PORT: u16 = 51820;
 pub const MIN_UPLINK_MTU: i64 = 1280;
-/// clusternet.InternetProbe: whose route finds the uplink of a machine
-/// behind NAT.
+/// The address whose route finds the uplink of a machine behind NAT.
 pub const INTERNET_PROBE: &str = "1.1.1.1";
 /// The --endpoint value of a machine behind NAT (ADR 0050).
 pub const ENDPOINT_NONE: &str = "none";
 
-/// The effective user ID (the parity tests' hook stands for being root).
+/// The effective user ID (the replays' hook stands for being root).
 pub fn euid() -> u32 {
     if let Some(v) = crate::hooks::get("EUID").and_then(|v| v.parse().ok()) {
         return v;
@@ -58,7 +55,7 @@ pub fn euid() -> u32 {
     unsafe { libc::geteuid() }
 }
 
-/// sanitizeName: a hostname or user name as an identity-safe label.
+/// A hostname or user name as an identity-safe label.
 pub fn sanitize_name(s: &str, fallback: &str) -> String {
     let first = s.split('.').next().unwrap_or("").to_lowercase();
     let mut out = String::new();
@@ -83,7 +80,7 @@ pub fn sanitize_name(s: &str, fallback: &str) -> String {
     }
 }
 
-/// The machine's hostname (os.Hostname), "" when it cannot be read.
+/// The machine's hostname, "" when it cannot be read.
 pub fn hostname() -> String {
     if let Some(h) = crate::hooks::get("HOSTNAME") {
         return h;
@@ -112,7 +109,6 @@ fn passwd(p: *const libc::passwd) -> Account {
     }
 }
 
-/// user.Lookup.
 pub fn lookup_user(name: &str) -> Option<Account> {
     let c = CString::new(name).ok()?;
     let mut buf = vec![0 as libc::c_char; 16384];
@@ -148,7 +144,7 @@ pub fn current_user_name() -> String {
     }
 }
 
-/// The ID of group name (user.LookupGroup), None when unknown.
+/// The ID of group name, None when unknown.
 pub fn lookup_group(name: &str) -> Option<u32> {
     let c = CString::new(name).ok()?;
     let mut buf = vec![0 as libc::c_char; 65536];
@@ -181,7 +177,7 @@ pub fn group_ids(u: &Account) -> Result<Vec<u32>, String> {
     }
 }
 
-/// sudoUser: the account that ran armadad as root through sudo.
+/// The account that ran armadad as root through sudo.
 pub fn sudo_user() -> Option<Account> {
     let name = std::env::var("SUDO_USER").unwrap_or_default();
     if euid() != 0 || name.is_empty() {
@@ -194,7 +190,7 @@ pub fn sudo_user() -> Option<Account> {
     Some(u)
 }
 
-/// exec.LookPath, enough for system tools: a name with a slash is used as
+/// A program's path, enough for system tools: a name with a slash is used as
 /// it is when executable, else the first executable file of PATH.
 fn look_path(tool: &str) -> Option<PathBuf> {
     let executable = |p: &Path| {
@@ -210,7 +206,6 @@ fn look_path(tool: &str) -> Option<PathBuf> {
         .find(|p| executable(p))
 }
 
-/// findTool.
 fn find_tool(tool: &str) -> Option<PathBuf> {
     look_path(tool).or_else(|| {
         ["/usr/sbin", "/sbin", "/usr/bin", "/bin"]
@@ -219,7 +214,7 @@ fn find_tool(tool: &str) -> Option<PathBuf> {
     })
 }
 
-/// groupCommand: usermod, gpasswd, or BusyBox's addgroup.
+/// usermod, gpasswd, or BusyBox's addgroup.
 fn group_command(name: &str, group: &str) -> Result<Vec<String>, String> {
     for c in [
         vec!["usermod", "-a", "-G", group, name],
@@ -235,7 +230,7 @@ fn group_command(name: &str, group: &str) -> Result<Vec<String>, String> {
     Err("found none of usermod, gpasswd, or addgroup".to_string())
 }
 
-/// joinAdminGroup: the account added to the group that may read the
+/// The account added to the group that may read the
 /// machine's admin config (ADR 0027); whether it joined now.
 pub fn join_admin_group(u: &Account) -> Result<bool, String> {
     let gid =
@@ -262,7 +257,6 @@ pub fn join_admin_group(u: &Account) -> Result<bool, String> {
     Ok(true)
 }
 
-/// adminGroupNote.
 pub fn admin_group_note(name: &str) -> String {
     format!(
         "{name} joined the {GROUP} group: log in again (or run `newgrp {GROUP}`) to use armada without sudo"
@@ -299,7 +293,7 @@ pub fn save_shared(cfg: &clientconfig::Config, path: &str) -> Result<bool, Strin
     Ok(true)
 }
 
-/// writeMachineServers: /etc/armada/servers kept current for the client
+/// /etc/armada/servers kept current for the client
 /// configs of this machine, only by the agent of the machine's own data
 /// directory run as root; a warning's text when it fails.
 pub fn write_machine_servers(data_dir: &str, servers: &[String]) -> Option<String> {
@@ -319,7 +313,7 @@ pub fn write_machine_servers(data_dir: &str, servers: &[String]) -> Option<Strin
     write().err()
 }
 
-/// nextStep: how to start role after init or join.
+/// How to start role after init or join.
 pub fn next_step(role: &str, data_dir: &str) -> String {
     if data_dir == DEFAULT_DATA_DIR {
         format!("Next: sudo systemctl enable --now armada-{role}\n")
@@ -328,10 +322,11 @@ pub fn next_step(role: &str, data_dir: &str) -> String {
     }
 }
 
-/// netip.ParsePrefix with its errors (ParseAddr's own texts approximated
-/// as the client's CheckPrivateListen approximates them).
-pub fn parse_prefix_go(s: &str) -> Result<Prefix, String> {
-    let fail = |msg: String| Err(format!("netip.ParsePrefix({}): {msg}", quote(s)));
+/// A prefix ADDR/BITS, or an error naming what is wrong with it (the
+/// address's own errors worded as the client's private listen check
+/// words them).
+pub fn parse_prefix_checked(s: &str) -> Result<Prefix, String> {
+    let fail = |msg: String| Err(format!("invalid prefix {}: {msg}", quote(s)));
     let Some(i) = s.rfind('/') else {
         return fail("no '/'".to_string());
     };
@@ -354,7 +349,7 @@ pub fn parse_prefix_go(s: &str) -> Result<Prefix, String> {
     if !(0..=max).contains(&n) {
         return fail("prefix length out of range".to_string());
     }
-    parse_prefix(s).ok_or_else(|| format!("netip.ParsePrefix({}): invalid", quote(s)))
+    parse_prefix(s).ok_or_else(|| format!("invalid prefix {}", quote(s)))
 }
 
 /// The address after a (Addr.Next) for IPv4.
@@ -363,7 +358,7 @@ pub fn next4(a: &Addr) -> Addr {
     parse_addr(&std::net::Ipv4Addr::from(v).to_string()).unwrap_or_else(|| a.clone())
 }
 
-/// containerd.BridgeOf: the bridge's subnet, masked.
+/// The bridge's subnet, masked.
 pub fn bridge_of(subnet: &Prefix) -> Result<Prefix, String> {
     let s = subnet.masked();
     if !s.addr.is4 || s.bits > 28 || s.bits < 8 {
@@ -383,7 +378,7 @@ fn std_addr(ip: &IpAddr) -> Option<Addr> {
     parse_addr(&ip.to_string())
 }
 
-/// runtimeFlags: --container-subnet and --runtime.
+/// --container-subnet and --runtime.
 pub struct RuntimeFlags {
     pub subnet: String,
     pub runtime: String,
@@ -400,10 +395,10 @@ impl RuntimeFlags {
         }
     }
 
-    /// apply: the flags checked and recorded in c. private_ip None is Go's
-    /// invalid address (a join over a public address that sends none).
+    /// The flags checked and recorded in c. private_ip None is no address
+    /// (a join over a public address that sends none).
     pub fn apply(&self, c: &mut AgentConfig, private_ip: Option<&IpAddr>) -> Result<(), String> {
-        let p = parse_prefix_go(&self.subnet)
+        let p = parse_prefix_checked(&self.subnet)
             .map_err(|e| format!("invalid --container-subnet: {e}"))?;
         let b = bridge_of(&p)?;
         if let Some(ip) = private_ip
@@ -427,7 +422,7 @@ impl RuntimeFlags {
         Ok(())
     }
 
-    /// useNodeSubnet: the cluster network the node joined and the subnet
+    /// The cluster network the node joined and the subnet
     /// it gave the node; a note when it overrides --container-subnet.
     pub fn use_node_subnet(
         &self,
@@ -481,7 +476,6 @@ impl RuntimeFlags {
     }
 }
 
-/// resolvePrivateIP.
 pub fn resolve_private_ip(flag: &str) -> Result<IpAddr, String> {
     if flag.is_empty() {
         return netutil::detect_private_ip();
@@ -489,7 +483,7 @@ pub fn resolve_private_ip(flag: &str) -> Result<IpAddr, String> {
     netutil::check_private_ip(flag)
 }
 
-/// resolveEndpoint: --endpoint, or the machine's only public IPv4 address.
+/// --endpoint, or the machine's only public IPv4 address.
 pub fn resolve_endpoint(flag: &str) -> Result<std::net::Ipv4Addr, String> {
     if flag.is_empty() {
         return netutil::detect_endpoint();
@@ -497,7 +491,6 @@ pub fn resolve_endpoint(flag: &str) -> Result<std::net::Ipv4Addr, String> {
     netutil::check_endpoint(flag)
 }
 
-/// checkUplinkMTU.
 pub fn check_uplink_mtu(mtu: i64) -> Result<(), String> {
     if mtu != 0 && !(MIN_UPLINK_MTU..=9000).contains(&mtu) {
         return Err(format!("--mtu {mtu}: want {MIN_UPLINK_MTU} to 9000"));
@@ -505,7 +498,7 @@ pub fn check_uplink_mtu(mtu: i64) -> Result<(), String> {
     Ok(())
 }
 
-/// meshJoinAddr: whether a join address is public (a mesh cluster's, or
+/// Whether a join address is public (a mesh cluster's, or
 /// the leader's for another site).
 pub fn mesh_join_addr(addr: &str) -> Result<bool, String> {
     let Some((a, port)) = clientconfig::parse_addr_port(addr).filter(|(_, p)| *p != 0) else {
@@ -520,7 +513,7 @@ pub fn mesh_join_addr(addr: &str) -> Result<bool, String> {
     Ok(true)
 }
 
-/// meshJoinListen: a join listener moved to the endpoint, same port.
+/// A join listener moved to the endpoint, same port.
 pub fn mesh_join_listen(join_addr: &str, endpoint: Option<IpAddr>) -> Result<String, String> {
     let Some((_, port)) = clientconfig::parse_addr_port(join_addr) else {
         return Err(format!("join listener {}: invalid", quote(join_addr)));
@@ -534,7 +527,7 @@ pub fn mesh_join_listen(join_addr: &str, endpoint: Option<IpAddr>) -> Result<Str
     })
 }
 
-/// joinMesh: a machine's side of joining over a public address.
+/// A machine's side of joining over a public address.
 #[derive(Clone, Debug, Default)]
 pub struct JoinMesh {
     pub on: bool,
@@ -543,7 +536,7 @@ pub struct JoinMesh {
     pub behind_nat: bool,
 }
 
-/// prepareJoin: the machine's private IP (None when a public join sends
+/// The machine's private IP (None when a public join sends
 /// none) and how it joins addr.
 pub fn prepare_join(
     changed: &dyn Fn(&str) -> bool,
@@ -608,7 +601,7 @@ pub fn prepare_join(
 }
 
 impl JoinMesh {
-    /// loadKey: the machine's WireGuard key for a public join.
+    /// The machine's WireGuard key for a public join.
     pub fn load_key(&mut self, data_dir: &str) -> Result<(), String> {
         if !self.on {
             return Ok(());
@@ -648,12 +641,11 @@ impl JoinMesh {
     }
 }
 
-/// ipString.
 pub fn ip_string(ip: Option<&IpAddr>) -> String {
     ip.map(|i| i.to_string()).unwrap_or_default()
 }
 
-/// uplinkEndpoint: the address whose route finds the uplink when the
+/// The address whose route finds the uplink when the
 /// node's own does not: its endpoint, or behind NAT an address on the
 /// internet.
 pub fn uplink_endpoint(ac: &AgentConfig) -> String {
@@ -663,7 +655,7 @@ pub fn uplink_endpoint(ac: &AgentConfig) -> String {
     ac.endpoint.clone()
 }
 
-/// The runtime pack's armada-node, when installed (packProgram).
+/// The runtime pack's armada-node, when installed.
 pub fn pack_program(data_dir: &str) -> Option<PathBuf> {
     let p = crate::paths(data_dir).bin().join(crate::pack::BIN_NODE);
     fs::canonicalize(&p)
@@ -671,7 +663,7 @@ pub fn pack_program(data_dir: &str) -> Option<PathBuf> {
         .filter(|p| fs::metadata(p).is_ok_and(|m| m.is_file()))
 }
 
-/// meshConfig: the cluster network's configuration of a node.
+/// The cluster network's configuration of a node.
 pub fn net_config(
     data_dir: &str,
     ac: &AgentConfig,
@@ -727,10 +719,10 @@ pub fn alone(ac: &AgentConfig, key: &str) -> pb::NetworkConfig {
     }
 }
 
-/// upMesh: a mesh node's tunnel brought up before etcd or the agent reach
+/// A mesh node's tunnel brought up before etcd or the agent reach
 /// mesh addresses (ADR 0049), from cfg or the peer list the node last
 /// applied; a node of another mode does so too while it keeps a list
-/// (peers in other sites, ADR 0050). The parity tests' hook
+/// (peers in other sites, ADR 0050). The replays' hook
 /// ARMADA_DAEMON_TEST_NO_NET leaves the kernel alone.
 pub async fn up_mesh(
     data_dir: &str,
@@ -784,21 +776,21 @@ mod tests {
     #[test]
     fn prefixes() {
         assert_eq!(
-            parse_prefix_go("10.0.0.0").unwrap_err(),
-            "netip.ParsePrefix(\"10.0.0.0\"): no '/'"
+            parse_prefix_checked("10.0.0.0").unwrap_err(),
+            "invalid prefix \"10.0.0.0\": no '/'"
         );
         assert_eq!(
-            parse_prefix_go("10.0.0.0/33").unwrap_err(),
-            "netip.ParsePrefix(\"10.0.0.0/33\"): prefix length out of range"
+            parse_prefix_checked("10.0.0.0/33").unwrap_err(),
+            "invalid prefix \"10.0.0.0/33\": prefix length out of range"
         );
         assert_eq!(
-            parse_prefix_go("10.0.0.0/08").unwrap_err(),
-            "netip.ParsePrefix(\"10.0.0.0/08\"): bad bits after slash: \"08\""
+            parse_prefix_checked("10.0.0.0/08").unwrap_err(),
+            "invalid prefix \"10.0.0.0/08\": bad bits after slash: \"08\""
         );
-        let p = parse_prefix_go("10.121.0.5/24").unwrap();
+        let p = parse_prefix_checked("10.121.0.5/24").unwrap();
         assert_eq!(bridge_of(&p).unwrap().string(), "10.121.0.0/24");
-        assert!(bridge_of(&parse_prefix_go("8.8.8.0/24").unwrap()).is_err());
-        assert!(bridge_of(&parse_prefix_go("10.0.0.0/30").unwrap()).is_err());
+        assert!(bridge_of(&parse_prefix_checked("8.8.8.0/24").unwrap()).is_err());
+        assert!(bridge_of(&parse_prefix_checked("10.0.0.0/30").unwrap()).is_err());
     }
 
     #[test]

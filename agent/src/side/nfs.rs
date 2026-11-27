@@ -1,9 +1,9 @@
-//! NFS volumes (ADR 0042; Go's nfs.go): the agent mounts an export once per
-//! node and volume under the NFS directory, with nosuid and nodev, and
+//! NFS volumes (ADR 0042): the agent mounts an export once per node and
+//! volume under the NFS directory, with nosuid and nodev, and
 //! bind-mounts it into each replica that names it. [`NodeNfs`] mounts,
 //! reads, and unmounts through armada-node's `nfs mount|source|unmount`,
 //! a process of its own, so a mount that never returns does not hold the
-//! agent (ADR 0055).
+//! agent.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -61,7 +61,7 @@ pub struct NodeNfs {
     pub supported: Option<bool>,
 }
 
-/// Go's nfsSupported: nfs4 in /proc/filesystems, or its module in the
+/// Whether the node mounts NFS: nfs4 in /proc/filesystems, or its module in the
 /// running kernel's modules.dep.
 pub fn nfs_supported() -> bool {
     nfs_supported_in("")
@@ -150,7 +150,7 @@ impl Nfs for NodeNfs {
     }
 }
 
-/// The export as the kernel names it (nfsSource).
+/// The export as the kernel names it.
 pub fn nfs_source(server: &str, path: &str) -> String {
     match server.parse::<std::net::IpAddr>() {
         Ok(std::net::IpAddr::V6(_)) => format!("[{server}]:{path}"),
@@ -182,7 +182,7 @@ impl<R: Runtime> Inner<R> {
     }
 
     /// Mounts v's export unless it is mounted and returns the replica's
-    /// mount of it (prepareNFS).
+    /// mount of it.
     pub(crate) async fn prepare_nfs(
         &self,
         app: &str,
@@ -238,8 +238,7 @@ impl<R: Runtime> Inner<R> {
         })
     }
 
-    /// Unmounts the NFS volumes no desired replica names any more
-    /// (cleanNFS).
+    /// Unmounts the NFS volumes no desired replica names any more.
     pub(crate) async fn clean_nfs(
         &self,
         desired: &std::collections::BTreeMap<String, pb::ReplicaSpec>,
@@ -292,7 +291,7 @@ impl<R: Runtime> Inner<R> {
 
 use std::os::unix::fs::DirBuilderExt;
 
-/// os.ReadDir's names, sorted.
+/// A directory's names, sorted.
 fn read_dir_sorted(p: &Path) -> std::io::Result<Vec<String>> {
     let mut names: Vec<String> = std::fs::read_dir(p)?
         .filter_map(|e| e.ok())

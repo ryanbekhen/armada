@@ -1,11 +1,9 @@
-//! An exec's session in a container (ADR 0054 step 5, last part): what
-//! the supervisor runtime's execProcess (internal/runtime/supervisor/
-//! exec.go) and the driver's drain (ExecApp's drainIO, internal/runtime/
-//! containerd/exec.go) do in Go. The process spec is the container's own
+//! An exec's session in a container: the process started, its streams
+//! copied, and its output drained. The process spec is the container's own
 //! (its config.json) with the arguments, terminal, and console size the
 //! exec sets, written 0600 as process.json in a directory of its own;
 //! the container's OCI runtime's exec (crun's, or runc's for a container
-//! runc created: oci.rs; called runc below) runs with Go's arguments on a
+//! runc created: oci.rs; called runc below) runs on a
 //! pseudo-terminal (its controlling terminal, in a session of its own) or
 //! on pipes, and this process copies between them and the agent's
 //! streams, waits for runc,
@@ -17,10 +15,10 @@
 //! 5 the caller's input, 6 its output, 7 its error output (each only when
 //! the caller has one). The control socket carries one JSON object per
 //! line. From here: {"spawned"} once runc runs (every failure after it is
-//! the call's), {"execErrno"} for a runc that could not be run (Go's
-//! start error), {"redo"} for a failure Go words itself by doing the
-//! session, {"error"} for armada-node failing; then {"started"} or
-//! {"notStarted"} (execProcess.Start's nil or its ten-second error),
+//! the call's), {"execErrno"} for a runc that could not be run (the
+//! start's errno), {"redo"} for a failure the agent words itself by doing
+//! the session, {"error"} for armada-node failing; then {"started"} or
+//! {"notStarted"} (the process started, or not within ten seconds),
 //! {"exit"} once done, and {"drained"} at the output's end. From the
 //! agent: {"resize": {"width", "height"}}, {"kill": true} (the cleanup's
 //! SIGKILL), and {"abandon": true}, which the socket's end also means.
@@ -99,10 +97,9 @@ struct Config {
 }
 
 /// specs.Process (runtime-spec v1.3.0) as config.json holds it: every
-/// field ExecApp keeps is kept as its bytes, which json.Marshal wrote
-/// (Bundles.Create, or armada-node's bundle create, which writes the same
-/// bytes), so writing them back gives what Go's json.Marshal of the
-/// decoded process gives.
+/// field the exec keeps is kept as its bytes, which the bundle's create
+/// wrote as compact JSON, so writing them back gives the same bytes as
+/// encoding the decoded process again.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ProcessIn {
@@ -180,7 +177,7 @@ fn raw(s: &str) -> Box<RawValue> {
     RawValue::from_string(s.to_string()).expect("valid JSON")
 }
 
-/// An omitempty field Go leaves out: missing, null, or its zero value
+/// An omitempty field left out: missing, null, or its zero value
 /// (empty), else its bytes.
 fn unless(v: Raw, empty: &str) -> Raw {
     v.filter(|r| r.get() != empty)
@@ -195,7 +192,7 @@ pub fn process_json(config: &[u8], r: &ExecRequest) -> Result<Vec<u8>, String> {
         .process
         .ok_or_else(|| "config.json has no process".to_string())?;
     // The console size is the request's; the container's own is only read
-    // so an unreadable one fails as Go's decoding does.
+    // so an unreadable one fails the call.
     let _ = p.console_size;
     let out = ProcessOut {
         terminal: r.terminal,
@@ -371,14 +368,14 @@ fn await_terminal(
 #[derive(Debug, PartialEq)]
 pub enum Prepared {
     Ready,
-    /// A failure Go words itself by doing the start.
+    /// A failure the agent words itself by doing the start.
     Redo(String),
     /// armada-node failing.
     Error(String),
 }
 
-/// Writes process.json under the request's directory as Go writes it
-/// (MkdirAll 0700, WriteFile 0600).
+/// Writes process.json under the request's directory (the directory
+/// made 0700, the file 0600).
 pub fn prepare(r: &ExecRequest) -> Prepared {
     let config = match std::fs::read(Path::new(&r.bundle).join("config.json")) {
         Ok(b) => b,
@@ -517,8 +514,8 @@ impl Output {
     }
 
     /// Stops the output and waits for a read and write in progress to
-    /// end, so what was read is delivered (the write a copy Go cancels
-    /// still finishes).
+    /// end, so what was read is delivered (a write in progress when the
+    /// copy is stopped still finishes).
     fn stop(&self) {
         let mut s = self.lock();
         s.stopped = true;
@@ -684,7 +681,7 @@ fn copy_out(
 
 /// Copies the caller's input to runc's, then ends it: the pipe closed, or
 /// on a terminal an end-of-transmission character, as a terminal sends
-/// for Ctrl-D (written even after a failed copy, as Go writes it).
+/// for Ctrl-D (written even after a failed copy).
 fn copy_in(mut src: File, mut dst: impl Write, eot: bool) {
     let _ = std::io::copy(&mut src, &mut dst);
     if eot {
@@ -757,8 +754,8 @@ fn take_fd(fd: i32) -> Option<File> {
     Some(unsafe { File::from_raw_fd(fd) })
 }
 
-/// armada-node runtime exec: runs the exec's session (execProcess and
-/// ExecApp's drain in Go) and exits.
+/// armada-node runtime exec: runs the exec's session (the start, the
+/// copies, and the drain) and exits.
 pub fn exec_command() -> ! {
     // A panic's message could carry what it was handling: a fixed text
     // goes to the agent, nothing to the caller's streams.
@@ -862,7 +859,7 @@ fn start(r: ExecRequest, ctl: UnixStream, mut ans: Answers, fds: [Option<File>; 
         };
         cmd.stdin(a).stdout(b).stderr(slave);
         // runc's own session with the terminal as its controlling
-        // terminal, as Go's Setsid and Setctty give it.
+        // terminal (setsid, then TIOCSCTTY).
         // SAFETY: only async-signal-safe calls between fork and exec.
         unsafe {
             cmd.pre_exec(|| {
@@ -1202,8 +1199,7 @@ impl Session {
     /// execProcess.Kill with SIGKILL: the process runc started, then runc
     /// and the copy of the terminal's output. Nothing once done. Before
     /// runc wrote the pid, runc alone is ended, so a start that never
-    /// comes does not hold the caller's cleanup (Go's code answers
-    /// NotFound and waits).
+    /// comes does not hold the caller's cleanup.
     fn kill(&mut self) {
         if self.done {
             return;
@@ -1270,7 +1266,7 @@ mod tests {
     }
 
     #[test]
-    fn zero_values_as_go_writes_them() {
+    fn zero_values_left_out() {
         let config = br#"{"process":{"terminal":true,"consoleSize":{"height":1,"width":2},"env":[],"cwd":null,"user":null,"noNewPrivileges":false,"rlimits":null}}"#;
         let got = process_json(config, &req(&[], false, None)).unwrap();
         assert_eq!(
@@ -1319,7 +1315,7 @@ mod tests {
     }
 
     #[test]
-    fn pid_file_as_go_reads_it() {
+    fn pid_file_parsed() {
         let dir = std::env::temp_dir().join(format!("armada-exec-pid-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let d = dir.to_str().unwrap();

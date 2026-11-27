@@ -4,13 +4,13 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "The node agent's loop, a port of Go's internal/agent (ADR 0055): a library the Rust armadad agent links"
+description = "The node agent: a library armadad agent links"
 
 [dependencies]
 armada-fsutil = { path = "../fsutil" }
-# The cluster network and HAProxy's configuration in process (16d), the
+# The cluster network and HAProxy's configuration in process, the
 # broker URLs of queue readings (net/url), the machine's roots, and the
-# HTTP pieces of the log export (16c).
+# HTTP pieces of the log export.
 armada-node = { path = "../node" }
 # The log export's gzipped requests.
 flate2.workspace = true
@@ -50,7 +50,7 @@ tonic = { workspace = true, features = ["server"] }
 
 [features]
 # The program the agent's replays drive (src/bin/armada-agent-parity.rs),
-# and the replay of their scenarios recorded from Go
+# and the replay of their recorded scenarios
 # (tests/scenarios.rs) with its fake armada-node: never part of a release.
 parity = []
 

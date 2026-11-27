@@ -1,7 +1,6 @@
-//! The API's plumbing: one service that authorizes every call (Go's
-//! unaryAuth and streamAuth with authorize) and hands it to AdminService
-//! or AgentService, adding the control plane's addresses to every
-//! AdminService answer (serversHeader).
+//! The API's plumbing: one service that authorizes every call and hands
+//! it to AdminService or AgentService, adding the control plane's
+//! addresses to every AdminService answer.
 
 use std::convert::Infallible;
 use std::future::Future;
@@ -22,9 +21,8 @@ use crate::access::{ADMIN_SERVICE, Access, Need, method_needs};
 use crate::conn::PeerInfo;
 
 const AGENT_SERVICE: &str = "/armada.v1.AgentService/";
-/// clientconfig.ServersHeader.
 pub const SERVERS_HEADER: &str = "armada-servers";
-/// endpointsFresh: how long addresses read for the header are used.
+/// How long addresses read for the header are used.
 const ENDPOINTS_FRESH: Duration = Duration::from_secs(10);
 
 /// The authenticated caller of one call, put in its request's extensions.
@@ -36,7 +34,7 @@ pub struct Auth {
 }
 
 impl Auth {
-    /// Go's actor: the caller's identity as text.
+    /// The caller's identity as text.
     pub fn actor(&self) -> String {
         self.id.to_string()
     }
@@ -51,7 +49,8 @@ pub fn auth<T>(req: &tonic::Request<T>) -> Result<Auth, Status> {
 }
 
 impl Server {
-    /// Go's authorize.
+    /// The caller of method, from its verified certificate, or the error
+    /// that refuses it.
     pub(crate) async fn authorize(
         &self,
         peer: Option<&PeerInfo>,
@@ -108,7 +107,7 @@ impl Server {
         }
     }
 
-    /// Go's methodAccess: the principal's access to method, or the error
+    /// The principal's access to method, or the error
     /// that refuses the call.
     pub(crate) async fn method_access(
         &self,
@@ -161,7 +160,7 @@ impl Server {
         Ok(acc)
     }
 
-    /// Go's serversHeader: the control plane's API addresses for an
+    /// The control plane's API addresses for an
     /// AdminService answer, read again when older than ENDPOINTS_FRESH.
     async fn servers_header(&self, method: &str) -> Option<String> {
         if !method.starts_with(ADMIN_SERVICE) {
@@ -201,8 +200,8 @@ pub(crate) fn cert_time(secs: i64) -> armada_spec::gotime::Time {
     armada_store::gojson::from_unix(secs)
 }
 
-/// grpc-go's answer for a service, or a method of a known service, a
-/// server does not serve.
+/// The answer for a service, or a method of a known service, a server
+/// does not serve (Unimplemented).
 pub(crate) fn unknown_service(path: &str, known: &str) -> Status {
     let p = path.trim_start_matches('/');
     let (svc, method) = p.rsplit_once('/').unwrap_or((p, ""));
@@ -249,8 +248,8 @@ impl tower::Service<http::Request<Body>> for Dispatch {
         let mut agent = self.agent.clone();
         Box::pin(async move {
             let path = req.uri().path().to_string();
-            // grpc-go answers a service it does not serve before any
-            // interceptor runs.
+            // A service the server does not serve is answered before any
+            // access check.
             if !path.starts_with(ADMIN_SERVICE) && !path.starts_with(AGENT_SERVICE) {
                 return Ok(unknown_service(&path, "").into_http());
             }

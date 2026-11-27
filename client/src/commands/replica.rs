@@ -1,4 +1,4 @@
-//! armada replica (Go's replicas.go).
+//! armada replica.
 
 use armada_proto::armada::v1::{AppStatus, ReplicaStatus, StatusRequest, StatusResponse};
 use armada_spec as spec;
@@ -109,7 +109,7 @@ fn restarts(r: &ReplicaStatus, now: i128) -> String {
     n
 }
 
-/// shortReplica: the ID after its last hyphen.
+/// The ID after its last hyphen.
 pub fn short_replica(id: &str) -> &str {
     match id.rfind('-') {
         Some(i) => &id[i + 1..],
@@ -117,7 +117,7 @@ pub fn short_replica(id: &str) -> &str {
     }
 }
 
-/// shortRevision: r12 for api--r12.
+/// r12 for api--r12.
 pub fn short_revision(rev: &str) -> &str {
     match rev.rfind("--") {
         Some(i) => &rev[i + 2..],
@@ -125,7 +125,7 @@ pub fn short_revision(rev: &str) -> &str {
     }
 }
 
-/// containerList: a replica's containers, init containers last.
+/// a replica's containers, init containers last.
 fn container_list(r: &ReplicaStatus) -> String {
     if r.containers.is_empty() {
         return "-".to_string();

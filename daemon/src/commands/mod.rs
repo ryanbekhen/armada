@@ -1,4 +1,4 @@
-//! armadad's commands (Go's internal/daemon).
+//! armadad's commands.
 
 pub mod agent;
 pub mod backup;

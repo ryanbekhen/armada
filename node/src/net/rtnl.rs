@@ -1,9 +1,8 @@
 //! Routing netlink (rtnetlink): the interfaces, addresses, routes,
 //! neighbour entries, and forwarding entries the cluster network sets up,
-//! read and changed with the messages vishvananda/netlink sends for the
-//! Go agent's calls (LinkByName, LinkAdd, LinkSetMTU, AddrReplace,
-//! RouteReplace, NeighSet, and the rest), byte for byte: a Go test captures
-//! what that library sends and compares.
+//! read and changed (links looked up, added, and changed, addresses,
+//! routes, and neighbour entries replaced, and the rest); tests compare
+//! the messages with recorded bytes.
 //!
 //! Every message builder is a pure function; `Handle` sends them.
 
@@ -140,7 +139,7 @@ pub struct IfAddr {
 pub struct Route {
     pub family: u8,
     /// The destination and its length; a route with none has the family's
-    /// zero address, as Go gives it.
+    /// zero address.
     pub dst: Option<(Vec<u8>, u8)>,
     pub src: Option<Vec<u8>>,
     pub gw: Option<Vec<u8>>,
@@ -216,8 +215,8 @@ pub fn list_links() -> Msg {
     msg(RTM_GETLINK, NLM_F_DUMP, ifinfomsg(0, 0, 0), a)
 }
 
-/// What LinkAdd sends for a link of the agent's: name, MTU, a queue length
-/// of 0 (Go's zero LinkAttrs), the hardware address when given, and the
+/// The message adding a link of the agent's: name, MTU, a queue length
+/// of 0, the hardware address when given, and the
 /// kind with its data.
 fn add_link(name: &str, mtu: u32, mac: &[u8], kind: &str, data: Option<Attrs>) -> Msg {
     let mut a = Attrs::new();
@@ -229,7 +228,7 @@ fn add_link(name: &str, mtu: u32, mac: &[u8], kind: &str, data: Option<Attrs>) -
     if !mac.is_empty() {
         a.put(IFLA_ADDRESS, mac);
     }
-    // IFLA_LINKINFO without the nested flag, as vishvananda writes it.
+    // IFLA_LINKINFO without the nested flag.
     a.nested(IFLA_LINKINFO, |l| {
         l.put(IFLA_INFO_KIND, kind.as_bytes());
         if let Some(d) = data {
@@ -269,9 +268,8 @@ pub fn add_vxlan(name: &str, mtu: u32, mac: &[u8], v: &Vxlan) -> Msg {
     add_link(name, mtu, mac, "vxlan", Some(d))
 }
 
-/// LinkAdd(&netlink.Bridge{...}) as the container bridge is made: its
-/// name alone.
-// The Rust agent's, through the library; the program makes no bridge.
+/// The message adding the container bridge: its name alone.
+// The agent's, through the library; the program makes no bridge.
 #[allow(dead_code)]
 pub fn add_bridge(name: &str) -> Msg {
     add_link(name, 0, &[], "bridge", None)
@@ -310,7 +308,7 @@ pub fn set_down(index: i32) -> Msg {
     )
 }
 
-/// LinkSetName: the name without its NUL, as Go sends it.
+/// Renames a link: the name without its NUL.
 pub fn set_name(index: i32, name: &str) -> Msg {
     let mut a = Attrs::new();
     a.put(IFLA_IFNAME, name.as_bytes());
@@ -343,7 +341,7 @@ fn family_of(ip: &[u8]) -> u8 {
     if ip.len() == 4 { AF_INET } else { AF_INET6 }
 }
 
-/// addrHandle: the message of AddrReplace (replace) or AddrDel for a on
+/// The message of AddrReplace (replace) or AddrDel for a on
 /// interface index.
 pub fn addr(replace: bool, index: i32, a: &IfAddr) -> Msg {
     let family = family_of(&a.ip);
@@ -524,7 +522,7 @@ fn ndmsg(family: u8, index: i32, state: u16, flags: u8, kind: u8) -> Vec<u8> {
     b
 }
 
-/// neighHandle: NeighSet (set) or NeighDel of n.
+/// NeighSet (set) or NeighDel of n.
 pub fn neigh(set: bool, n: &Neigh) -> Msg {
     let mut a = Attrs::new();
     a.put(NDA_DST, &n.ip);
@@ -591,14 +589,14 @@ pub fn parse_link(b: &[u8]) -> Option<Link> {
         match ty {
             IFLA_IFNAME => l.name = cstring(v),
             IFLA_MTU => l.mtu = ne_u32(v),
-            // An all-zero address is none, as Go reads it.
+            // An all-zero address is none.
             IFLA_ADDRESS if v.iter().any(|c| *c != 0) => l.mac = v.to_vec(),
             IFLA_OPERSTATE => l.oper = v.first().copied().unwrap_or(0),
             IFLA_LINKINFO => {
                 let info = attrs(v);
                 for (t, d) in &info {
                     if *t == IFLA_INFO_KIND && !d.is_empty() {
-                        // Go drops the last byte, the kernel's NUL.
+                        // The last byte is the kernel's NUL.
                         l.kind = String::from_utf8_lossy(&d[..d.len() - 1]).into_owned();
                     }
                 }
@@ -778,7 +776,7 @@ impl Handle {
             .collect())
     }
 
-    /// linkNamed: the interface, None when there is none.
+    /// The interface, None when there is none.
     pub fn link_named(&mut self, name: &str) -> Result<Option<Link>, Errno> {
         match self.sock.request(&get_link_by_name(name)) {
             Err(Errno(libc::ENODEV)) => Ok(None),
@@ -900,9 +898,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn vxlan_creation_as_go_sends_it() {
-        // Captured from vishvananda/netlink's LinkAdd of
-        // &netlink.Vxlan{LinkAttrs{Name: "armada-net", MTU: 1450}, VxlanId: 7027, Port: 4789}.
+    fn vxlan_creation_as_recorded() {
+        // The recorded message adding a VXLAN link: name armada-net, MTU
+        // 1450, VNI 7027, port 4789.
         let want = "ac000000100005060000000000000000000000000000000000000000000000000f00030061726d6164612d6e6574000008000400aa05000008000d00000000006c0012000900010076786c616e0000005c00020008000100731b000005000500000000000500060000000000050007000000000005000b000000000005000c000000000005000d000000000005000e00000000000500130000000000050014000000000006000f0012b50000";
         let m = add_vxlan(
             "armada-net",

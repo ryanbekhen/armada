@@ -1,5 +1,5 @@
 //! A replica's assignment as the runtime's container spec, and its spec
-//! hash (Go's `ContainerSpec`, `specHash`, `memberSpecs`, `registryAuth`).
+//! hash.
 
 use std::collections::BTreeMap;
 
@@ -83,10 +83,10 @@ pub fn registry_auth(s: &pb::ReplicaSpec) -> Option<RegistryAuth> {
     })
 }
 
-/// Fingerprints everything about a replica except its image, as Go's
-/// specHash does byte for byte (the protobuf encoding of the cleaned spec,
-/// fields in number order, then the first 16 bytes of its SHA-256), so a
-/// container either agent made is adopted by the other. Secret values are
+/// Fingerprints everything about a replica except its image (the protobuf
+/// encoding of the cleaned spec, fields in number order, then the first 16
+/// bytes of its SHA-256), the same bytes every release hashes, so an
+/// upgraded agent adopts the containers of the one before. Secret values are
 /// left out: the hash sits in a container label.
 pub fn spec_hash(s: &pb::ReplicaSpec) -> String {
     let mut c = s.clone();

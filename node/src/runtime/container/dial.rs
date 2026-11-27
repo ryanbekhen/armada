@@ -1,11 +1,10 @@
-//! Dialling from a container's or a sandbox's network namespace, as
-//! internal/runtime/containerd's dialIn does (dial_linux.go): the socket
-//! is made on this process's only thread after it switched into the
-//! namespace, so it has exactly the namespace's routes and firewall, and
-//! the connected socket is handed to the Go agent over SCM_RIGHTS on the
+//! Dialling from a container's or a sandbox's network namespace: the
+//! socket is made on this process's only thread after it switched into
+//! the namespace, so it has exactly the namespace's routes and firewall,
+//! and the connected socket is handed to the caller over SCM_RIGHTS on the
 //! Unix socket it passes as file descriptor 3. Only IP addresses reach
-//! here: Go checked the address and picked the family as its dialer
-//! does, and keeps names, zones, and service names.
+//! here: the caller checked the address and picked the family, and keeps
+//! names, zones, and service names.
 
 use super::bundle;
 use super::stats::{Located, locate};
@@ -168,8 +167,8 @@ fn writable(fd: RawFd, deadline: Option<Instant>) -> Result<bool, i32> {
     }
 }
 
-/// The dial itself, in the namespace: what Go's sysSocket, its default
-/// socket options, and netFD.connect do.
+/// The dial itself, in the namespace: a nonblocking socket, the default
+/// socket options, and the connect.
 pub fn connect(r: &DialRequest, deadline: Option<Instant>) -> Outcome {
     let Some((sa, len)) = sockaddr(r) else {
         return Outcome::Redo(format!("address {} of family {}", r.ip, r.family));
@@ -192,7 +191,7 @@ pub fn connect(r: &DialRequest, deadline: Option<Instant>) -> Outcome {
     // SAFETY: fd was just made and nothing else owns it.
     let sock = unsafe { OwnedFd::from_raw_fd(fd) };
     if family == libc::AF_INET6 {
-        // Go ignores this one's error.
+        // This one's error is ignored.
         setsockopt_int(
             fd,
             libc::IPPROTO_IPV6,
@@ -276,8 +275,8 @@ pub fn enter_target(r: &DialRequest, deadline: Option<Instant>) -> Result<(), Ou
     enter(&ns).map_err(Outcome::Setns)
 }
 
-/// Dials as DialContainer (a request with an ID) or DialSandbox (with a
-/// namespace's path) do once Go checked the address.
+/// Dials from a container (a request with an ID) or a sandbox (with a
+/// namespace's path) once the caller checked the address.
 pub fn dial(r: &DialRequest) -> Outcome {
     let deadline = (r.timeout_ms > 0).then(|| Instant::now() + Duration::from_millis(r.timeout_ms));
     if let Err(o) = enter_target(r, deadline) {
@@ -342,7 +341,7 @@ mod tests {
 
     /// The namespace the thread is already in is not entered again:
     /// setns needs CAP_SYS_ADMIN even for one's own namespace, so a dial
-    /// from it works without the privilege (Go's dial always enters).
+    /// from it works without the privilege.
     #[test]
     fn stays_in_its_own_namespace() {
         let own = open_ns("/proc/thread-self/ns/net").unwrap();

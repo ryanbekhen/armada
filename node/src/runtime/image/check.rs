@@ -12,8 +12,8 @@ const GZIP_MAGIC: [u8; 3] = [0x1f, 0x8b, 0x08];
 const ZSTD_MAGIC: [u8; 4] = [0x28, 0xb5, 0x2f, 0xfd];
 const ZSTD_SKIPPABLE_START: u32 = 0x184d_2a50;
 const ZSTD_SKIPPABLE_MASK: u32 = 0xffff_fff0;
-/// The largest zstd window the Go decoder accepts (MaxWindowSize on
-/// 64-bit machines), which bounds the memory a layer can make us take.
+/// The largest zstd window accepted (512 MiB), which bounds the memory a
+/// layer can make us take.
 const ZSTD_MAX_WINDOW: u64 = 1 << 29;
 
 #[derive(PartialEq, Eq, Debug)]
@@ -293,7 +293,7 @@ mod tests {
         let blob = Digest::sha256(b"x");
         layer(&tar[..], &blob, &id).unwrap();
         layer(&gz(&tar)[..], &blob, &id).unwrap();
-        // Two gzip members read as one stream, as Go's reader does.
+        // Two gzip members read as one stream.
         let mut two = gz(b"my layer");
         two.extend(gz(b" tar"));
         layer(&two[..], &blob, &id).unwrap();

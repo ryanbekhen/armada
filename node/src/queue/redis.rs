@@ -1,4 +1,4 @@
-//! queuelen.RedisListLength: LLEN of a list on the server a URL names,
+//! A Redis list's length: LLEN of a list on the server a URL names,
 //! redis://[user[:password]@]host[:port][/db] or rediss:// for TLS, over
 //! the minimal RESP the commands need, with bounded replies. A user given
 //! without a password authenticates with an empty password (see auth).
@@ -6,17 +6,17 @@
 use super::{Answer, Dialer, ERR_AUTH, ERR_DIAL, ERR_REPLY, ERR_URL, MAX_LENGTH, Stream, url};
 use crate::gostr;
 
-/// The longest reply line read (bufio.Reader's size in queuelen).
+/// The longest reply line read.
 const MAX_REPLY_LINE: usize = 512;
 
-/// A reply line reader like queuelen's bufio.Reader: bytes past one line
+/// A buffered reply line reader: bytes past one line
 /// stay for the next reply.
 struct Replies {
     buf: Vec<u8>,
 }
 
 impl Replies {
-    /// readReply: one simple reply (+, -, :) of at most MAX_REPLY_LINE
+    /// One simple reply (+, -, :) of at most MAX_REPLY_LINE
     /// bytes; anything else, or a failed read, is errReply.
     fn read(&mut self, s: &mut dyn Stream) -> Result<(u8, Vec<u8>), &'static str> {
         loop {
@@ -150,7 +150,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn urls_as_go() {
+    fn urls_parse() {
         assert!(parse("redis://h").is_some());
         assert_eq!(parse("redis://h:7000/+3").unwrap().2, 3);
         for bad in [

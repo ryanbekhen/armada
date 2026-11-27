@@ -1,6 +1,6 @@
-//! volbackup.Repo: one volume's repository in its bucket, in Go's format
-//! byte for byte where it is not random (nonces, the repository's ID,
-//! snapshot IDs' suffix): `config` ({"version":1,"id","check"}),
+//! One volume's repository in its bucket, in a fixed format, byte for byte
+//! where it is not random (nonces, the repository's ID, snapshot IDs'
+//! suffix): `config` ({"version":1,"id","check"}),
 //! `chunks/<2>/<64 hex>` (zstd, then sealed with the key named by the
 //! object), and `snapshots/<UTC ms time>-<8 hex>` (a sealed, compressed
 //! JSON manifest of every entry). A backup lists the chunks once, uploads
@@ -10,17 +10,16 @@
 //! snapshots the policy does not keep, then the chunks no kept snapshot
 //! names that are older than an hour.
 //!
-//! A manifest entry holds more than Go's where Go's loses something, in
-//! fields Go's reader ignores (encoding/json skips unknown fields), so Go
+//! A manifest entry holds, beside its base fields, what they cannot, in
+//! fields a reader that skips unknown fields ignores, so such a reader
 //! still restores every snapshot: `pb` and `lb` the path's and link's
 //! bytes (standard base64) when they are not UTF-8 (`p` and `l` then hold
-//! them with U+FFFD, as Go writes them); `ms` and `mn` the time's seconds
-//! and nanoseconds when it is past what `mt`'s 64-bit nanoseconds hold
-//! (2262; `mt` then wraps as Go's UnixNano does); and setuid and setgid
-//! in `m` as fs.FileMode's bits (ModeSetuid 1<<23, ModeSetgid 1<<22),
-//! restored when the agent runs as root. Chunks and manifests are
-//! compressed at ruzstd's Fastest level, the only one it implements
-//! (Go writes SpeedDefault; either reads both).
+//! them with U+FFFD); `ms` and `mn` the time's seconds and nanoseconds
+//! when it is past what `mt`'s 64-bit nanoseconds hold (2262; `mt` then
+//! wraps); and setuid and setgid in `m` as file mode bits (setuid 1<<23,
+//! setgid 1<<22), restored when the agent runs as root. Chunks and
+//! manifests are compressed at ruzstd's Fastest level, the only one it
+//! implements; any zstd level reads.
 
 use super::chunker::{Chunker, MAX_CHUNK};
 use super::gotime::{self, Instant, Keep, Zone};
@@ -118,7 +117,7 @@ pub struct Snapshot {
     pub node: String,
 }
 
-/// An entry of a snapshot as Go's Entry names it: its path as written
+/// An entry of a snapshot: its path as written
 /// ("/"-separated, "." the volume), its type ("d", "f", or "l"), and a
 /// file's size. armadad restores the control plane's backups through it.
 #[allow(dead_code)]
@@ -291,7 +290,8 @@ struct Manifest {
     entries: Option<Vec<ManifestEntry>>,
 }
 
-/// The zero time.Time, which a manifest without a time holds.
+/// The zero time (0001-01-01T00:00:00Z), which a manifest without a time
+/// holds.
 const ZERO_TIME: Instant = Instant {
     sec: -62_135_596_800,
     nsec: 0,
@@ -327,7 +327,7 @@ struct Entry {
     c: Vec<String>,
 }
 
-/// The manifest as Go's json.Marshal writes it.
+/// The manifest's JSON, fields in their fixed order.
 fn manifest_json(time: Instant, node: &str, files: i64, bytes: i64, entries: &[Entry]) -> String {
     let mut o = String::with_capacity(256 + entries.len() * 128);
     o.push_str(&format!(
@@ -785,7 +785,7 @@ impl Repo {
     }
 
     /// Restore of snapshot id handed entry by entry, parents first, to
-    /// write with the content of files (Go's Repo.Restore): every chunk is
+    /// write with the content of files: every chunk is
     /// checked against its name, and chunks write leaves unread are read
     /// all the same.
     #[allow(dead_code)]
@@ -1059,7 +1059,7 @@ impl Fetcher {
     }
 }
 
-/// fetchChunk: read, opened, and checked against its name.
+/// Read, opened, and checked against its name.
 fn fetch_chunk(conn: &mut Conn, k: &Keys, root: &str, id: &str) -> Result<Vec<u8>, String> {
     if !chunk_name(id) {
         return Err(ERR_SEALED.into());
@@ -1080,7 +1080,7 @@ fn fetch_chunk(conn: &mut Conn, k: &Keys, root: &str, id: &str) -> Result<Vec<u8
     Ok(plain)
 }
 
-/// chunkStream: a file's chunks in order.
+/// a file's chunks in order.
 struct ChunkStream<'a> {
     f: &'a Fetcher,
     left: usize,
@@ -1138,7 +1138,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn names_as_go() {
+    fn snapshot_names() {
         assert!(snapshot_name("20231114T221320.123Z-0a1b2c3d"));
         assert!(!snapshot_name("20231114T221320.123Z-0A1b2c3d"));
         assert!(chunk_name(&"a".repeat(64)));
@@ -1181,7 +1181,7 @@ mod tests {
         assert_eq!(e.path().unwrap(), b"bad\xff");
         assert_eq!(e.link().unwrap(), b"to\xfe");
         assert_eq!(e.time(), future);
-        // What Go writes: no extra fields.
+        // An entry with no extra fields.
         let m: Manifest =
             serde_json::from_str(r#"{"entries":[{"p":"a�","t":"f","m":420,"mt":-5}]}"#).unwrap();
         let e = &m.entries.unwrap()[0];
@@ -1209,7 +1209,7 @@ mod tests {
             manifest_json(t, "n1", 1, 3, &[e]),
             "{\"version\":1,\"time\":\"1970-01-01T00:00:00.000000005Z\",\"node\":\"n1\",\"files\":1,\"bytes\":3,\"entries\":[{\"p\":\"a\\u003cb\",\"t\":\"f\",\"m\":1048996,\"u\":1,\"g\":2,\"mt\":5,\"s\":3,\"c\":[\"ab\"]}]}"
         );
-        // Go's decoder refuses a window past its memory bound, as this does.
+        // A window past the memory bound is refused.
         let z = zstd(b"hello hello hello hello");
         assert_eq!(unzstd(&z, 1 << 20).unwrap(), b"hello hello hello hello");
         assert!(unzstd(&z, 100).is_err());

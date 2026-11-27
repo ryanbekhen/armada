@@ -1,6 +1,6 @@
-//! The AdminService client of a command (Go's dialAdmin): the config
+//! The AdminService client of a command: the config
 //! loaded, the channel dialed, every answer's armada-servers header kept in
-//! the config (serverSync), and errors shown as RPCError shows them.
+//! the config (`ServerSync`), and errors shown as `rpc_error` shows them.
 
 use std::future::Future;
 
@@ -16,7 +16,7 @@ pub struct Admin {
     sync: ServerSync,
 }
 
-/// serverSync: the leader's list of servers, written back to the config
+/// The leader's list of servers, written back to the config
 /// once per run when it differs.
 struct ServerSync {
     path: String,
@@ -106,7 +106,7 @@ pub fn printable(s: &str) -> String {
         .collect()
 }
 
-/// RPCError: the status's message, each line made printable.
+/// A status's message, each line made printable.
 pub fn rpc_error(s: &Status) -> String {
     s.message()
         .split('\n')

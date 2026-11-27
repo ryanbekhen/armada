@@ -1,6 +1,5 @@
-//! The supervisor runtime against Go's driver: what Go's supervisor tests
-//! kept before the Go code was removed (tests/testdata/supervisor),
-//! replayed here.
+//! The supervisor runtime against its recordings
+//! (tests/testdata/supervisor), replayed here.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -29,7 +28,7 @@ fn root(name: &str) -> PathBuf {
 }
 
 /// A cache file with root replaced, also in the configuration it holds as
-/// base64 (rsCache).
+/// base64.
 fn cache(path: &Path, conf: &[u8], root: &str) -> String {
     use armada_node::net::key::b64_encode;
     let s = fs::read_to_string(path).unwrap();
@@ -39,7 +38,7 @@ fn cache(path: &Path, conf: &[u8], root: &str) -> String {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn cni_as_go() {
+async fn cni_as_recorded() {
     let want = golden("cni.json");
     let dir = root("cni");
     let r = dir.display().to_string();
@@ -91,7 +90,7 @@ async fn cni_as_go() {
 }
 
 #[test]
-fn files_as_go() {
+fn files_as_recorded() {
     let want = golden("files.json");
     let strs = |v: &Value| -> Vec<String> {
         v.as_array()
@@ -139,7 +138,7 @@ fn container_json(c: &Container) -> Value {
     })
 }
 
-/// Shims answering from Go's table.
+/// Shims answering from the recorded table.
 fn serve_shims(dir: &Path, table: &serde_json::Map<String, Value>) {
     fs::create_dir_all(dir).unwrap();
     for (group, answers) in table {
@@ -172,7 +171,7 @@ fn serve_shims(dir: &Path, table: &serde_json::Map<String, Value>) {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn containers_as_go() {
+async fn containers_as_recorded() {
     let want = golden("containers.json");
     let dir = root("containers");
     let bundles = dir.join("data/supervisor/containers");
@@ -269,7 +268,7 @@ fn regular_files(dir: &Path) -> Vec<(PathBuf, fs::Metadata)> {
     out
 }
 
-/// export.json with each inode replaced by its file's name (rsState).
+/// export.json with each inode replaced by its file's name.
 fn state_text(dir: &Path) -> String {
     use std::os::unix::fs::MetadataExt;
     let Ok(mut s) = fs::read_to_string(dir.join("history/export.json")) else {
@@ -296,7 +295,7 @@ fn time_of(v: &Value) -> Option<std::time::SystemTime> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn logs_as_go() {
+async fn logs_as_recorded() {
     let want = golden("logs.json");
     let dir = root("logs");
     write_log_files(&dir, &want["files"], false);

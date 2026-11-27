@@ -1,4 +1,4 @@
-//! The Rust runtime's image store (ADR 0054, "The runtime's move"):
+//! The node's image store:
 //!
 //!   <root>/content/blobs/<alg>/<hex>   every blob, read-only, by digest
 //!   <root>/content/ingest/             downloads until their digest matches
@@ -8,8 +8,7 @@
 //!                                      (snapshot.rs)
 //!   <root>/pull.lock, index.lock       see Store::pulls and Store::update
 //!
-//! The content layout is the one the supervisor runtime's content store
-//! keeps, so converting a node moves blobs by hard link or rename.
+//! The content layout is containerd's content store layout.
 
 use super::digest::Digest;
 use super::registry::Descriptor;
@@ -384,7 +383,7 @@ impl Store {
             // Layers under a container's root filesystem stay, as the
             // snapshotter refuses to remove a parent.
             let active = super::snapshot::in_use(self);
-            // Layers held for containers moved from Go's store stay while
+            // Layers held for containers moved from an earlier store stay while
             // an active snapshot names their chain (their overlays may
             // still mount them); the store stays marked until they go.
             let held = super::layers::collect_held(self, &active);
@@ -411,8 +410,7 @@ impl Store {
     }
 }
 
-/// Now as Go's time.Time marshals it in UTC (RFC 3339 with nanoseconds,
-/// trailing zeros dropped).
+/// Now in UTC as RFC 3339 with nanoseconds, trailing zeros dropped.
 pub fn now_rfc3339() -> String {
     let d = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -516,7 +514,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// A layer held for a container moved from Go's store stays while an
+    /// A layer held for a container moved from an earlier store stays while an
     /// active snapshot names its chain, keeping the store marked for a
     /// collection, and goes with the next collection after.
     #[test]

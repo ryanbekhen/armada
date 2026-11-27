@@ -1,8 +1,8 @@
-//! A netfilter netlink socket for nftables batches (what nftables.Conn's
-//! Flush does): the batch goes out in one send, and the kernel answers it.
+//! A netfilter netlink socket for nftables batches: the batch goes out in
+//! one send, and the kernel answers it.
 //!
-//! Unlike Go's nftables library, which asks for an acknowledgement of
-//! every message and an echo of every rule, a batch goes out asking only
+//! Rather than asking for an acknowledgement of every message and an echo
+//! of every rule, a batch goes out asking only
 //! for the acknowledgement of its last message (`on_the_wire`): the
 //! kernel reports every failed message whether asked or not, processes
 //! the whole batch before it answers, and answers in order, so the last
@@ -159,7 +159,7 @@ impl Socket {
     }
 
     /// Sends a transaction and waits for the kernel's answer to it,
-    /// joining the errors as Go's Flush does.
+    /// joining the errors.
     pub fn transact(&self, msgs: &[Msg]) -> Result<(), String> {
         if msgs.is_empty() {
             return Ok(());
@@ -188,8 +188,8 @@ impl Socket {
     }
 
     /// The kernel's answer to a GETTABLE message as an error number, 0
-    /// when the table exists (doctor's hasIsolation, which words the error
-    /// as Go's netlink library does).
+    /// when the table exists (doctor's isolation check, which words the
+    /// error).
     pub fn table_errno(&self, get: &Msg) -> Result<(), i32> {
         self.send(std::slice::from_ref(get), 1)
             .map_err(|_| libc::EIO)?;

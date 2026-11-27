@@ -1,5 +1,5 @@
-//! systemctl as Go's machine commands run it: from PATH, with Go's texts
-//! for a failure (`systemctl ARGS: exit status N: OUTPUT`).
+//! systemctl as the machine commands run it: from PATH, with a failure
+//! worded `systemctl ARGS: exit status N: OUTPUT`.
 
 use std::process::{Command, Stdio};
 
@@ -67,7 +67,6 @@ pub fn systemctl(args: &[&str]) -> Result<(), String> {
     }
 }
 
-/// unitActive.
 pub fn unit_active(unit: &str) -> bool {
     Command::new("systemctl")
         .args(["is-active", "--quiet", unit])

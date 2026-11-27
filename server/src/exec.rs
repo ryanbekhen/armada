@@ -1,4 +1,4 @@
-//! Exec (ADR 0015; Go's exec.go and replicanames.go): a command runs in one
+//! Exec (ADR 0015): a command runs in one
 //! replica of an app. The leader picks the replica, audits the command's
 //! name (never its arguments), offers an ExecRequest on the node's Connect
 //! stream, and relays between the admin's stream and the ExecSession the
@@ -26,22 +26,23 @@ use crate::apps::spec_containers;
 use crate::grpc::auth;
 use crate::store_err;
 
-/// maxChoices bounds the names an error lists as choices.
+/// Bounds the names an error lists as choices.
 const MAX_CHOICES: usize = 20;
-/// execIdleTimeout ends an exec session without input or output.
+/// Ends an exec session without input or output.
 const EXEC_IDLE_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 /// How often an exec session checks for idleness.
 const EXEC_IDLE_CHECK: Duration = Duration::from_secs(60);
-/// attachTimeout: how long an agent has to open the session.
+/// How long an agent has to open the session.
 pub(crate) const ATTACH_TIMEOUT: Duration = Duration::from_secs(10);
-/// How long a request waits for room in a session's queue (Go's offer).
+/// How long a request waits for room in a session's queue.
 pub(crate) const OFFER_TIMEOUT: Duration = Duration::from_secs(5);
-/// runtime.MaxExecArgs, MaxExecArgLen, MaxExecChunk.
+/// The most arguments of a command, bytes of its arguments, and bytes of
+/// one message.
 const MAX_EXEC_ARGS: usize = 64;
 const MAX_EXEC_ARG_LEN: usize = 4096;
 const MAX_EXEC_CHUNK: usize = 32 << 10;
 
-/// shortReplica: the name `armada replica list` prints for a replica, the
+/// The name `armada replica list` prints for a replica, the
 /// part of its ID after the last hyphen (ADR 0052).
 pub(crate) fn short_replica(id: &str) -> &str {
     match id.rfind('-') {
@@ -65,7 +66,7 @@ pub(crate) fn choices(names: &[String]) -> String {
     names.join(", ")
 }
 
-/// findReplica: the replica of app a person named, by ID or short name.
+/// The replica of app a person named, by ID or short name.
 pub(crate) fn find_replica(app: &str, reps: &[Replica], name: &str) -> Result<Replica, Status> {
     let mut found = Vec::new();
     for r in reps {
@@ -112,8 +113,8 @@ pub(crate) fn find_replica(app: &str, reps: &[Replica], name: &str) -> Result<Re
     }
 }
 
-/// checkContainerName: empty or "app" for the app's own container, else
-/// an init container's or sidecar's name (runtime.ValidMemberName).
+/// Empty or "app" for the app's own container, else
+/// an init container's or sidecar's name.
 pub(crate) fn check_container_name(name: &str) -> Result<(), Status> {
     if name.is_empty()
         || name == MAIN_CONTAINER
@@ -127,7 +128,7 @@ pub(crate) fn check_container_name(name: &str) -> Result<(), Status> {
     ))
 }
 
-/// runtime.CheckExecCommand; errors never repeat the arguments.
+/// A command's bounds checked; errors never repeat the arguments.
 fn check_exec_command(cmd: &[String]) -> Result<(), String> {
     if cmd.first().is_none_or(String::is_empty) {
         return Err("command is empty".into());
@@ -148,7 +149,6 @@ fn check_exec_command(cmd: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-/// filepath.Base.
 fn base(p: &str) -> &str {
     if p.is_empty() {
         return ".";
@@ -175,7 +175,7 @@ struct Pending {
     tx: oneshot::Sender<Attached>,
 }
 
-/// execRouter: pairs exec requests with the agent streams that serve them.
+/// Pairs exec requests with the agent streams that serve them.
 #[derive(Default)]
 pub struct ExecRouter {
     pending: Mutex<HashMap<String, Pending>>,
@@ -231,7 +231,7 @@ impl ExecRouter {
 }
 
 impl Server {
-    /// checkContainer: refuses a container no revision of revs has,
+    /// Refuses a container no revision of revs has,
     /// naming the ones they have; exec takes only running ones.
     pub(crate) async fn check_container(
         &self,
@@ -288,7 +288,7 @@ impl Server {
         ))
     }
 
-    /// execReplica: the replica named, or a running, ready replica of the
+    /// The replica named, or a running, ready replica of the
     /// serving revision.
     async fn exec_replica(&self, app: &App, replica: &str) -> Result<Replica, Status> {
         let reps = self
@@ -527,7 +527,7 @@ impl Server {
                 }
             }
             .await;
-            // The guard's reason first, as Go's stream wrapper returns it.
+            // The guard's reason first.
             let err = guard.as_ref().and_then(|g| g.ended()).or(res.err());
             if let Some(e) = err {
                 let _ = tx.send(Err(e)).await;
@@ -575,7 +575,7 @@ mod tests {
     }
 
     #[test]
-    fn finds_replicas_as_go() {
+    fn finds_replicas() {
         let reps = vec![
             rep("web-r1-abcde"),
             rep("web-r2-fghij"),

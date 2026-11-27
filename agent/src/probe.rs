@@ -1,4 +1,4 @@
-//! Startup, readiness, and liveness probes (Go's probe.go): HTTP, TCP, or a
+//! Startup, readiness, and liveness probes: HTTP, TCP, or a
 //! command run in the container like `armada app exec`.
 
 use std::future::Future;
@@ -83,7 +83,7 @@ impl ProbeWorker {
     }
 }
 
-/// Go's millis: v milliseconds, or def when not positive.
+/// v milliseconds, or def when not positive.
 fn millis(v: i64, def: Duration) -> Duration {
     if v <= 0 {
         def

@@ -1,6 +1,6 @@
-//! The normalizations of Go's harness (internal/cli/parity_test.go):
-//! `normalize` for outputs, `privateKeys` for files and the config, and
-//! `normalizeRequest` for the requests the fake received.
+//! The normalizations the comparison applies: `normalize` for outputs,
+//! `private_keys` for files and the config, and `request` for the requests the fake
+//! received.
 
 use serde_json::Value;
 
@@ -61,7 +61,7 @@ fn toolchain(s: &str) -> String {
     out
 }
 
-/// sinceTime: `\b([0-9]+[hms])+ ago\b` → `DURATION ago`.
+/// `\b([0-9]+[hms])+ ago\b` → `DURATION ago`.
 fn since_time(s: &str) -> String {
     let b = s.as_bytes();
     let mut out = String::new();
@@ -96,7 +96,7 @@ fn since_time(s: &str) -> String {
     out
 }
 
-/// Numbers as Go's json decodes them into `any` (float64).
+/// Numbers as the recording reads them: every number a float64.
 pub fn go_numbers(v: Value) -> Value {
     match v {
         Value::Number(n) => n
@@ -133,7 +133,7 @@ pub fn normalize(s: &str) -> Output {
     }
 }
 
-/// privateKeys: every PEM private key, as written or inside a JSON string,
+/// Every PEM private key, as written or inside a JSON string,
 /// replaced by its kind: `-----BEGIN ([A-Z ]*PRIVATE KEY)-----(\\n|\n)
 /// [A-Za-z0-9+/=\\\n]*-----END [A-Z ]*PRIVATE KEY-----` → `<$1>`.
 pub fn private_keys(s: &str) -> String {
@@ -196,7 +196,7 @@ pub fn private_keys(s: &str) -> String {
     out
 }
 
-/// Go's time.Duration.String of a whole number of minutes.
+/// A whole number of minutes as a duration's text ("1h30m0s", "5m0s", "0s").
 fn minutes(m: i64) -> String {
     if m == 0 {
         return "0s".to_string();
@@ -259,7 +259,7 @@ fn rfc3339_nanos(s: &str) -> Option<i128> {
     Some(i128::from(secs) * 1_000_000_000 + frac)
 }
 
-/// normalizeRequest: times worked out from now become how long ago they
+/// Times worked out from now become how long ago they
 /// are, and a CSR what it asks for once its signature checks.
 pub fn request(mut v: Value, now: i128) -> Value {
     fn times(v: &mut Value, now: i128) {

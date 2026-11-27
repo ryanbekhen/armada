@@ -17,8 +17,7 @@ VERSION_ENV = ARMADA_VERSION=$(VERSION) ARMADA_COMMIT=$(COMMIT) ARMADA_DATE=$(DA
 # armada-agent-parity).
 TEST_FEATURES = armada-node/test-hooks,$(REPLAY_FEATURES)
 
-# The replays (ADR 0055, item 20): what Go's code did, recorded before the
-# Go code was removed, replayed against the Rust code. The recordings under
+# The replays: recorded behaviour replayed against the code. The recordings under
 # each crate's tests/testdata are goldens: nothing writes them again, so a
 # change of behaviour changes them by hand. `make replays` runs them all in
 # one cargo run, so each crate is built once with one set of features;
@@ -127,21 +126,21 @@ store-replay:
 	sh scripts/etcd-cache.sh
 	ARMADA_ETCD_DIR=$(CURDIR)/.cache/etcd cargo test --locked -p armada-store --features armada-store/parity --test replay
 
-# The control plane's scenarios against the Rust server on the pinned etcd.
+# The control plane's scenarios against the server on the pinned etcd.
 server-scenarios:
 	sh scripts/etcd-cache.sh
 	ARMADA_ETCD_DIR=$(CURDIR)/.cache/etcd cargo test --locked -p armada-server --features armada-server/parity --test scenarios
 
-# The agent's scenarios against its parity program with the fakes in Rust.
+# The agent's scenarios against its parity program with its fakes.
 agent-scenarios:
 	cargo test --locked -p armada-agent --features armada-agent/parity --test scenarios
 
-# The client's cases against the Rust armada (its test-hooks build, whose
+# The client's cases against armada (its test-hooks build, whose
 # clock starts at the recorded time) and a stand-in AdminService.
 client-replay:
 	cargo test --locked -p armada-client --features armada-client/test-hooks --test parity
 
-# The daemon's cases against the Rust armadad with its test hooks, the
+# The daemon's cases against armadad with its test hooks, the
 # stand-ins, a stand-in bucket, and the pinned etcd; and what the log
 # writer stores (ARMADA_LOG_BIN=armada-log checks armada-log too).
 daemon-replay:

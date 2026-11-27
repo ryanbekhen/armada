@@ -1,5 +1,5 @@
-//! What the driver reads back: the node's listening sockets (listeners.go),
-//! the running HAProxy's servers (adopt.go), and its counters (load.go).
+//! What the driver reads back: the node's listening sockets, the running
+//! HAProxy's servers, and its counters.
 
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
@@ -12,7 +12,7 @@ use crate::proxy::ServerLoad;
 /// The kernel's state of a listening TCP socket in /proc/net/tcp.
 const TCP_LISTEN: &str = "0A";
 
-/// procListeners: the TCP sockets listening on the node.
+/// The TCP sockets listening on the node.
 pub fn proc_listeners() -> Result<Vec<SocketAddr>, String> {
     let mut out = Vec::new();
     for f in ["/proc/net/tcp", "/proc/net/tcp6"] {
@@ -28,7 +28,7 @@ pub fn proc_listeners() -> Result<Vec<SocketAddr>, String> {
     Ok(out)
 }
 
-/// parseListeners: the listening sockets of a /proc/net/tcp{,6} table.
+/// The listening sockets of a /proc/net/tcp{,6} table.
 pub fn parse_listeners(b: &[u8]) -> Result<Vec<SocketAddr>, String> {
     let text = String::from_utf8_lossy(b);
     let mut out = Vec::new();
@@ -74,7 +74,7 @@ fn hex(s: &str) -> Option<Vec<u8>> {
         .collect()
 }
 
-/// busyTCP: the ports of the configuration another program holds, on every
+/// The ports of the configuration another program holds, on every
 /// address, or on the gateway unless the running HAProxy holds it.
 pub fn busy_tcp(
     ports: &[i64],
@@ -98,7 +98,7 @@ pub fn busy_tcp(
     busy
 }
 
-/// heldTCP: the ports of a configuration's `frontend tcp_PORT` lines,
+/// The ports of a configuration's `frontend tcp_PORT` lines,
 /// sorted.
 pub fn held_tcp(content: &[u8]) -> Vec<i64> {
     let text = String::from_utf8_lossy(content);
@@ -113,7 +113,7 @@ pub fn held_tcp(content: &[u8]) -> Vec<i64> {
 }
 
 /// One server line of a configuration with its address and weight left
-/// out (adopt.go's serverLine, `    server $1$2`).
+/// out (`    server $1$2`).
 fn strip_server(line: &str) -> Option<String> {
     let rest = line.strip_prefix("    server s")?;
     let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
@@ -146,19 +146,19 @@ fn structure(b: &[u8]) -> String {
         .join("\n")
 }
 
-/// sameStructure: whether two configurations differ only in their servers'
+/// Whether two configurations differ only in their servers'
 /// addresses and weights.
 pub fn same_structure(a: &[u8], b: &[u8]) -> bool {
     structure(a) == structure(b)
 }
 
 /// The slots of a live configuration beyond which a server is not a
-/// replica's (maxLiveSlots).
+/// replica's.
 const MAX_LIVE_SLOTS: i64 = 1 << 16;
 /// srv_admin_state's maintenance bit.
 const ADMIN_MAINTENANCE: i64 = 1;
 
-/// parseServersState: what `show servers state` says each backend's slots
+/// What `show servers state` says each backend's slots
 /// serve.
 pub fn parse_servers_state(out: &str) -> HashMap<String, Vec<Slot>> {
     let mut col: HashMap<String, usize> = HashMap::new();
@@ -211,7 +211,7 @@ pub fn parse_servers_state(out: &str) -> HashMap<String, Vec<Slot>> {
     slots
 }
 
-/// strconv.Atoi.
+/// A decimal integer with an optional sign; None for anything else.
 fn go_atoi(s: &str) -> Option<i64> {
     let digits = s.strip_prefix(['+', '-']).unwrap_or(s);
     if digits.is_empty() || !digits.bytes().all(|c| c.is_ascii_digit()) {
@@ -220,7 +220,7 @@ fn go_atoi(s: &str) -> Option<i64> {
     s.parse().ok()
 }
 
-/// workerPID: the process that answers, from `show info`.
+/// The process that answers, from `show info`.
 pub fn worker_pid(info: &str) -> String {
     for line in info.split_inclusive('\n') {
         if let Some(v) = line.strip_prefix("Pid:") {
@@ -230,7 +230,8 @@ pub fn worker_pid(info: &str) -> String {
     String::new()
 }
 
-/// A CSV record as encoding/csv reads it with LazyQuotes.
+/// A CSV record, read leniently: a quote may appear in an unquoted field,
+/// and a quote in a quoted field that does not end it is kept.
 fn csv_record(line: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut field = String::new();
@@ -270,7 +271,7 @@ fn csv_record(line: &str) -> Vec<String> {
     out
 }
 
-/// parseLoad: requests in progress (scur + qcur) and sent so far (stot)
+/// Requests in progress (scur + qcur) and sent so far (stot)
 /// per replica, from `show stat`'s server rows of the `be_` backends.
 pub fn parse_load(out: &str, layout: &Layout) -> Result<HashMap<String, ServerLoad>, String> {
     let text = out.strip_prefix("# ").unwrap_or(out);

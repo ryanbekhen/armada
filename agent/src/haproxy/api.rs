@@ -1,4 +1,4 @@
-//! HAProxy's Runtime API over its Unix socket (runtimeapi.go): one command
+//! HAProxy's Runtime API over its Unix socket: one command
 //! per connection, payloads as `cmd <<` blocks, and answers that start with
 //! one of HAProxy's error words returned as errors.
 
@@ -40,7 +40,7 @@ pub struct Socket {
     pub timeout: Duration,
 }
 
-/// checkPayload: an empty line would end the payload early.
+/// An empty line would end the payload early.
 pub fn check_payload(payload: &str) -> Result<(), String> {
     if payload.trim_end_matches('\n').contains("\n\n") {
         return Err("payload must not contain empty lines".into());
@@ -48,7 +48,7 @@ pub fn check_payload(payload: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// pemPayload: the PEM without its empty lines.
+/// The PEM without its empty lines.
 pub fn pem_payload(b: &[u8]) -> String {
     let text = String::from_utf8_lossy(b);
     let mut out = String::new();

@@ -1,5 +1,4 @@
-//! A joining machine's side of the join listener (Go's pki.FetchPinnedCA
-//! and JoinClientTLS): the cluster CA taken from the chain the listener
+//! A joining machine's side of the join listener: the cluster CA taken from the chain the listener
 //! presents and pinned by its hash, then a connection that trusts only it.
 //!
 //! Certificate verification is never turned off: the first handshake runs

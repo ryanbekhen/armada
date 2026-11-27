@@ -13,7 +13,6 @@ use serde_json::Value;
 
 use super::protocol::send;
 
-/// baseURL.
 pub const API: &str = "https://api.cloudflare.com/client/v4";
 
 /// A TXT record as AppendRecords returns it (libdns.TXT, its name relative
@@ -24,7 +23,7 @@ pub struct TxtRecord {
     pub text: String,
 }
 
-/// The provider for one API token (cloudflare.Provider).
+/// The provider for one API token.
 pub struct Provider {
     token: String,
     api: String,
@@ -38,7 +37,6 @@ impl std::fmt::Debug for Provider {
     }
 }
 
-/// libdns.RelativeName.
 pub fn relative_name(fqdn: &str, zone: &str) -> String {
     let f = fqdn.strip_suffix('.').unwrap_or(fqdn);
     let z = zone.strip_suffix('.').unwrap_or(zone);
@@ -50,7 +48,6 @@ pub fn relative_name(fqdn: &str, zone: &str) -> String {
     rel.to_string()
 }
 
-/// libdns.AbsoluteName.
 pub fn absolute_name(name: &str, zone: &str) -> String {
     if zone.is_empty() {
         return name.trim_matches('.').to_string();
@@ -64,7 +61,8 @@ pub fn absolute_name(name: &str, zone: &str) -> String {
     format!("{name}.{zone}")
 }
 
-/// wrapContent: a TXT value in quotes (fmt %q), unless already quoted.
+/// A TXT value in double quotes (" and \ escaped, non-printable runes as
+/// \x, \u, or \U escapes), unless already quoted.
 fn wrap(content: &str) -> String {
     if !content.starts_with('"') && !content.ends_with('"') {
         armada_spec::go::quote(content)
@@ -73,7 +71,6 @@ fn wrap(content: &str) -> String {
     }
 }
 
-/// unwrapContent.
 fn unwrap(content: &str) -> String {
     if content.len() >= 2 && content.starts_with('"') && content.ends_with('"') {
         content[1..content.len() - 1].to_string()
@@ -94,7 +91,7 @@ impl Provider {
         }
     }
 
-    /// doAPIRequest: the response's result, or Go's error texts.
+    /// One API request: the response's result, or the error text.
     async fn api(
         &self,
         method: &str,
@@ -130,7 +127,7 @@ impl Provider {
         Ok((result, info))
     }
 
-    /// getZoneInfo: the zone's ID and name (as Cloudflare writes it).
+    /// The zone's ID and name (as Cloudflare writes it).
     async fn zone(&self, zone: &str) -> Result<(String, String), String> {
         let mut zones = self.zones.lock().await;
         if let Some(z) = zones.get(zone) {
@@ -156,8 +153,7 @@ impl Provider {
         Ok((id, name))
     }
 
-    /// AppendRecords of one TXT record: createRecord with the record as
-    /// cloudflareRecord writes it.
+    /// Creates one TXT record.
     pub async fn append_txt(
         &self,
         zone: &str,
@@ -165,8 +161,7 @@ impl Provider {
         text: &str,
     ) -> Result<TxtRecord, String> {
         let (id, _) = self.zone(zone).await?;
-        // json.Marshal(cfDNSRecord): zero times and the data's tag are
-        // never left out.
+        // Zero times and the data's tag are never left out.
         let body = format!(
             r#"{{"type":"TXT","name":{},"content":{},"created_on":"0001-01-01T00:00:00Z","modified_on":"0001-01-01T00:00:00Z","data":{{"tag":""}}}}"#,
             json_str(name),
@@ -201,9 +196,8 @@ impl Provider {
             ("content.contains", &unwrapped),
         ]);
         let url = format!("{}/zones/{id}/dns_records?{q}", self.api);
-        // getDNSRecords drops the lookup's error for TXT records (it
-        // returns no matches), so a failed lookup deletes nothing and
-        // reports nothing, as in Go.
+        // A failed lookup of TXT records counts as no matches, so it
+        // deletes nothing and reports nothing.
         let list = match self.api("GET", &url, None).await {
             Ok((result, _)) => result.as_array().cloned().unwrap_or_default(),
             Err(_) => Vec::new(),
@@ -231,7 +225,7 @@ fn json_str(s: &str) -> String {
     String::from_utf8_lossy(&super::protocol::go_marshal(s)).into_owned()
 }
 
-/// fmt's %+v of the response's errors: [{Code:N Message:TEXT ErrorChain:[...]}].
+/// The response's errors as text: [{Code:N Message:TEXT ErrorChain:[...]}].
 fn go_errors(v: &Value) -> String {
     let one = |e: &Value, chain: bool| {
         let code = e.get("code").and_then(Value::as_i64).unwrap_or_default();

@@ -1,5 +1,5 @@
-//! The driver against Go's: the scenarios Go's driver ran, recorded
-//! before the Go code was removed (tests/testdata/haproxy), replayed here with the same stand-ins for the
+//! The driver against its recordings: the recorded scenarios
+//! (tests/testdata/haproxy), replayed here with the same stand-ins for the
 //! engine and the Runtime API, compared step by step: the error, the
 //! commands, starts, reloads, configuration checks, every file written, and
 //! the load.
@@ -11,7 +11,7 @@ use serde::Deserialize;
 
 use super::*;
 
-/// Records what the driver asks of HAProxy (Go's fakeEngine).
+/// Records what the driver asks of HAProxy.
 #[derive(Default)]
 struct FakeEngine {
     st: StdMutex<EngineSt>,
@@ -62,7 +62,7 @@ impl Engine for FakeEngine {
     }
 }
 
-/// Records commands and answers from a table (Go's fakeAPI).
+/// Records commands and answers from a table.
 #[derive(Default)]
 struct FakeApi {
     st: StdMutex<ApiSt>,
@@ -296,7 +296,7 @@ async fn replay(name: &str) {
         for (k, v) in &s.files {
             assert!(
                 got[k] == *v,
-                "{at}: {k} differs:\n--- Go\n{v}\n--- Rust\n{}",
+                "{at}: {k} differs:\n--- recorded\n{v}\n--- got\n{}",
                 got[k]
             );
         }
@@ -308,17 +308,17 @@ async fn replay(name: &str) {
 }
 
 #[tokio::test]
-async fn go_scenario_lifecycle() {
+async fn recorded_scenario_lifecycle() {
     replay("lifecycle").await;
 }
 
 #[tokio::test]
-async fn go_scenario_network() {
+async fn recorded_scenario_network() {
     replay("network").await;
 }
 
 #[tokio::test]
-async fn go_scenario_takeover() {
+async fn recorded_scenario_takeover() {
     replay("takeover").await;
 }
 

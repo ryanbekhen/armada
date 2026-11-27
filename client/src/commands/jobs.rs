@@ -1,4 +1,4 @@
-//! armada job and armada run (Go's jobs.go).
+//! armada job and armada run.
 
 use std::time::{Duration as StdDuration, Instant};
 
@@ -133,7 +133,7 @@ fn start(ctx: &mut Ctx<'_>, args: &[String]) -> Result {
     wait_job_run(ctx, &mut admin, &args[0], resp.run, timeout)
 }
 
-/// waitJobRun: until the run ends; an error unless it succeeded.
+/// Until the run ends; an error unless it succeeded.
 fn wait_job_run(ctx: &mut Ctx<'_>, admin: &mut Admin, job: &str, run: i64, timeout: i64) -> Result {
     let deadline = Instant::now() + StdDuration::from_nanos(timeout.max(0) as u64);
     let timed_out = || {
@@ -190,7 +190,7 @@ fn wait_job_run(ctx: &mut Ctx<'_>, admin: &mut Admin, job: &str, run: i64, timeo
     }
 }
 
-/// jobRunResult: None while the run goes on.
+/// None while the run goes on.
 fn job_run_result(r: &JobRunInfo) -> Option<Result> {
     match r.state.as_str() {
         "pending" | "running" => return None,
@@ -394,7 +394,7 @@ fn print_runs(runs: &[JobRunInfo], now: i128) -> String {
     tw.finish()
 }
 
-/// tasksDone: "3/10 tasks".
+/// "3/10 tasks".
 fn tasks_done(r: &JobRunInfo) -> String {
     if r.tasks.is_empty() {
         return String::new();
@@ -496,7 +496,7 @@ fn delete(ctx: &mut Ctx<'_>, args: &[String]) -> Result {
     Ok(())
 }
 
-/// triggerLine: a job's queue trigger.
+/// a job's queue trigger.
 fn trigger_line(tr: &JobTrigger) -> String {
     let what = if tr.r#type == spec::SCALE_RABBITMQ {
         "queue"
@@ -513,7 +513,7 @@ fn trigger_line(tr: &JobTrigger) -> String {
     )
 }
 
-/// queueLine: what was last read of a job's queue.
+/// What was last read of a job's queue.
 fn queue_line(tr: &JobTrigger, now: i128) -> String {
     if tr.node.is_empty() {
         return "not read: no node can (see armada cluster events)".to_string();

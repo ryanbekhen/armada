@@ -1,5 +1,5 @@
-//! An ACME client (RFC 8555), a port of what certmagic uses of acmez's
-//! `acme` package: the directory (kept 12 hours per URL), nonces, JWS
+//! An ACME client (RFC 8555), derived from acmez's `acme` package
+//! (Apache-2.0): the directory (kept 12 hours per URL), nonces, JWS
 //! (ES256 with the account's JWK or key ID), POSTs retried on badNonce and
 //! server errors, problems (RFC 7807) with acmez's texts, accounts,
 //! orders, authorizations, challenges, finalization with polling, the
@@ -26,15 +26,13 @@ const HTTP_TIMEOUT: Duration = Duration::from_secs(30);
 /// The largest body read (acmez reads whole bodies; this only bounds a
 /// misbehaving server).
 const MAX_BODY: u64 = 16 << 20;
-/// defaultPollInterval and defaultPollTimeout (certmagic leaves
-/// CertObtainTimeout at 0, so the poll timeout is acmez's).
+/// How often and how long an order or authorization is polled.
 const POLL_INTERVAL: Duration = Duration::from_millis(250);
 pub const POLL_TIMEOUT: Duration = Duration::from_secs(300);
 
 pub const PROBLEM_NS: &str = "urn:ietf:params:acme:error:";
 
-/// An error with acmez's wording, and the problem it carries, as
-/// errors.As finds one in Go's chain.
+/// An error with acmez's wording, and the problem it carries.
 #[derive(Clone, Debug)]
 pub struct Fail {
     pub msg: String,
@@ -55,7 +53,7 @@ impl Fail {
         }
     }
 
-    /// fmt.Errorf("PREFIX: %w", err).
+    /// The error with "PREFIX: " before its text.
     pub fn wrap(mut self, prefix: &str) -> Fail {
         self.msg = format!("{prefix}: {}", self.msg);
         self
@@ -89,7 +87,7 @@ impl std::fmt::Display for Fail {
     }
 }
 
-/// An identifier (acme.Identifier).
+/// An identifier.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Identifier {
     #[serde(rename = "type", default)]
@@ -98,7 +96,7 @@ pub struct Identifier {
     pub value: String,
 }
 
-/// A problem document (acme.Problem).
+/// A problem document.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Problem {
     #[serde(rename = "type", default)]
@@ -164,7 +162,7 @@ impl std::fmt::Display for Problem {
     }
 }
 
-/// The directory (acme.Directory).
+/// The directory.
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct Directory {
     #[serde(rename = "newNonce", default)]
@@ -181,7 +179,7 @@ pub struct Directory {
 static DIRECTORIES: LazyLock<tokio::sync::Mutex<HashMap<String, (Directory, Instant)>>> =
     LazyLock::new(Default::default);
 
-/// An account (acme.Account). The key is the account's; Location is its
+/// An account. The key is the account's; Location is its
 /// URL.
 #[derive(Clone, Default)]
 pub struct Account {
@@ -194,8 +192,8 @@ pub struct Account {
 }
 
 impl Account {
-    /// The account's JSON as encoding/json writes acme.Account, indented
-    /// with tabs when `indent` (saveAccount), compact otherwise.
+    /// The account's JSON, indented
+    /// with tabs when `indent`, compact otherwise.
     pub fn to_json(&self, indent: bool) -> Vec<u8> {
         #[derive(Serialize)]
         struct J<'a> {
@@ -224,7 +222,7 @@ impl Account {
         }
     }
 
-    /// json.Unmarshal of an account into a, which keeps what the JSON
+    /// The fields of an account's JSON set on self, keeping what the JSON
     /// leaves out.
     pub fn merge(&mut self, v: &Value) {
         if let Some(s) = v.get("status").and_then(Value::as_str) {
@@ -263,7 +261,7 @@ fn is_false(b: &bool) -> bool {
     !*b
 }
 
-/// An order (acme.Order), the fields certmagic reads.
+/// An order, the fields certmagic reads.
 #[derive(Clone, Debug, Default)]
 pub struct Order {
     pub status: String,
@@ -301,7 +299,7 @@ impl Order {
         }
     }
 
-    /// The new order's payload as encoding/json writes acme.Order: a
+    /// The new order's payload: a
     /// zero expiry, no authorizations (null), empty URLs.
     fn payload(&self) -> String {
         let mut s = String::from(r#"{"expires":"0001-01-01T00:00:00Z","identifiers":"#);
@@ -315,8 +313,7 @@ impl Order {
     }
 }
 
-/// A challenge (acme.Challenge), written to storage as encoding/json
-/// writes it for distributed solving.
+/// A challenge, written to storage as JSON for distributed solving.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Challenge {
     #[serde(rename = "type", default)]
@@ -352,7 +349,7 @@ impl Challenge {
     }
 }
 
-/// An authorization (acme.Authorization).
+/// An authorization.
 #[derive(Clone, Debug, Default)]
 pub struct Authorization {
     pub identifier: Identifier,
@@ -392,7 +389,6 @@ impl Authorization {
         }
     }
 
-    /// fillChallengeFields.
     fn fill(&mut self, account: &Account) -> Result<(), Fail> {
         let thumb = account.key()?.thumbprint();
         for c in &mut self.challenges {
@@ -405,7 +401,7 @@ impl Authorization {
     }
 }
 
-/// Renewal information (acme.RenewalInfo) with certmagic's own fields.
+/// Renewal information with certmagic's own fields.
 #[derive(Clone, Debug, Default)]
 pub struct RenewalInfo {
     pub start: Option<Time>,
@@ -475,7 +471,7 @@ impl RenewalInfo {
         }
     }
 
-    /// The JSON encoding/json writes for acme.RenewalInfo.
+    /// The renewal information as JSON.
     pub fn to_json(&self) -> String {
         let mut s = format!(
             r#"{{"suggestedWindow":{{"start":"{}","end":"{}"}}"#,
@@ -517,7 +513,7 @@ pub struct CertChain {
 }
 
 impl CertChain {
-    /// json.Marshal of acme.Certificate.
+    /// The certificate's metadata as JSON.
     pub fn metadata_json(&self) -> String {
         let mut s = format!(
             r#"{{"url":{}"#,
@@ -539,7 +535,7 @@ impl CertChain {
         s
     }
 
-    /// json.Unmarshal of the metadata into acme.Certificate.
+    /// The certificate's metadata read from JSON.
     pub fn from_metadata(v: &Value) -> CertChain {
         CertChain {
             url: str_of(v, "url"),
@@ -561,13 +557,13 @@ fn str_of(v: &Value, k: &str) -> String {
         .to_string()
 }
 
-/// encoding/json's Marshal: serde's compact encoding with Go's escapes of
-/// <, >, &, U+2028, and U+2029 (which only appear inside strings).
+/// Compact JSON with <, >, &, U+2028, and U+2029 escaped (they only
+/// appear inside strings).
 pub fn go_marshal<T: Serialize + ?Sized>(v: &T) -> Vec<u8> {
     go_escape(serde_json::to_vec(v).expect("JSON of plain data"))
 }
 
-/// json.MarshalIndent(v, "", "\t").
+/// v as JSON indented by tabs, with <, >, &, U+2028, and U+2029 escaped.
 pub fn go_indent<T: Serialize + ?Sized>(v: &T) -> Vec<u8> {
     let mut out = Vec::new();
     let fmt = serde_json::ser::PrettyFormatter::with_indent(b"\t");
@@ -608,7 +604,6 @@ impl Resp {
             .unwrap_or_default()
     }
 
-    /// parseMediaType.
     fn media_type(&self) -> String {
         let ct = self.header("content-type");
         match ct.find(';') {
@@ -617,7 +612,6 @@ impl Resp {
         }
     }
 
-    /// extractLinks.
     fn links(&self, rel: &str) -> Vec<String> {
         let mut out = Vec::new();
         for (k, v) in &self.headers {
@@ -656,8 +650,8 @@ impl Resp {
 }
 
 /// One HTTP request on a blocking thread, bounded by HTTP_TIMEOUT. The
-/// error is Go's client error text ("performing request: ..." is added by
-/// the caller).
+/// error is the client's error text ("performing request: ..." is added
+/// by the caller).
 pub async fn send(
     http: &Arc<HttpClient>,
     method: &str,
@@ -711,7 +705,7 @@ fn go_op(method: &str) -> String {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Want {
     Nothing,
-    /// JSON, into the Go type named (for acmez's error).
+    /// JSON, into the type named (for acmez's error).
     Json(&'static str),
     Bytes,
 }
@@ -732,7 +726,7 @@ impl Out {
     }
 }
 
-/// acme.Client: one directory, its nonces.
+/// One directory, its nonces.
 pub struct Client {
     pub directory: String,
     http: Arc<HttpClient>,
@@ -814,7 +808,7 @@ impl Client {
         Ok(resp.header("replay-nonce").to_string())
     }
 
-    /// httpReq: up to 3 tries of a request that failed in transport, or a
+    /// Up to 3 tries of a request that failed in transport, or a
     /// GET answered with a server error problem.
     async fn http_req(
         &self,
@@ -923,7 +917,7 @@ impl Client {
         Err(f)
     }
 
-    /// httpPostJWS: a POST signed with key, retried on badNonce (10 tries)
+    /// A POST signed with key, retried on badNonce (10 tries)
     /// and on server errors (3).
     async fn post_jws(
         &self,
@@ -1330,7 +1324,7 @@ impl Client {
     }
 }
 
-/// time.Time.String for the ARI error.
+/// A time as the ARI error shows it: `2006-01-02 15:04:05 +0000 UTC`.
 fn go_time_string(t: &Option<Time>) -> String {
     match t {
         None => "0001-01-01 00:00:00 +0000 UTC".to_string(),
@@ -1381,7 +1375,7 @@ fn with_resp(mut f: Fail, resp: Resp) -> Fail {
     f
 }
 
-/// jwsEncodeJSON: the flattened JWS of payload ("" for POST-as-GET).
+/// The flattened JWS of payload ("" for POST-as-GET).
 fn jws(
     key: &EcKey,
     kid: &str,
@@ -1410,7 +1404,7 @@ fn jws(
     .into_bytes())
 }
 
-/// authzIsFinalized: (finished, its outcome).
+/// (finished, its outcome).
 fn authz_finalized(a: &Authorization) -> (bool, Result<(), Fail>) {
     match a.status.as_str() {
         "pending" => (false, Ok(())),
@@ -1439,7 +1433,6 @@ fn authz_finalized(a: &Authorization) -> (bool, Result<(), Fail>) {
     }
 }
 
-/// orderIsFinished.
 fn order_finished(o: &Order) -> (bool, Result<(), Fail>) {
     match o.status.as_str() {
         "invalid" => {
@@ -1480,7 +1473,7 @@ fn order_finished(o: &Order) -> (bool, Result<(), Fail>) {
     }
 }
 
-/// retryAfter: how long the response asks to wait, else fallback.
+/// How long the response asks to wait, else fallback.
 fn retry_after(resp: &Resp, fallback: Duration) -> Result<Duration, Fail> {
     let h = resp.header("retry-after");
     if h.is_empty() {
@@ -1499,7 +1492,7 @@ fn retry_after(resp: &Resp, fallback: Duration) -> Result<Duration, Fail> {
     }
 }
 
-/// retryAfterTime: seconds from now, or an HTTP date.
+/// Seconds from now, or an HTTP date.
 fn retry_after_time(resp: &Resp) -> Option<Time> {
     let h = resp.header("retry-after");
     if h.is_empty() {
@@ -1513,7 +1506,7 @@ fn retry_after_time(resp: &Resp) -> Option<Time> {
     parse_http_date(h)
 }
 
-/// time.Parse(http.TimeFormat, s): "Mon, 02 Jan 2006 15:04:05 GMT".
+/// An HTTP date: "Mon, 02 Jan 2006 15:04:05 GMT".
 fn parse_http_date(s: &str) -> Option<Time> {
     let rest = s.get(5..)?;
     let parts: Vec<&str> = rest.split(' ').collect();
@@ -1618,7 +1611,7 @@ impl Leaf {
         Ok(format!("{}.{}", b64url(&self.aki), b64url(&self.serial)))
     }
 
-    /// expiresAt: NotAfter plus the second its encoding cannot show.
+    /// NotAfter plus the second its encoding cannot show.
     pub fn expires(&self) -> i64 {
         self.not_after + 1
     }

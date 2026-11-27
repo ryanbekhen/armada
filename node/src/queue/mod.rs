@@ -1,23 +1,21 @@
 //! Queue lengths for queue autoscaling rules and queue-triggered jobs
-//! (ADR 0034, ADR 0040), as internal/queuelen reads them (ADR 0054 step
-//! 5): from inside a replica's or a job sandbox's network namespace, so a
+//! (ADR 0034, ADR 0040), read from inside a replica's or a job sandbox's
+//! network namespace, so a
 //! rule reaches nothing its app could not reach itself.
 //!
 //!   armada-node queue redis|rabbitmq
 //!       stdin: {"url", "name", "addresses"?, "timeoutMs", and the
 //!              namespace as `runtime dial` takes it: "dir", "shimDir",
 //!              "id", "proc" for a container or "netns" for a sandbox}
-//!       stdout: {"length": N}, {"error": TEXT} with queuelen's texts, or
-//!              {"redo": WHY} when Go must read it (a broker named by a
+//!       stdout: {"length": N}, {"error": TEXT} with a fixed reading text,
+//!              or {"redo": WHY} when the caller must read it (a broker named by a
 //!              name with no addresses, a zone, a shim that is gone)
 //!
 //! The URL carries the broker's credentials, so it comes on stdin, never
 //! as an argument, and no answer or error repeats it or anything the
-//! broker sent back. A broker named by a name is resolved by Go from the
-//! same namespace (through the container's nameserver, as queuelen's
-//! callers do), and its addresses come in "addresses", tried in order.
-//! Go's TestArmadaNodeQueue* (internal/runtime/supervisor) compare the
-//! answers with queuelen's against fake brokers.
+//! broker sent back. A broker named by a name is resolved by the caller
+//! from the same namespace (through the container's nameserver), and its
+//! addresses come in "addresses", tried in order.
 
 mod amqp;
 mod redis;
@@ -31,7 +29,7 @@ use std::net::TcpStream;
 use std::os::fd::FromRawFd;
 use std::time::{Duration, Instant};
 
-/// queuelen.MaxLength: the largest length a broker may report.
+/// The largest length a broker may report.
 pub const MAX_LENGTH: i64 = 1 << 40;
 
 pub const ERR_URL: &str = "the URL in the secret is not valid for this rule";
@@ -50,7 +48,7 @@ pub const ERR_NO_MECHANISM: &str = "the broker offers none of the URL's authenti
 struct Request {
     url: String,
     name: String,
-    /// The broker's addresses Go resolved, "IP:PORT" each.
+    /// The broker's addresses the caller resolved, "IP:PORT" each.
     addresses: Vec<String>,
     #[serde(rename = "timeoutMs")]
     timeout_ms: u64,
@@ -80,8 +78,8 @@ pub struct Dialer<'a> {
 }
 
 impl Dialer<'_> {
-    /// Connects to host:port as queuelen's dialer does: an IP address
-    /// directly, a name through the addresses Go resolved.
+    /// Connects to host:port: an IP address directly, a name through the
+    /// addresses the caller resolved.
     pub fn dial(&mut self, host: &[u8], port: &[u8]) -> Result<Conn, Answer> {
         let host = String::from_utf8_lossy(host);
         let mut targets: Vec<(String, String)> = Vec::new();
@@ -147,8 +145,7 @@ impl Dialer<'_> {
     }
 }
 
-/// A connection whose reads and writes end at the reading's deadline, as
-/// queuelen sets the context's deadline on its connection.
+/// A connection whose reads and writes end at the reading's deadline.
 pub struct Conn {
     stream: TcpStream,
     deadline: Option<Instant>,
@@ -194,7 +191,7 @@ pub trait Stream: Read + Write {}
 impl<T: Read + Write> Stream for T {}
 
 /// TLS over conn with the machine's roots, TLS 1.2 or later, verifying
-/// server_name as Go's crypto/tls does (an IP address against the
+/// server_name (an IP address against the
 /// certificate's IP addresses). None when the handshake fails.
 pub fn tls(conn: Conn, server_name: &[u8]) -> Option<Box<dyn Stream>> {
     use rustls::pki_types::ServerName;

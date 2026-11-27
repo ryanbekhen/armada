@@ -1,15 +1,13 @@
-//! The kernel's connection tracking table (ADR 0025), as internal/conntrack
-//! reads and raises it (ADR 0054 step 5):
+//! The kernel's connection tracking table (ADR 0025), read and raised:
 //!
 //!   armada-node conntrack read    stdin {"dir"}; stdout {"entries",
-//!                                 "limit", "ok"}: Table.Read
+//!                                 "limit", "ok"}
 //!   armada-node conntrack raise   stdin {"dir", "memory"?}; stdout
 //!                                 {"previous"} or {"error": TEXT}:
-//!                                 Table.Raise
+//!                                 the limit raised
 //!
 //! "memory" is the machine's memory in bytes; without it the program asks
-//! the kernel (sysinfo), as conntrack.New does. Go's
-//! TestArmadaNodeConntrackMatchesGo (internal/conntrack) compares both.
+//! the kernel (sysinfo).
 
 use crate::runtime::container::errno_text;
 use crate::runtime::gopath;
@@ -55,7 +53,7 @@ fn os_errno(e: &std::io::Error) -> i32 {
     e.raw_os_error().unwrap_or(libc::EIO)
 }
 
-/// Table.read: the file's number, with os.ReadFile's and strconv's texts.
+/// The file's number, or the error reading or parsing it.
 fn read(dir: &str, name: &str) -> Result<i64, ReadError> {
     let path = gopath::join(dir, name);
     let mut f = std::fs::File::open(&path).map_err(|e| ReadError {
@@ -84,7 +82,7 @@ pub fn read_table(dir: &str) -> (i64, i64, bool) {
     }
 }
 
-/// os.WriteFile(path, data, 0600) with its error texts.
+/// Writes data to path (created 0600), with the error texts of each step.
 fn write_file(path: &str, data: &[u8]) -> Result<(), String> {
     let mut f = std::fs::OpenOptions::new()
         .write(true)

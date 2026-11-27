@@ -1,7 +1,8 @@
-//! Go's path/filepath on Unix: Clean, Join, Dir, and Base, whose results
-//! Armada's checks and names depend on.
+//! Lexical path operations on Unix: clean, join, dir, and base, whose
+//! results Armada's checks and names depend on.
 
-/// filepath.Clean.
+/// The shortest lexically equal path: repeated slashes, `.` elements, and
+/// `..` after a name removed; `..` at the root dropped; "" is ".".
 pub fn clean(p: &str) -> String {
     if p.is_empty() {
         return ".".into();
@@ -65,7 +66,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn as_go() {
+    fn clean_join_dir_base() {
         for (i, want) in [
             ("", "."),
             ("/", "/"),

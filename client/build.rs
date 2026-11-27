@@ -1,5 +1,5 @@
-//! The compiler's version for `armada version`, as Go's runtime.Version
-//! names its own ("rust1.92.0" beside Go's "go1.25.4").
+//! The compiler's version for `armada version`, written as
+//! "rust<version>" (e.g. "rust1.92.0").
 
 fn main() {
     let rustc = std::env::var("RUSTC").unwrap_or_else(|_| "rustc".to_string());
