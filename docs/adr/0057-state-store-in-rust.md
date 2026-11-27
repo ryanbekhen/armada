@@ -1,6 +1,6 @@
 # 0057. The control plane's state in Armada's own store
 
-- Status: Accepted; steps 1-3 built (a single-member `armada-kv`, Raft, then the TLS listeners, `armadad kv`, `armada-kv.service`, and `armadad init --state kv`); the move to come
+- Status: Accepted; steps 1-4 built (a single-member `armada-kv`, Raft, then the TLS listeners, `armadad kv`, `armada-kv.service`, and `armadad init --state kv`, then the backups of armada-kv and the move from etcd); `armadad init` keeps etcd as its default until the move passed the end-to-end tests on real machines; etcd leaves in the release after
 - Date: 2026-11-27
 
 ## Context
@@ -110,16 +110,20 @@ server that joined until it votes, `initial-cluster`) and no `etcd/`.
 (`JoinServerResponse.state`, `kv`, with the learner added at the
 `kv_peer_port` the joining server sends), so every server of a cluster runs
 the same store; a machine too old to send that port is refused.
-`armada-kv.service` is installed beside `armada-etcd.service` but not
-enabled: on such a cluster's servers it is enabled with `armada-server`.
-`armadad etcd` on a kv server, and `armadad kv` on an etcd one, exit with
-status 78, which neither unit restarts. Until the move brings `kv.snapshot`,
-`armadad backup` and the scheduled backups refuse a kv server.
+`armada-kv.service` is installed beside `armada-etcd.service`, and
+`armada-server.service` wants both: `armadad etcd` on a kv server, and
+`armadad kv` on an etcd one, exit with status 78, which neither unit
+restarts and systemd counts as a success.
 
-Backups (`armadad backup`, ADR 0051) write the store's snapshot as
-`kv.snapshot`; `armadad restore` checks it (format, hash, revision) and
-writes a new single-member store from it, as `etcdutl snapshot restore`
-does now. Doctor's checks of etcd become checks of `armada-kv`.
+Backups (`armadad backup`, ADR 0051) of a kv server write the store's
+snapshot as `kv.snapshot`, checked in a scratch member opened in
+`armadad`'s own process; the archive is format 4 and its manifest names
+the state (`"state": "kv"`), so a release that knows only etcd's format 3
+refuses it, and etcd's archives stay format 3 as they were. `armadad
+restore` checks it (format, hash, revision, then the state opened as
+Armada's) and writes a new single-member store from it, laid out as a kv
+server's member directory (`kv/kv.db`), as `etcdutl snapshot restore` does
+for etcd's. Doctor's checks of etcd become checks of `armada-kv`.
 
 ### The move, release N
 
@@ -127,38 +131,74 @@ Release N carries both: `etcd` in the pack, and `armada-kv`. Upgrades
 into N come from the release before it, as usual.
 
 1. Each server upgraded to N installs `armada-kv.service` next to
-   `armada-etcd.service` and keeps serving from etcd. Its agent's
-   `Hello` and the server record say it can run `armada-kv`.
-2. Once every server of the cluster runs N and is healthy, the leader
-   moves the state, unless `armada cluster update --state-move off` holds
-   it (the operator may also start it at once with `--state-move now`):
-   - It writes `meta/state-move` (step `copying`) in etcd, which makes
-     every transaction of every server but the move's own fail with
+   `armada-etcd.service` and keeps serving from etcd. Its server record
+   names the peer URL its `armada-kv` member takes (`KvPeerURL`, the
+   private IP and port 7446), which also says it can run `armada-kv`.
+2. The leader moves the state once every server's record names a peer
+   URL, every server is a voting etcd member that answers, and no other
+   etcd member exists, and all of that has held for ten minutes as this
+   leader saw it (a new leader waits ten minutes again), unless `armada
+   cluster update --state-move off` holds it (stored in
+   `meta/state-move-mode`; `--state-move now` starts it at the next pass,
+   without the ten minutes and the backoff, and is used up by it):
+   - It records `StateMoveStarted`, then writes `meta/state-move` (step
+     `copying`) and the key `moving` beside the commit key in one
+     transaction. Every write of the store compares that `moving` does not
+     exist: the transactions (next to the commit key and the term's
+     fence), the events, the placements' pruning, and the ACME storage.
+     So every write of every server but the move's own fails with
      `Unavailable` ("the control plane's state is moving"): agents keep
-     running what they run, the API answers that error, nothing is lost.
-   - It reads the whole key space at one revision and writes it into a
-     new `armada-kv` cluster on every server (bootstrapped by the leader
-     with every current server as a voter), keys with their versions;
-     leases are created again with their remaining TTLs; election keys
-     and ACME locks are left out.
-   - It compares the two key spaces (every key, value, and version; a
-     hash over both) and only then writes `meta/state-move` (step
-     `moved`, with the revision) into both stores.
-   - Every server, seeing `moved`, ends its term, connects to
-     `armada-kv`, and campaigns again there. `armada-etcd.service` is
-     stopped and disabled; its data directory is kept, renamed
-     `etcd.moved`, for a manual return during release N.
-3. A move that fails before `moved` removes the new store's data and
-   `meta/state-move`, records `StateMoveFailed` with the reason, and
-   retries after 10 minutes, doubling to 2 hours; the cluster keeps
-   running on etcd. `armada cluster status` shows the step.
+     running what they run, the API answers that error, nothing is lost,
+     and reads keep working.
+   - It reads the whole key space at that transaction's revision, a page
+     at a time (keys with their values, versions, creation and
+     modification revisions, and leases; leases with what is left of their
+     TTLs, at least ten minutes, so keys about to expire outlive the
+     comparison; election keys, ACME locks, `moving`, and the record left
+     out), and hands it to the leader's `armadad`, which writes it as
+     armada-kv's snapshot into a new store of its own member alone
+     (`<data dir>/kv.moving`) and runs that member in its own process.
+   - It adds every other server's member as a learner at its `KvPeerURL`
+     and writes the leader member's peer URL into the record. Every
+     server's `armadad server` watches the record on its own etcd member
+     (serializable reads, every second, so a member that lost its quorum
+     still answers) and, named in it, starts its member in its own process
+     in `kv.moving` and joins through that URL; the leader promotes each
+     once it caught up, until every server's member votes (at most five
+     minutes). Joining as learners reuses the membership changes servers
+     already use, and needs no agreement on member IDs before the store
+     exists.
+   - It reads the new key space back and compares it with the copy (every
+     key, value, version, revision, and lease; a SHA-256 over each), and
+     only then writes the step `moved` (with the revision) into etcd,
+     compared on the record's whole value so a move given up never moves,
+     and then into `armada-kv`.
+   - Every server, seeing `moved` (in etcd, or in its `armada-kv` member,
+     which has it only after etcd), ends its term, stops its member, renames
+     `kv.moving` to `kv` (from then on its store is armada-kv) and `etcd`
+     to `etcd.moved` (kept for a manual return during release N), enables
+     and starts `armada-kv.service`, stops and disables
+     `armada-etcd.service`, and campaigns again on `armada-kv`, whose
+     leader records `StateMoved`. A server that was down rejoins the same
+     way from its `kv.moving`.
+3. A move that fails before `moved` stops the leader's member, removes
+   `meta/state-move` and `moving` (each server's `armadad`, seeing the
+   record gone, removes its `kv.moving`), records `StateMoveFailed` with
+   the reason (an alert warning), and retries after 10 minutes, doubling to
+   2 hours (`meta/state-move-retry`); the cluster keeps running on etcd. A
+   new term that finds a move `copying` gives it up the same way before
+   anything else. `armada cluster status` shows the store, the step, what
+   an automatic move waits for, and the failures; the metrics endpoint
+   shows `armada_state_store` and `armada_state_move_failures`.
 
 The window where writes are refused lasts as long as reading and writing
 the key space (seconds for the keyspaces Armada has run so far). Reads
 of the API, agents' sessions, the proxies, and every container keep
 working through it.
 
-New clusters made by `armadad init` on release N start on `armada-kv`.
+New clusters made by `armadad init` on release N start on `armada-kv`
+(until the move has passed the end-to-end tests on real machines, `init`
+keeps etcd as its default and `--state kv` asks for armada-kv).
 
 ### etcd leaves, release N+1
 
@@ -182,6 +222,11 @@ licenses.
   every point of its log, clock jumps against lease expiry; each checks
   that every acknowledged write survives and no read sees a revision go
   back.
+- The move in process (`server/tests/replay/statemove.rs`): one server
+  and three on the pinned etcd moved to armada-kv members in the test's
+  process with the key spaces equal, a member that does not join leaving
+  the cluster on etcd with writes working, writes refused while copying,
+  and a new term giving up a move left half done.
 - The end-to-end test on real machines (leader stop and SIGKILL, all
   machines rebooted at once, rolling updates through the new leader) on
   `armada-kv`, and `test/e2e/upgrade.sh` from the release before N

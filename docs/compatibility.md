@@ -49,9 +49,17 @@ rules above:
   write under `/etc/armada` and the data directory, and the systemd units.
 
 Not stable: anything named experimental in its documentation, and
-behaviour the documentation does not describe. `armadad init --state kv`
-(armada-kv, ADR 0057) is a preview: its cluster's files and unit may
-change before the move to armada-kv ships.
+behaviour the documentation does not describe. armada-kv (ADR 0057) is a
+preview until the release that moves every cluster onto it: its files and
+units may change before then.
+
+The move to armada-kv (ADR 0057) changes the data directory once: `etcd/`
+becomes `etcd.moved/` and `kv/` the server's member, `armada-kv` runs in
+place of `armada-etcd`, and `armada-server.service` wants both. Backups of
+a cluster on armada-kv are format 4 (`kv.snapshot`, the manifest's
+`"state": "kv"`); releases before armada-kv refuse them, and this one
+restores both formats. etcd's backups stay format 3. The release after the
+move removes etcd: upgrade into it only once the state moved.
 
 Ports 7445 and 7446 (armada-kv's) joined the ports an internal TCP app may
 not use: an app spec with either is refused, and a node leaves either out of

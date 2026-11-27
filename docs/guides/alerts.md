@@ -231,6 +231,7 @@ or `armada app events`.
 | `VolumeBackupFailed`, `VolumeBackupUnsupported` | Scheduled volume backups do not work |
 | `VolumeFailedOver`, `VolumeFailoverFailed` | A volume was restored on another node, or could not be |
 | `ControlPlaneBackupFailed` | The control plane could not be backed up to its bucket |
+| `StateMoveFailed` | The move of the control plane's state to armada-kv failed; the state stays in etcd and the move is tried again later |
 
 Any other reason can be named with `--reason`, such as `Deployed`,
 `Scheduled`, `Restarted`, `NotReady`, `RolledBack` (someone ran `armada app rollback`), or `Joined`.

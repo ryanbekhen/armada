@@ -377,6 +377,7 @@ Run this every few months, and after upgrades:
 | `armadad restore` fails a check | The archive or backup is damaged, from another version, or its master key does not match | Use another backup (`armadad backup list`); nothing was changed |
 | `the backup key does not match` | `--backup-key` is not the key the backups were made with | Use the key from when they were made; a new key needs a new URL prefix |
 | `ControlPlaneBackupFailed` | The bucket refuses the leader's address or the access key, or is full | Read `armada cluster status`; fix the bucket or set a new URL with `--backup-url` |
+| `armadad restore` of an older release: `backup format 4 is not supported` | The backup was taken on a cluster on armada-kv | Restore it with a release that has armada-kv |
 | Nodes do not reconnect after a restore | The new server has another private IP | Restore onto a machine with the old server's private IP |
 | `VolumeFailoverFailed: ...; trying again in 5m0s` | No backup yet, no node with room or allowed by placement, or the bucket refuses | Read the message; `armada snapshot list`; `armada node top` |
 | `VolumeBackupFailed` | The bucket refuses the node's address or the key, or is full | Check the URL secret and the bucket's policy; old backups stay as they were |
