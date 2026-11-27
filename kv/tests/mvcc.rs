@@ -558,6 +558,15 @@ fn snapshot_round_trip() {
 }
 
 #[test]
+fn database_is_owner_only() {
+    use std::os::unix::fs::PermissionsExt;
+    let path = dir("mode").join("kv.db");
+    let _s = Store::open(&path, Limits::default()).unwrap();
+    let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o600, "the state database is created 0600");
+}
+
+#[test]
 fn durable_across_reopen() {
     let d = dir("reopen");
     let path = d.join("kv.db");
