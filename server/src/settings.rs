@@ -354,6 +354,7 @@ impl Server {
                 }
             }
         }
+        cc.state_move = self.state_move_setting().await.map_err(e)?;
         Ok(cc)
     }
 
@@ -428,6 +429,7 @@ impl Server {
         }
         self.set_log_settings(a, &req).await?;
         self.set_control_plane_backup(a, &req).await?;
+        self.set_state_move(a, &req).await?;
         if req.set_network {
             self.set_network(a, &c.network).await?;
         }

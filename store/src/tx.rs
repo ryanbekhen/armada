@@ -219,6 +219,33 @@ impl Etcd {
         self.fence.as_ref()
     }
 
+    /// The key that exists while the state moves to armada-kv (ADR 0057):
+    /// every write of the store compares that it does not.
+    pub fn moving_key(&self) -> String {
+        format!("{}{}", self.prefix, crate::statemove::KEY_MOVING)
+    }
+
+    /// Whether the state is moving: the moving key exists.
+    pub(crate) async fn moving(&self) -> Result<bool> {
+        let r = self.c.range(op::get(&self.moving_key(), 0)).await?;
+        Ok(!r.kvs.is_empty())
+    }
+
+    /// A refused write's error: not the leader any more, the state moving,
+    /// or else what the caller says.
+    pub(crate) async fn refused(&self, otherwise: Error) -> Error {
+        match self.fence_holds().await {
+            Ok(false) => return Error::bare(Kind::NotLeader),
+            Err(e) => return e,
+            Ok(true) => {}
+        }
+        match self.moving().await {
+            Ok(true) => Error::bare(Kind::Moving),
+            Ok(false) => otherwise,
+            Err(e) => e,
+        }
+    }
+
     /// fenceHolds: whether the fence key still has its revision.
     pub(crate) async fn fence_holds(&self) -> Result<bool> {
         let Some((key, rev)) = &self.fence else {
@@ -267,6 +294,8 @@ impl Etcd {
         if let Some((key, rev)) = &self.fence {
             cmps.push(op::created_at(key, *rev));
         }
+        // No write while the state moves (ADR 0057).
+        cmps.push(op::created_at(&self.moving_key(), 0));
         let r = self
             .c
             .txn(pb::TxnRequest {
@@ -280,6 +309,9 @@ impl Etcd {
         }
         if self.fence.is_some() && !self.fence_holds().await? {
             return Err(Error::bare(Kind::NotLeader));
+        }
+        if self.moving().await? {
+            return Err(Error::bare(Kind::Moving));
         }
         *attempt += 1;
         if *attempt >= MAX_TXN_RETRIES {

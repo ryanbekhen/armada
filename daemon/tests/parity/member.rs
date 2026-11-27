@@ -97,6 +97,7 @@ impl Member {
             schema: 0,
             version: String::new(),
             created_at: armada_spec::gotime::Time::zero(),
+            kv_peer_url: String::new(),
         })
         .await
         .map_err(|e| e.to_string())?;

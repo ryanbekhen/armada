@@ -138,6 +138,12 @@ and the key at least 32 bytes. They are stored encrypted and never shown. The
 first backup runs at once; armada cluster status shows the last one.
 --backup none turns them off; the bucket keeps what it holds.
 
+--state-move says when the leader moves the control plane's state from etcd
+to armada-kv (ADR 0057): auto (the default) once every server runs a release
+with armada-kv and has been up and voting for ten minutes, off never, now at
+once. Writes wait (the API answers that the state is moving) for the seconds
+the copy takes; apps keep serving. armada cluster status shows the move.
+
 ```
 armada cluster update [flags]
 ```
@@ -179,6 +185,7 @@ Flags:
 | `--node-lost-timeout duration` | how long a node may be unreachable before its replicas move to other nodes |
 | `--proxy-protocol strings` | address prefixes of TCP load balancers in front of the nodes that send the PROXY protocol, comma separated (empty to clear) |
 | `--root-domain string` | root domain for app URLs (empty to clear) |
+| `--state-move string` | when the control plane's state moves from etcd to armada-kv: auto, off, or now |
 | `--tls` | obtain and renew certificates with ACME; false serves apps over plain HTTP on port 80 instead of redirecting to HTTPS (default `true`) |
 | `--trusted-proxies strings` | address prefixes of proxies in front of the nodes, comma separated (empty to clear) |
 

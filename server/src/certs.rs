@@ -385,6 +385,8 @@ pub struct KeyInfo {
 pub struct EtcdStorage {
     c: Client,
     prefix: String,
+    /// The store's moving key (ADR 0057): no write while it exists.
+    moving: Option<String>,
     st: tokio::sync::Mutex<LockState>,
 }
 
@@ -403,8 +405,33 @@ impl EtcdStorage {
         Ok(EtcdStorage {
             c,
             prefix: prefix.to_string(),
+            moving: None,
             st: tokio::sync::Mutex::new(LockState::default()),
         })
+    }
+
+    /// Refuses every write while the store's moving key exists (the
+    /// control plane's state moving to armada-kv, ADR 0057).
+    pub fn frozen_by(mut self, moving_key: &str) -> EtcdStorage {
+        self.moving = Some(moving_key.to_string());
+        self
+    }
+
+    /// A write: ops while the moving key does not exist.
+    async fn write(&self, ops: Vec<armada_proto::etcd::etcdserverpb::RequestOp>) -> Result<()> {
+        let compare = self.moving.iter().map(|k| op::created_at(k, 0)).collect();
+        let r = self
+            .c
+            .txn(armada_proto::etcd::etcdserverpb::TxnRequest {
+                compare,
+                success: ops,
+                failure: Vec::new(),
+            })
+            .await?;
+        if !r.succeeded {
+            return Err(Error::bare(armada_store::Kind::Moving));
+        }
+        Ok(())
     }
 
     fn key(&self, k: &str) -> String {
@@ -419,7 +446,7 @@ impl EtcdStorage {
             .unwrap_or_default();
         let mut b = now.to_be_bytes().to_vec();
         b.extend_from_slice(value);
-        self.c.put(&self.key(key), &b).await.map(|_| ())
+        self.write(vec![op::put(&self.key(key), &b, 0)]).await
     }
 
     async fn get(&self, key: &str) -> Result<Option<(Vec<u8>, i64)>> {
@@ -445,14 +472,8 @@ impl EtcdStorage {
         let k = self.key(key);
         let below = format!("{k}/");
         let end = String::from_utf8_lossy(&op::prefix_end(&below)).into_owned();
-        self.c
-            .txn(armada_proto::etcd::etcdserverpb::TxnRequest {
-                compare: Vec::new(),
-                success: vec![op::delete(&k), op::delete_range(&below, &end)],
-                failure: Vec::new(),
-            })
+        self.write(vec![op::delete(&k), op::delete_range(&below, &end)])
             .await
-            .map(|_| ())
     }
 
     /// Stat: None when neither the key nor anything below it exists.

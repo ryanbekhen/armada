@@ -3,7 +3,7 @@
 use armada_proto::armada::v1::{
     BackupKeep, ClusterConfig, ClusterStatusRequest, ClusterStatusResponse,
     ControlPlaneBackupStatus, Domain, GetClusterConfigRequest, ListDomainsRequest, NodeSwitchWait,
-    SetClusterConfigRequest, VerifyDomainRequest,
+    SetClusterConfigRequest, StateMoveStatus, VerifyDomainRequest,
 };
 use armada_spec as spec;
 use armada_spec::go;
@@ -70,7 +70,13 @@ latest, or last=N,hourly=N,daily=N,weekly=N,monthly=N. Both read a file (mode
 0600) or stdin (-, one of them): the URL is https://KEY:SECRET@host/bucket[/prefix]
 and the key at least 32 bytes. They are stored encrypted and never shown. The
 first backup runs at once; armada cluster status shows the last one.
---backup none turns them off; the bucket keeps what it holds.";
+--backup none turns them off; the bucket keeps what it holds.
+
+--state-move says when the leader moves the control plane's state from etcd
+to armada-kv (ADR 0057): auto (the default) once every server runs a release
+with armada-kv and has been up and voting for ten minutes, off never, now at
+once. Writes wait (the API answers that the state is moving) for the seconds
+the copy takes; apps keep serving. armada cluster status shows the move.";
 
 pub fn add_cluster(t: &mut Tree) -> usize {
     let n = t.add(
@@ -253,6 +259,12 @@ fn update_flags() -> Vec<Flag> {
             "file holding the key control plane backups are encrypted with (at least 32 bytes), or - for stdin",
         ),
         Flag::string("backup", None, "", "none turns control plane backups off"),
+        Flag::string(
+            "state-move",
+            None,
+            "",
+            "when the control plane's state moves from etcd to armada-kv: auto, off, or now",
+        ),
     ]
 }
 
@@ -274,7 +286,7 @@ const LOG_EXPORT_FLAGS: [&str; 4] = [
     "log-export-tenant",
 ];
 const BACKUP_PLAN_FLAGS: [&str; 3] = ["backup-every", "backup-schedule", "backup-time-zone"];
-const OTHER_FLAGS: [&str; 19] = [
+const OTHER_FLAGS: [&str; 20] = [
     "root-domain",
     "trusted-proxies",
     "proxy-protocol",
@@ -294,6 +306,7 @@ const OTHER_FLAGS: [&str; 19] = [
     "backup-keep",
     "backup-url",
     "backup-key",
+    "state-move",
 ];
 
 /// settingsSettle and settingsWait: how long cluster update waits before
@@ -316,6 +329,7 @@ fn update(ctx: &mut Ctx<'_>, _: &[String]) -> Result {
             node_lost_timeout_seconds: ctx.duration("node-lost-timeout") / go::SECOND,
             network: ctx.str("network"),
             mesh_cidr: ctx.str("mesh-cidr"),
+            state_move: ctx.str("state-move"),
             ..Default::default()
         }),
         set_root_domain: ch("root-domain"),
@@ -339,6 +353,7 @@ fn update(ctx: &mut Ctx<'_>, _: &[String]) -> Result {
         set_backup_url: ch("backup-url"),
         set_backup_key: ch("backup-key"),
         set_backup_off: ch("backup"),
+        set_state_move: ch("state-move"),
         ..Default::default()
     };
     if !OTHER_FLAGS.iter().any(|f| ch(f)) && !req.set_log_export && !req.set_backup_plan {
@@ -686,7 +701,7 @@ fn cluster_config_text(cc: &ClusterConfig) -> String {
     } else {
         cc.dns_provider.as_str()
     };
-    format!(
+    let mut text = format!(
         "root domain:       {}\ntrusted proxies:   {}\nproxy protocol:    {}\ncertificates:      {}\nacme email:        {}\ndns provider:      {} (token {})\nmetrics:           {}\nnode lost timeout: {}\nlog history:       {}\nlog export:        {}\nnetwork:           {}\nbackups:           {}\n",
         dash(&cc.root_domain),
         dash(&cc.trusted_proxies.join(",")),
@@ -701,7 +716,11 @@ fn cluster_config_text(cc: &ClusterConfig) -> String {
         export,
         network,
         backups
-    )
+    );
+    if !cc.state_move.is_empty() {
+        text.push_str(&format!("state move:        {}\n", cc.state_move));
+    }
+    text
 }
 
 fn status(ctx: &mut Ctx<'_>, _: &[String]) -> Result {
@@ -750,6 +769,9 @@ fn cluster_status_text(r: &ClusterStatusResponse) -> String {
     if let Some(b) = &r.control_plane_backup {
         tw.write(&format!("\n{}\n", backup_status_line(b)));
     }
+    if let Some(m) = &r.state_move {
+        tw.write(&format!("\n{}", state_move_text(m)));
+    }
     if let Some(sw) = &r.network_switch {
         let step = match sw.step.as_str() {
             "prepare" => format!("bringing it up beside {}", sw.from),
@@ -776,6 +798,49 @@ fn cluster_status_text(r: &ClusterStatusResponse) -> String {
     }
     out.push_str(&tw.finish());
     out
+}
+
+/// Where the control plane keeps its state, and how its move goes.
+fn state_move_text(m: &StateMoveStatus) -> String {
+    if m.store == "kv" {
+        let mut s = "state: armada-kv".to_string();
+        if m.step == "moved" {
+            s.push_str(&format!(
+                ", moved from etcd {}",
+                date_time(Some(&unix_ts(m.moved_unix)))
+            ));
+        }
+        return s + "\n";
+    }
+    let mut s = match (m.step.as_str(), m.mode.as_str()) {
+        ("copying", _) => format!(
+            "state: etcd, moving to armada-kv since {} (writes wait)\n",
+            date_time(Some(&unix_ts(m.since_unix)))
+        ),
+        ("moved", _) => "state: moved to armada-kv, servers switching\n".to_string(),
+        (_, "off") => {
+            "state: etcd, moving to armada-kv is off (armada cluster update --state-move auto)\n"
+                .to_string()
+        }
+        (_, "now") => "state: etcd, moving to armada-kv at once\n".to_string(),
+        _ => "state: etcd, moves to armada-kv by itself\n".to_string(),
+    };
+    if m.failures > 0 {
+        s.push_str(&format!(
+            "state move failed {} time(s), last at {}: {}; next try after {}\n",
+            m.failures,
+            date_time(Some(&unix_ts(m.failed_unix))),
+            printable(&m.error),
+            date_time(Some(&unix_ts(m.retry_unix)))
+        ));
+    }
+    if !m.waiting.is_empty() && m.step.is_empty() {
+        s.push_str("STATE MOVE WAITS FOR\n");
+        for w in &m.waiting {
+            s.push_str(&format!("{}\n", printable(w)));
+        }
+    }
+    s
 }
 
 /// What a network switch waits for on one node.

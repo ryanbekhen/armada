@@ -1154,6 +1154,10 @@ pub struct ClusterConfig {
     pub backup_keep: ::core::option::Option<BackupKeep>,
     #[prost(string, tag = "25")]
     pub backup_bucket: ::prost::alloc::string::String,
+    /// Whether the leader moves the control plane's state from etcd to
+    /// armada-kv by itself (ADR 0057): auto (empty), off, or now.
+    #[prost(string, tag = "27")]
+    pub state_move: ::prost::alloc::string::String,
 }
 #[allow(clippy::all)]
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
@@ -1229,6 +1233,9 @@ pub struct SetClusterConfigRequest {
     pub backup_key: ::prost::alloc::vec::Vec<u8>,
     #[prost(bool, tag = "26")]
     pub set_backup_off: bool,
+    /// Replace config.state_move (ADR 0057).
+    #[prost(bool, tag = "28")]
+    pub set_state_move: bool,
 }
 #[allow(clippy::all)]
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
@@ -1377,6 +1384,46 @@ pub struct ClusterStatusResponse {
     /// The control plane's backups (ADR 0051); unset while they are off.
     #[prost(message, optional, tag = "12")]
     pub control_plane_backup: ::core::option::Option<ControlPlaneBackupStatus>,
+    /// Where the control plane keeps its state, and its move from etcd to
+    /// armada-kv (ADR 0057).
+    #[prost(message, optional, tag = "15")]
+    pub state_move: ::core::option::Option<StateMoveStatus>,
+}
+/// StateMoveStatus is where the control plane keeps its state and how its
+/// move from etcd to armada-kv goes (ADR 0057).
+#[allow(clippy::all)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct StateMoveStatus {
+    /// "etcd" or "kv".
+    #[prost(string, tag = "1")]
+    pub store: ::prost::alloc::string::String,
+    /// auto, off, or now.
+    #[prost(string, tag = "2")]
+    pub mode: ::prost::alloc::string::String,
+    /// "copying" while the move runs, "moved" once it did; empty before.
+    #[prost(string, tag = "3")]
+    pub step: ::prost::alloc::string::String,
+    /// When the move started, and when it moved, in Unix seconds.
+    #[prost(int64, tag = "4")]
+    pub since_unix: i64,
+    #[prost(int64, tag = "5")]
+    pub moved_unix: i64,
+    /// The revision of etcd's key space the new store started from.
+    #[prost(int64, tag = "6")]
+    pub revision: i64,
+    /// What an automatic move still waits for.
+    #[prost(string, repeated, tag = "7")]
+    pub waiting: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    /// Moves that failed in a row, the last one's reason and time, and when
+    /// the next may start (Unix seconds).
+    #[prost(int32, tag = "8")]
+    pub failures: i32,
+    #[prost(string, tag = "9")]
+    pub error: ::prost::alloc::string::String,
+    #[prost(int64, tag = "10")]
+    pub failed_unix: i64,
+    #[prost(int64, tag = "11")]
+    pub retry_unix: i64,
 }
 /// ControlPlaneBackupStatus is how the control plane's backups to its bucket
 /// go (ADR 0051).

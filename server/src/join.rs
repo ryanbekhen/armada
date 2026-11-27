@@ -990,6 +990,7 @@ impl JoinService for JoinApi {
             schema: 0,
             version: String::new(),
             created_at: armada_spec::gotime::Time::zero(),
+            kv_peer_url: String::new(),
         };
         let issued: Mutex<Option<armada_pki::NodeCert>> = Mutex::new(None);
         let validity = s.0.node_cert_validity;

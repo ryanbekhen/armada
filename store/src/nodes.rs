@@ -154,6 +154,7 @@ impl Etx<'_> {
                 schema: srv.schema,
                 version: srv.version.clone(),
                 created_at: created,
+                kv_peer_url: srv.kv_peer_url.clone(),
             },
         )
     }
@@ -749,6 +750,7 @@ impl Etcd {
                 && old.member_id == srv.member_id
                 && old.schema == srv.schema
                 && old.version == srv.version
+                && old.kv_peer_url == srv.kv_peer_url
             {
                 return Ok(());
             }
@@ -771,6 +773,7 @@ impl Etcd {
                     schema: r.schema.max(1),
                     version: r.version,
                     created_at: from_ms(r.created_at),
+                    kv_peer_url: r.kv_peer_url,
                 });
             }
             Ok(())

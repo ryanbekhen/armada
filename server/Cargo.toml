@@ -42,6 +42,9 @@ parity = ["armada-node/test-hooks", "armada-store/parity"]
 # (tests/scenarios.rs): gRPC calls by method path, the
 # fake agents' sessions, and the store's methods by name.
 [dev-dependencies]
+# The state's move to armada-kv (tests/replay/statemove.rs): each server's
+# member in the test's process (ADR 0057).
+armada-kv = { path = "../kv" }
 hyper-util.workspace = true
 prost.workspace = true
 tonic = { workspace = true, features = ["channel"] }

@@ -72,6 +72,7 @@ impl Server {
             .control_plane_backup_status()
             .await
             .map_err(|e| store_err(&e))?;
+        resp.state_move = self.state_move_status().await.map_err(|e| store_err(&e))?;
         Ok(resp)
     }
 }

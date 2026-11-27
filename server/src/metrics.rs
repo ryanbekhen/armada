@@ -495,6 +495,16 @@ const FAMILIES: &[(&str, &str, &str)] = &[
         "Bytes of the files in the control plane's last backup.",
     ),
     (
+        "armada_state_store",
+        "gauge",
+        "1 for the store the control plane keeps its state in: etcd or kv (armada-kv, ADR 0057).",
+    ),
+    (
+        "armada_state_move_failures",
+        "gauge",
+        "Moves of the control plane's state to armada-kv that failed in a row (ADR 0057); 0 once one works.",
+    ),
+    (
         "armada_app_autoscale_last_scale_timestamp_seconds",
         "gauge",
         "When the autoscaler last changed an app's replica count; absent until it does.",
@@ -1082,6 +1092,10 @@ impl Server {
                 b.last_size_bytes as f64,
                 &[],
             );
+        }
+        if let Ok(Some((store, failures))) = self.state_move_gauges().await {
+            g(&mut out, "armada_state_store", 1.0, &[("store", store)]);
+            g(&mut out, "armada_state_move_failures", failures as f64, &[]);
         }
         for p in &top.spaces {
             let l = [("space", p.name.as_str())];

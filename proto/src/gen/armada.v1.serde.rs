@@ -2715,6 +2715,9 @@ impl serde::Serialize for ClusterConfig {
         if !self.backup_bucket.is_empty() {
             len += 1;
         }
+        if !self.state_move.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("armada.v1.ClusterConfig", len)?;
         if !self.root_domain.is_empty() {
             struct_ser.serialize_field("rootDomain", &self.root_domain)?;
@@ -2799,6 +2802,9 @@ impl serde::Serialize for ClusterConfig {
         if !self.backup_bucket.is_empty() {
             struct_ser.serialize_field("backupBucket", &self.backup_bucket)?;
         }
+        if !self.state_move.is_empty() {
+            struct_ser.serialize_field("stateMove", &self.state_move)?;
+        }
         struct_ser.end()
     }
 }
@@ -2857,6 +2863,8 @@ impl<'de> serde::Deserialize<'de> for ClusterConfig {
             "backupKeep",
             "backup_bucket",
             "backupBucket",
+            "state_move",
+            "stateMove",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -2886,6 +2894,7 @@ impl<'de> serde::Deserialize<'de> for ClusterConfig {
             BackupTimeZone,
             BackupKeep,
             BackupBucket,
+            StateMove,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -2932,6 +2941,7 @@ impl<'de> serde::Deserialize<'de> for ClusterConfig {
                             "backupTimeZone" | "backup_time_zone" => Ok(GeneratedField::BackupTimeZone),
                             "backupKeep" | "backup_keep" => Ok(GeneratedField::BackupKeep),
                             "backupBucket" | "backup_bucket" => Ok(GeneratedField::BackupBucket),
+                            "stateMove" | "state_move" => Ok(GeneratedField::StateMove),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -2976,6 +2986,7 @@ impl<'de> serde::Deserialize<'de> for ClusterConfig {
                 let mut backup_time_zone__ = None;
                 let mut backup_keep__ = None;
                 let mut backup_bucket__ = None;
+                let mut state_move__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::RootDomain => {
@@ -3138,6 +3149,12 @@ impl<'de> serde::Deserialize<'de> for ClusterConfig {
                             }
                             backup_bucket__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::StateMove => {
+                            if state_move__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("stateMove"));
+                            }
+                            state_move__ = Some(map_.next_value()?);
+                        }
                     }
                 }
                 Ok(ClusterConfig {
@@ -3166,6 +3183,7 @@ impl<'de> serde::Deserialize<'de> for ClusterConfig {
                     backup_time_zone: backup_time_zone__.unwrap_or_default(),
                     backup_keep: backup_keep__,
                     backup_bucket: backup_bucket__.unwrap_or_default(),
+                    state_move: state_move__.unwrap_or_default(),
                 })
             }
         }
@@ -3287,6 +3305,9 @@ impl serde::Serialize for ClusterStatusResponse {
         if self.control_plane_backup.is_some() {
             len += 1;
         }
+        if self.state_move.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("armada.v1.ClusterStatusResponse", len)?;
         if self.nodes != 0 {
             struct_ser.serialize_field("nodes", &self.nodes)?;
@@ -3324,6 +3345,9 @@ impl serde::Serialize for ClusterStatusResponse {
         if let Some(v) = self.control_plane_backup.as_ref() {
             struct_ser.serialize_field("controlPlaneBackup", v)?;
         }
+        if let Some(v) = self.state_move.as_ref() {
+            struct_ser.serialize_field("stateMove", v)?;
+        }
         struct_ser.end()
     }
 }
@@ -3354,6 +3378,8 @@ impl<'de> serde::Deserialize<'de> for ClusterStatusResponse {
             "networkSwitch",
             "control_plane_backup",
             "controlPlaneBackup",
+            "state_move",
+            "stateMove",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -3370,6 +3396,7 @@ impl<'de> serde::Deserialize<'de> for ClusterStatusResponse {
             NodesNotReady,
             NetworkSwitch,
             ControlPlaneBackup,
+            StateMove,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -3403,6 +3430,7 @@ impl<'de> serde::Deserialize<'de> for ClusterStatusResponse {
                             "nodesNotReady" | "nodes_not_ready" => Ok(GeneratedField::NodesNotReady),
                             "networkSwitch" | "network_switch" => Ok(GeneratedField::NetworkSwitch),
                             "controlPlaneBackup" | "control_plane_backup" => Ok(GeneratedField::ControlPlaneBackup),
+                            "stateMove" | "state_move" => Ok(GeneratedField::StateMove),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -3434,6 +3462,7 @@ impl<'de> serde::Deserialize<'de> for ClusterStatusResponse {
                 let mut nodes_not_ready__ = None;
                 let mut network_switch__ = None;
                 let mut control_plane_backup__ = None;
+                let mut state_move__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Nodes => {
@@ -3524,6 +3553,12 @@ impl<'de> serde::Deserialize<'de> for ClusterStatusResponse {
                             }
                             control_plane_backup__ = map_.next_value()?;
                         }
+                        GeneratedField::StateMove => {
+                            if state_move__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("stateMove"));
+                            }
+                            state_move__ = map_.next_value()?;
+                        }
                     }
                 }
                 Ok(ClusterStatusResponse {
@@ -3539,6 +3574,7 @@ impl<'de> serde::Deserialize<'de> for ClusterStatusResponse {
                     nodes_not_ready: nodes_not_ready__.unwrap_or_default(),
                     network_switch: network_switch__,
                     control_plane_backup: control_plane_backup__,
+                    state_move: state_move__,
                 })
             }
         }
@@ -26462,6 +26498,9 @@ impl serde::Serialize for SetClusterConfigRequest {
         if self.set_backup_off {
             len += 1;
         }
+        if self.set_state_move {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("armada.v1.SetClusterConfigRequest", len)?;
         if let Some(v) = self.config.as_ref() {
             struct_ser.serialize_field("config", v)?;
@@ -26549,6 +26588,9 @@ impl serde::Serialize for SetClusterConfigRequest {
         if self.set_backup_off {
             struct_ser.serialize_field("setBackupOff", &self.set_backup_off)?;
         }
+        if self.set_state_move {
+            struct_ser.serialize_field("setStateMove", &self.set_state_move)?;
+        }
         struct_ser.end()
     }
 }
@@ -26610,6 +26652,8 @@ impl<'de> serde::Deserialize<'de> for SetClusterConfigRequest {
             "backupKey",
             "set_backup_off",
             "setBackupOff",
+            "set_state_move",
+            "setStateMove",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -26640,6 +26684,7 @@ impl<'de> serde::Deserialize<'de> for SetClusterConfigRequest {
             SetBackupKey,
             BackupKey,
             SetBackupOff,
+            SetStateMove,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -26687,6 +26732,7 @@ impl<'de> serde::Deserialize<'de> for SetClusterConfigRequest {
                             "setBackupKey" | "set_backup_key" => Ok(GeneratedField::SetBackupKey),
                             "backupKey" | "backup_key" => Ok(GeneratedField::BackupKey),
                             "setBackupOff" | "set_backup_off" => Ok(GeneratedField::SetBackupOff),
+                            "setStateMove" | "set_state_move" => Ok(GeneratedField::SetStateMove),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -26732,6 +26778,7 @@ impl<'de> serde::Deserialize<'de> for SetClusterConfigRequest {
                 let mut set_backup_key__ = None;
                 let mut backup_key__ = None;
                 let mut set_backup_off__ = None;
+                let mut set_state_move__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Config => {
@@ -26898,6 +26945,12 @@ impl<'de> serde::Deserialize<'de> for SetClusterConfigRequest {
                             }
                             set_backup_off__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::SetStateMove => {
+                            if set_state_move__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("setStateMove"));
+                            }
+                            set_state_move__ = Some(map_.next_value()?);
+                        }
                     }
                 }
                 Ok(SetClusterConfigRequest {
@@ -26927,6 +26980,7 @@ impl<'de> serde::Deserialize<'de> for SetClusterConfigRequest {
                     set_backup_key: set_backup_key__.unwrap_or_default(),
                     backup_key: backup_key__.unwrap_or_default(),
                     set_backup_off: set_backup_off__.unwrap_or_default(),
+                    set_state_move: set_state_move__.unwrap_or_default(),
                 })
             }
         }
@@ -28391,6 +28445,293 @@ impl<'de> serde::Deserialize<'de> for SpaceTop {
             }
         }
         deserializer.deserialize_struct("armada.v1.SpaceTop", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for StateMoveStatus {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.store.is_empty() {
+            len += 1;
+        }
+        if !self.mode.is_empty() {
+            len += 1;
+        }
+        if !self.step.is_empty() {
+            len += 1;
+        }
+        if self.since_unix != 0 {
+            len += 1;
+        }
+        if self.moved_unix != 0 {
+            len += 1;
+        }
+        if self.revision != 0 {
+            len += 1;
+        }
+        if !self.waiting.is_empty() {
+            len += 1;
+        }
+        if self.failures != 0 {
+            len += 1;
+        }
+        if !self.error.is_empty() {
+            len += 1;
+        }
+        if self.failed_unix != 0 {
+            len += 1;
+        }
+        if self.retry_unix != 0 {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("armada.v1.StateMoveStatus", len)?;
+        if !self.store.is_empty() {
+            struct_ser.serialize_field("store", &self.store)?;
+        }
+        if !self.mode.is_empty() {
+            struct_ser.serialize_field("mode", &self.mode)?;
+        }
+        if !self.step.is_empty() {
+            struct_ser.serialize_field("step", &self.step)?;
+        }
+        if self.since_unix != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("sinceUnix", ToString::to_string(&self.since_unix).as_str())?;
+        }
+        if self.moved_unix != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("movedUnix", ToString::to_string(&self.moved_unix).as_str())?;
+        }
+        if self.revision != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("revision", ToString::to_string(&self.revision).as_str())?;
+        }
+        if !self.waiting.is_empty() {
+            struct_ser.serialize_field("waiting", &self.waiting)?;
+        }
+        if self.failures != 0 {
+            struct_ser.serialize_field("failures", &self.failures)?;
+        }
+        if !self.error.is_empty() {
+            struct_ser.serialize_field("error", &self.error)?;
+        }
+        if self.failed_unix != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("failedUnix", ToString::to_string(&self.failed_unix).as_str())?;
+        }
+        if self.retry_unix != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("retryUnix", ToString::to_string(&self.retry_unix).as_str())?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for StateMoveStatus {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "store",
+            "mode",
+            "step",
+            "since_unix",
+            "sinceUnix",
+            "moved_unix",
+            "movedUnix",
+            "revision",
+            "waiting",
+            "failures",
+            "error",
+            "failed_unix",
+            "failedUnix",
+            "retry_unix",
+            "retryUnix",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Store,
+            Mode,
+            Step,
+            SinceUnix,
+            MovedUnix,
+            Revision,
+            Waiting,
+            Failures,
+            Error,
+            FailedUnix,
+            RetryUnix,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "store" => Ok(GeneratedField::Store),
+                            "mode" => Ok(GeneratedField::Mode),
+                            "step" => Ok(GeneratedField::Step),
+                            "sinceUnix" | "since_unix" => Ok(GeneratedField::SinceUnix),
+                            "movedUnix" | "moved_unix" => Ok(GeneratedField::MovedUnix),
+                            "revision" => Ok(GeneratedField::Revision),
+                            "waiting" => Ok(GeneratedField::Waiting),
+                            "failures" => Ok(GeneratedField::Failures),
+                            "error" => Ok(GeneratedField::Error),
+                            "failedUnix" | "failed_unix" => Ok(GeneratedField::FailedUnix),
+                            "retryUnix" | "retry_unix" => Ok(GeneratedField::RetryUnix),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = StateMoveStatus;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct armada.v1.StateMoveStatus")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<StateMoveStatus, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut store__ = None;
+                let mut mode__ = None;
+                let mut step__ = None;
+                let mut since_unix__ = None;
+                let mut moved_unix__ = None;
+                let mut revision__ = None;
+                let mut waiting__ = None;
+                let mut failures__ = None;
+                let mut error__ = None;
+                let mut failed_unix__ = None;
+                let mut retry_unix__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Store => {
+                            if store__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("store"));
+                            }
+                            store__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::Mode => {
+                            if mode__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("mode"));
+                            }
+                            mode__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::Step => {
+                            if step__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("step"));
+                            }
+                            step__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::SinceUnix => {
+                            if since_unix__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("sinceUnix"));
+                            }
+                            since_unix__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::MovedUnix => {
+                            if moved_unix__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("movedUnix"));
+                            }
+                            moved_unix__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::Revision => {
+                            if revision__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("revision"));
+                            }
+                            revision__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::Waiting => {
+                            if waiting__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("waiting"));
+                            }
+                            waiting__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::Failures => {
+                            if failures__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("failures"));
+                            }
+                            failures__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::Error => {
+                            if error__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("error"));
+                            }
+                            error__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::FailedUnix => {
+                            if failed_unix__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("failedUnix"));
+                            }
+                            failed_unix__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::RetryUnix => {
+                            if retry_unix__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("retryUnix"));
+                            }
+                            retry_unix__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                    }
+                }
+                Ok(StateMoveStatus {
+                    store: store__.unwrap_or_default(),
+                    mode: mode__.unwrap_or_default(),
+                    step: step__.unwrap_or_default(),
+                    since_unix: since_unix__.unwrap_or_default(),
+                    moved_unix: moved_unix__.unwrap_or_default(),
+                    revision: revision__.unwrap_or_default(),
+                    waiting: waiting__.unwrap_or_default(),
+                    failures: failures__.unwrap_or_default(),
+                    error: error__.unwrap_or_default(),
+                    failed_unix: failed_unix__.unwrap_or_default(),
+                    retry_unix: retry_unix__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("armada.v1.StateMoveStatus", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for StatusRequest {

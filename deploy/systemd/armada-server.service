@@ -1,12 +1,15 @@
 [Unit]
 Description=Armada control plane server
 Documentation=https://github.com/ryanbekhen/armada
-# A server machine runs three units (ADR 0055): this server's etcd member
-# (armada-etcd), the control plane (this one), and the node's agent
-# (armada-agent), so enabling and starting this one is enough. The server
-# waits for its member; the agent holds the data directory's lock.
-After=network-online.target armada-etcd.service armada-agent.service
-Wants=network-online.target armada-etcd.service armada-agent.service
+# A server machine runs three units (ADR 0055): this server's member of the
+# control plane's state, the control plane (this one), and the node's agent
+# (armada-agent), so enabling and starting this one is enough. The member
+# is etcd's (armada-etcd) or armada-kv's (armada-kv, ADR 0057): both are
+# wanted, and the one whose store the server does not keep exits at once
+# with status 78. The server waits for its member; the agent holds the data
+# directory's lock.
+After=network-online.target armada-etcd.service armada-kv.service armada-agent.service
+Wants=network-online.target armada-etcd.service armada-kv.service armada-agent.service
 
 [Service]
 Type=simple

@@ -304,6 +304,16 @@ impl Client {
         Ok(r.id)
     }
 
+    /// What is left of lease id's TTL in seconds (-1 once it expired or
+    /// was revoked).
+    pub async fn lease_ttl(&self, id: i64) -> Result<i64> {
+        let r = LeaseClient::new(self.ch.clone())
+            .lease_time_to_live(pb::LeaseTimeToLiveRequest { id, keys: false })
+            .await?
+            .into_inner();
+        Ok(r.ttl)
+    }
+
     /// Revokes a lease and deletes its keys.
     pub async fn revoke(&self, id: i64) -> Result<()> {
         LeaseClient::new(self.ch.clone())

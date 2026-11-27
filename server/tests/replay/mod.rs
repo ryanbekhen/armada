@@ -8,6 +8,7 @@ pub mod norm;
 pub mod program;
 pub mod run;
 pub mod standins;
+pub mod statemove;
 pub mod terms;
 pub mod volumes;
 pub mod watch;

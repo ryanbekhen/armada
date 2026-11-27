@@ -891,6 +891,9 @@ message ClusterConfig {
   string backup_bucket = 25;
   reserved 26;
   reserved "runtime_move_off";
+  // Whether the leader moves the control plane's state from etcd to
+  // armada-kv by itself (ADR 0057): auto (empty), off, or now.
+  string state_move = 27;
 }
 
 message GetClusterConfigRequest {}
@@ -940,6 +943,8 @@ message SetClusterConfigRequest {
   bool set_backup_off = 26;
   reserved 27;
   reserved "set_runtime_move";
+  // Replace config.state_move (ADR 0057).
+  bool set_state_move = 28;
 }
 
 message ListDomainsRequest {
@@ -1035,6 +1040,33 @@ message ClusterStatusResponse {
   ControlPlaneBackupStatus control_plane_backup = 12;
   reserved 13, 14;
   reserved "runtime", "runtime_move";
+  // Where the control plane keeps its state, and its move from etcd to
+  // armada-kv (ADR 0057).
+  StateMoveStatus state_move = 15;
+}
+
+// StateMoveStatus is where the control plane keeps its state and how its
+// move from etcd to armada-kv goes (ADR 0057).
+message StateMoveStatus {
+  // "etcd" or "kv".
+  string store = 1;
+  // auto, off, or now.
+  string mode = 2;
+  // "copying" while the move runs, "moved" once it did; empty before.
+  string step = 3;
+  // When the move started, and when it moved, in Unix seconds.
+  int64 since_unix = 4;
+  int64 moved_unix = 5;
+  // The revision of etcd's key space the new store started from.
+  int64 revision = 6;
+  // What an automatic move still waits for.
+  repeated string waiting = 7;
+  // Moves that failed in a row, the last one's reason and time, and when
+  // the next may start (Unix seconds).
+  int32 failures = 8;
+  string error = 9;
+  int64 failed_unix = 10;
+  int64 retry_unix = 11;
 }
 
 // ControlPlaneBackupStatus is how the control plane's backups to its bucket

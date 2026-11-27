@@ -85,13 +85,18 @@ impl Etcd {
             return Ok(());
         }
         let k = ops.len() as i64;
-        self.c
+        let r = self
+            .c
             .txn(pb::TxnRequest {
-                compare: Vec::new(),
+                // Not while the state moves (ADR 0057).
+                compare: vec![op::created_at(&self.moving_key(), 0)],
                 success: std::mem::take(ops),
                 failure: Vec::new(),
             })
             .await?;
+        if !r.succeeded {
+            return Err(crate::error::Error::bare(crate::error::Kind::Moving));
+        }
         *n += k;
         Ok(())
     }

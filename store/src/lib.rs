@@ -34,6 +34,7 @@ mod placements;
 mod remove;
 mod secrets;
 mod spaces;
+pub mod statemove;
 mod volumes;
 
 pub use access::{

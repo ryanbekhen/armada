@@ -109,6 +109,7 @@ pub fn server(v: &Value) -> Server {
         schema: i(v, "Schema"),
         version: s(v, "Version"),
         created_at: t(v, "CreatedAt"),
+        kv_peer_url: s(v, "KvPeerURL"),
     }
 }
 
