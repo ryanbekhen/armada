@@ -275,8 +275,8 @@ snapshot() { # snapshot DIR
 		# report arrived, and what a recreated replica changes (one whose
 		# container runc created): its container, its address, and when
 		# it got ready.
-		| map(if (.key | startswith("nodes/")) then .value |= del(.LastSeen, .Version)
-		      elif (.key | startswith("replicas/")) then .value |= del(.UpdatedAt, .ContainerID, .Address, .IP, .ReadySince, .Message, .Restarts, .LastRestartAt, .LastRestart)
+		| map(if (.key | startswith("nodes/")) then .value |= del(.lastSeen, .version)
+		      elif (.key | startswith("replicas/")) then .value |= del(.updatedAt, .containerId, .address, .ip, .readySince, .message, .restarts, .lastRestartAt, .lastRestart)
 		      else . end)
 		| from_entries' >"$1/keyspace" || fail "reading the keyspace"
 	[ -s "$1/keyspace" ] || fail "the keyspace read is empty"
@@ -294,8 +294,9 @@ unchanged() {
 	ok "$3: every etcd member ID unchanged"
 	if ! cmp -s "$1/keyspace" "$2/keyspace"; then
 		jq -r --slurpfile after "$2/keyspace" '
-			(keys + ($after[0] | keys)) | unique[] as $k
-			| select(.[$k] != $after[0][$k]) | "      \($k)"' "$1/keyspace" >&2
+			. as $before | ($before | keys) + ($after[0] | keys) | unique[] as $k
+			| select($before[$k] != $after[0][$k])
+			| "      \($k)\n        before \($before[$k] | tojson | .[0:400])\n        after  \($after[0][$k] | tojson | .[0:400])"' "$1/keyspace" >&2
 		fail "$3: the keyspace changed (keys above)"
 	fi
 	ok "$3: the keyspace is unchanged but for servers/ and events"

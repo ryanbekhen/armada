@@ -108,11 +108,9 @@ A release runs every scenario.
 1. `armadad doctor` passes on every machine; the cluster forms with three
    voting servers and every node ready. Every machine has `armada-node` in
    its runtime pack, its agent's journal shows `armada-node applies the
-   cluster network`, and doctor's network checks pass. Every machine
-   reports the supervisor runtime through armada-node (`armada node list
-   -o json`, `.runtime.agent` is `supervisor-rust`), doctor's
-   `runtime-agent` check is ok, and `armada cluster status` counts every
-   node on armada-node. At the end of the run, no agent's journal shows
+   cluster network`, and doctor's network checks pass. Every container
+   record on every machine names crun, runc left no state, and doctor's
+   `runtime` check is ok. At the end of the run, no agent's journal shows
    `armada-node failed`, which the agent logs with the operation and the
    error whenever armada-node fails a pass of the cluster network.
 2. Nothing but SSH and HAProxy (80/443) listens outside the private,
