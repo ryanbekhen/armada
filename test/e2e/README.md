@@ -271,18 +271,19 @@ What it checks:
    prober app may reach, the prober (five replicas, counting
    what both answer through each node's resolver and proxy), an app with a
    volume holding a file, and a job that runs every minute.
-2. `upgrade`: with requests round robin over every public IP and the
-   probers' internal requests running, `armadad upgrade --version E2E_TO`
-   on the standby servers, the leader's machine, then the nodes, each
-   waiting for every server to vote and every node to be ready. The agents
-   then move the containers runc created to crun, one replica at a time
-   (ADR 0056), and the run waits until no node reports one left. Every
+2. `upgrade`: once no machine has a container runc created left (their
+   records name no runtime; `E2E_FROM` moves them to crun and `E2E_TO`
+   carries no runc, ADR 0056), with requests round robin over every
+   public IP and the probers' internal requests running, `armadad upgrade
+   --version E2E_TO` on the standby servers, the leader's machine, then
+   the nodes, each waiting for every server to vote and every node to be
+   ready. Afterwards no machine has a container or a state directory of
+   runc's (`/run/armada/shim/*/runc/*`). Every
    public request returns 200 and no internal one fails; armada-node's
    image records keep the time each image was pulled; every etcd member ID
    is the same; and the keyspace is the same but for `servers/`, events,
    the commit and audit counters, the job's record, runs, and attempts,
-   nodes' last seen and agent version, and what replica reports and the
-   move to crun change (each replica's container, address, readiness, and
-   restarts). The volume keeps its file, no run of the job failed, it runs
+   nodes' last seen and agent version, and what replica reports change
+   (each replica's container, address, readiness, and restarts). The volume keeps its file, no run of the job failed, it runs
    on, servers run `armada-etcd`, `armada-server`, and `armada-agent`,
    nodes `armada-agent`, and `armadad doctor` passes.

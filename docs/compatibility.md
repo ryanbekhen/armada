@@ -82,15 +82,13 @@ A cluster is upgraded one machine at a time, so versions mix for a while
   by the new agent. A change that needs containers recreated (a new
   runtime, a new network mode) is a separate step a person takes, one
   node or app at a time.
-  One exception, for runc's removal below: after the upgrade to the
-  release that brought crun's move (ADR 0056), each node's agent
-  recreates the replicas runc created on crun, one replica at a time,
-  the next only once the one before is ready again, and HAProxy's
-  container last. Apps with replicas on more than one node keep serving;
-  an app with a single replica (a volume app among them) has a gap of
-  about its start time, and HAProxy's replacement may cut connections
-  still open after 30 seconds
-  ([operations guide](operations.md#crun-and-runc)).
+  One exception, for runc's removal below: v0.1.0-alpha.44 moves the
+  containers runc created to crun at a pace, and a node upgraded to this
+  release before that move finished has some left, which no runtime of
+  this release can stop or enter. Its agent ends them and creates them
+  again on crun at once, HAProxy's container beside the old one
+  ([operations guide](operations.md#crun)). Let alpha.44's move finish
+  first and nothing is recreated.
 - No setting changes. The container runtime, the
   network mode, spaces, roles, secrets, and specs stay as they were; new
   defaults apply to what is created after the upgrade.
@@ -121,21 +119,19 @@ When something stable has to go:
 A security fix may break something sooner, when keeping it would leave
 clusters exposed; its release notes say so and why.
 
-Deprecated:
-
-- **runc in the runtime pack** ([ADR 0056](adr/0056-crun.md)). crun runs
-  every container created since the release that brought it; runc stays
-  in the pack only for the containers it created before. Each node's
-  agent moves those to crun after the upgrade (replicas one at a time,
-  HAProxy last; job attempts still running end on runc, and finished
-  ones leave with the job's history within a day). The next release
-  removes runc from the pack. Before upgrading to it, check that
-  `armadad doctor` shows no `runc` warning on any node
-  ([operations guide](operations.md#crun-and-runc)); a container still on
-  runc then could no longer be stopped or run commands in. Nothing to
-  change in specs or commands.
+Deprecated: nothing at the moment.
 
 Removed:
+
+- **runc in the runtime pack** ([ADR 0056](adr/0056-crun.md)),
+  deprecated in v0.1.0-alpha.44, which moves every container runc
+  created to crun. crun is the only OCI runtime; `armadad runtime
+  --bin-dir DIR` needs crun in DIR and no runc. Before upgrading a node
+  from v0.1.0-alpha.44, check that its `sudo armadad doctor` shows no
+  `runc` warning; a container left on runc is ended and created again on
+  crun by this release's agent
+  ([operations guide](operations.md#crun)). Nothing to change in specs
+  or commands.
 
 - **The containerd runtime** (`--runtime embedded`), deprecated since the
   supervisor runtime became the default
