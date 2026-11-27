@@ -124,7 +124,7 @@ fn to_valid_utf8(b: &[u8]) -> String {
 /// A bucket target from its URL. With several unknown parameters, the
 /// first in byte order is named.
 pub fn parse(raw: &str) -> Result<Target, String> {
-    let raw = std::str::from_utf8(crate::gostr::trim_space(raw.as_bytes())).unwrap_or(raw);
+    let raw = std::str::from_utf8(crate::textutil::trim_space(raw.as_bytes())).unwrap_or(raw);
     if raw.len() > 2048 {
         return Err(err_target("too long"));
     }

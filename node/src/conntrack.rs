@@ -65,7 +65,7 @@ fn read(dir: &str, name: &str) -> Result<i64, ReadError> {
         text: format!("read {path}: {}", errno_text(os_errno(&e))),
         not_exist: os_errno(&e) == libc::ENOENT,
     })?;
-    crate::gostr::parse_int(crate::gostr::trim_space(&b), 64).map_err(|e| ReadError {
+    crate::textutil::parse_int(crate::textutil::trim_space(&b), 64).map_err(|e| ReadError {
         text: format!("read {name}: {e}"),
         not_exist: false,
     })
@@ -180,7 +180,7 @@ mod tests {
         std::fs::write(d.join(FILE_MAX), "x").unwrap();
         assert_eq!(
             raise(s, 8 << 30).unwrap_err(),
-            "read nf_conntrack_max: strconv.ParseInt: parsing \"x\": invalid syntax"
+            "read nf_conntrack_max: invalid number \"x\""
         );
         std::fs::remove_dir_all(&d).unwrap();
         assert_eq!(raise(s, 8 << 30), Ok(0));

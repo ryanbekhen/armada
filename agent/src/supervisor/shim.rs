@@ -190,12 +190,7 @@ impl Shims {
             words.push(rt.name());
         }
         let out = self.call(group, &words).await.map_err(|e| text(&e))?;
-        atoi(&out).ok_or_else(|| {
-            format!(
-                "strconv.Atoi: parsing {}: invalid syntax",
-                armada_pki::go_quote(&out)
-            )
-        })
+        atoi(&out).ok_or_else(|| format!("invalid number {}", armada_pki::go_quote(&out)))
     }
 
     /// Over a connection of its own: the exit code once the
@@ -224,12 +219,8 @@ impl Shims {
         }
         let line = line.trim_end_matches('\n');
         if let Some(rest) = line.strip_prefix("ok ") {
-            return atoi(rest).ok_or_else(|| {
-                format!(
-                    "strconv.Atoi: parsing {}: invalid syntax",
-                    armada_pki::go_quote(rest)
-                )
-            });
+            return atoi(rest)
+                .ok_or_else(|| format!("invalid number {}", armada_pki::go_quote(rest)));
         }
         if let Some(e) = line.strip_prefix("err ") {
             return Err(e.to_string());

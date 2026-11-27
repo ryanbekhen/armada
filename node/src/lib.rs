@@ -10,7 +10,7 @@
 //! shims, and statistics (`runtime`). The program (main.rs) compiles
 //! these files as its own modules too.
 
-pub mod gostr;
+pub mod textutil;
 
 // The library uses part of what the program does with them.
 #[allow(dead_code)]

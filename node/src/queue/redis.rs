@@ -4,7 +4,7 @@
 //! without a password authenticates with an empty password (see auth).
 
 use super::{Answer, Dialer, ERR_AUTH, ERR_DIAL, ERR_REPLY, ERR_URL, MAX_LENGTH, Stream, url};
-use crate::gostr;
+use crate::textutil;
 
 /// The longest reply line read.
 const MAX_REPLY_LINE: usize = 512;
@@ -73,7 +73,7 @@ fn parse(raw: &str) -> Option<(url::Url, Vec<u8>, i64)> {
     let mut db = 0;
     let p = u.path.strip_prefix(b"/").unwrap_or(&u.path);
     if !p.is_empty() {
-        db = gostr::atoi(std::str::from_utf8(p).ok()?).ok()?;
+        db = textutil::atoi(std::str::from_utf8(p).ok()?).ok()?;
         if !(0..=1 << 16).contains(&db) {
             return None;
         }
@@ -138,7 +138,7 @@ pub fn list_length(d: &mut Dialer, raw: &str, list: &str) -> Answer {
         Err(e) => Answer::Error(e),
         // An error reply: the key holds another type, or ACLs refuse it.
         Ok((kind, _)) if kind != b':' => Answer::Error(ERR_REPLY),
-        Ok((_, v)) => match gostr::parse_int(&v, 64) {
+        Ok((_, v)) => match textutil::parse_int(&v, 64) {
             Ok(n) if (0..=MAX_LENGTH).contains(&n) => Answer::Length(n),
             _ => Answer::Error(ERR_REPLY),
         },

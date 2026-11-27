@@ -3,26 +3,29 @@
 //! of arbitrary bytes, trimming of white space, and splitting into fields.
 
 /// The unsigned decimal value of the digits alone: the error's kind
-/// ("invalid syntax" or "value out of range") on failure. The first
+/// (SYNTAX or RANGE) on failure. The first
 /// character that is not a digit is a syntax error and the first
 /// overflow a range error, whichever comes first.
+const SYNTAX: &str = "syntax";
+const RANGE: &str = "range";
+
 fn parse_digits(s: &[u8], max: u64) -> Result<u64, &'static str> {
     if s.is_empty() {
-        return Err("invalid syntax");
+        return Err(SYNTAX);
     }
     let mut n: u64 = 0;
     for &c in s {
         if !c.is_ascii_digit() {
-            return Err("invalid syntax");
+            return Err(SYNTAX);
         }
         let d = u64::from(c - b'0');
         if n > u64::MAX / 10 {
-            return Err("value out of range");
+            return Err(RANGE);
         }
         n *= 10;
         let n1 = n.wrapping_add(d);
         if n1 < n || n1 > max {
-            return Err("value out of range");
+            return Err(RANGE);
         }
         n = n1;
     }
@@ -36,14 +39,14 @@ pub fn parse_uint(s: &str, bits: u32) -> Result<u64, String> {
     } else {
         (1u64 << bits) - 1
     };
-    parse_digits(s.as_bytes(), max).map_err(|why| num_error("ParseUint", s.as_bytes(), why))
+    parse_digits(s.as_bytes(), max).map_err(|why| num_error(s.as_bytes(), why))
 }
 
 /// A signed decimal integer of at most bits bits.
 pub fn parse_int(s: &[u8], bits: u32) -> Result<i64, String> {
-    let fail = |why| num_error("ParseInt", s, why);
+    let fail = |why| num_error(s, why);
     if s.is_empty() {
-        return Err(fail("invalid syntax"));
+        return Err(fail(SYNTAX));
     }
     let (neg, digits) = match s[0] {
         b'+' => (false, &s[1..]),
@@ -53,10 +56,10 @@ pub fn parse_int(s: &[u8], bits: u32) -> Result<i64, String> {
     let un = parse_digits(digits, u64::MAX).map_err(fail)?;
     let cutoff = 1u64 << (bits - 1);
     if !neg && un >= cutoff {
-        return Err(fail("value out of range"));
+        return Err(fail(RANGE));
     }
     if neg && un > cutoff {
-        return Err(fail("value out of range"));
+        return Err(fail(RANGE));
     }
     Ok(if neg {
         (un as i64).wrapping_neg()
@@ -65,13 +68,18 @@ pub fn parse_int(s: &[u8], bits: u32) -> Result<i64, String> {
     })
 }
 
-/// A signed decimal 64-bit integer (errors name Atoi).
+/// A signed decimal 64-bit integer.
 pub fn atoi(s: &str) -> Result<i64, String> {
-    parse_int(s.as_bytes(), 64).map_err(|e| e.replacen("ParseInt", "Atoi", 1))
+    parse_int(s.as_bytes(), 64)
 }
 
-fn num_error(func: &str, s: &[u8], why: &str) -> String {
-    format!("strconv.{func}: parsing {}: {why}", quote_bytes(s))
+/// `invalid number "x"`, or `number "x" out of range`.
+fn num_error(s: &[u8], why: &str) -> String {
+    if why == RANGE {
+        format!("number {} out of range", quote_bytes(s))
+    } else {
+        format!("invalid number {}", quote_bytes(s))
+    }
 }
 
 /// A byte string double-quoted: valid UTF-8 with `"`, `\`, and
@@ -172,30 +180,21 @@ mod tests {
         assert_eq!(parse_int(b"-9223372036854775808", 64), Ok(i64::MIN));
         assert_eq!(
             parse_int(b"9223372036854775808", 64).unwrap_err(),
-            "strconv.ParseInt: parsing \"9223372036854775808\": value out of range"
+            "number \"9223372036854775808\" out of range"
         );
         assert_eq!(
             parse_int(b"99999999999999999999x", 64).unwrap_err(),
-            "strconv.ParseInt: parsing \"99999999999999999999x\": value out of range"
+            "number \"99999999999999999999x\" out of range"
         );
-        assert_eq!(
-            parse_int(b"1_0", 64).unwrap_err(),
-            "strconv.ParseInt: parsing \"1_0\": invalid syntax"
-        );
-        assert_eq!(
-            parse_int(b"", 64).unwrap_err(),
-            "strconv.ParseInt: parsing \"\": invalid syntax"
-        );
+        assert_eq!(parse_int(b"1_0", 64).unwrap_err(), "invalid number \"1_0\"");
+        assert_eq!(parse_int(b"", 64).unwrap_err(), "invalid number \"\"");
         assert_eq!(
             parse_int(b"\xff1", 64).unwrap_err(),
-            "strconv.ParseInt: parsing \"\\xff1\": invalid syntax"
+            "invalid number \"\\xff1\""
         );
         assert_eq!(parse_uint("65535", 16), Ok(65535));
         assert!(parse_uint("65536", 16).is_err());
-        assert_eq!(
-            atoi("x").unwrap_err(),
-            "strconv.Atoi: parsing \"x\": invalid syntax"
-        );
+        assert_eq!(atoi("x").unwrap_err(), "invalid number \"x\"");
     }
 
     #[test]
