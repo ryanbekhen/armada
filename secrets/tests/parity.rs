@@ -75,9 +75,9 @@ fn opens_what_was_sealed() {
     assert_eq!(cases.len(), 5);
     for c in cases {
         let what = format!("{:?}/{:?}", s(c, "scope"), s(c, "name"));
-        let go = sealed(&c["sealed"]);
+        let rec = sealed(&c["sealed"]);
         let v = k
-            .open(&go, s(c, "scope"), s(c, "name"), version(c))
+            .open(&rec, s(c, "scope"), s(c, "name"), version(c))
             .unwrap_or_else(|e| panic!("{what}: the crate does not open the recorded value: {e}"));
         assert_eq!(hex(v.bytes()), s(c, "value"), "{what}");
         assert_eq!(format!("{v} {v:?}"), s(c, "shown"), "{what}: shown");
@@ -86,10 +86,10 @@ fn opens_what_was_sealed() {
         let r = k
             .seal(s(c, "scope"), s(c, "name"), version(c), &v)
             .expect("seal");
-        assert_eq!(r.key_id, go.key_id, "{what}");
-        assert_eq!(r.wrapped_key.len(), go.wrapped_key.len(), "{what}");
-        assert_eq!(r.ciphertext.len(), go.ciphertext.len(), "{what}");
-        assert_ne!(r.ciphertext, go.ciphertext, "{what}: a fresh nonce");
+        assert_eq!(r.key_id, rec.key_id, "{what}");
+        assert_eq!(r.wrapped_key.len(), rec.wrapped_key.len(), "{what}");
+        assert_eq!(r.ciphertext.len(), rec.ciphertext.len(), "{what}");
+        assert_ne!(r.ciphertext, rec.ciphertext, "{what}: a fresh nonce");
         let again = k
             .open(&r, s(c, "scope"), s(c, "name"), version(c))
             .expect("open");
@@ -147,9 +147,9 @@ fn key_files_as_recorded() {
 
     // The recorded key file reads as recorded.
     let kf = &f["keyFile"];
-    let go_path = dir.join("go.key");
-    write(&go_path, s(kf, "content").as_bytes(), 0o600);
-    let k = load_key_file(&go_path).expect("the recorded key file");
+    let recorded_path = dir.join("recorded.key");
+    write(&recorded_path, s(kf, "content").as_bytes(), 0o600);
+    let k = load_key_file(&recorded_path).expect("the recorded key file");
     assert_eq!(k.id(), s(kf, "id"));
     assert_eq!(hex(k.export().bytes()), s(kf, "export"));
     assert_eq!(format!("{k} {k:?}"), s(kf, "shown"));
@@ -203,7 +203,7 @@ fn key_files_as_recorded() {
     }
     same_error(
         "generate over an existing file",
-        generate_key_file(&go_path),
+        generate_key_file(&recorded_path),
         &f["generateExisting"],
         &dir_text,
     );
