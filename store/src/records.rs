@@ -124,6 +124,9 @@ pub(crate) struct ServerRec {
     pub version: String,
     #[serde(rename = "createdAt")]
     pub created_at: i64,
+    /// ADR 0057: the server's armada-kv peer URL for the move.
+    #[serde(rename = "kvPeerUrl", default, skip_serializing_if = "is_empty_str")]
+    pub kv_peer_url: String,
 }
 
 /// spec.TrafficTarget as encoding/json writes it.

@@ -15,6 +15,9 @@ pub enum Kind {
     Precondition,
     /// store.ErrNotLeader: a fenced store's term is over.
     NotLeader,
+    /// The control plane's state is moving to armada-kv (ADR 0057): every
+    /// write but the move's own is refused until it ends.
+    Moving,
     /// Anything else: etcd, decoding, invalid arguments.
     Other,
 }
@@ -27,6 +30,7 @@ impl Kind {
             Kind::Conflict => "conflict",
             Kind::Precondition => "failed precondition",
             Kind::NotLeader => "this server is no longer the leader",
+            Kind::Moving => "the control plane's state is moving",
             Kind::Other => "",
         }
     }
@@ -38,6 +42,7 @@ impl Kind {
             Kind::Conflict => "conflict",
             Kind::Precondition => "precondition",
             Kind::NotLeader => "notLeader",
+            Kind::Moving => "moving",
             Kind::Other => "other",
         }
     }

@@ -62,6 +62,7 @@ impl Etcd {
         if let Some((k, rev)) = self.fence() {
             cmps.push(op::created_at(k, *rev));
         }
+        cmps.push(op::created_at(&self.moving_key(), 0));
         let r = self
             .c
             .txn(pb::TxnRequest {
@@ -71,7 +72,7 @@ impl Etcd {
             })
             .await?;
         if !r.succeeded {
-            return Err(Error::bare(Kind::NotLeader));
+            return Err(self.refused(Error::bare(Kind::NotLeader)).await);
         }
         Ok(key)
     }
@@ -123,7 +124,18 @@ impl Etcd {
             Some(kv) => String::from_utf8_lossy(&kv.key).into_owned(),
             None => String::from_utf8(op::prefix_end(&pfx)).expect("prefixes are ASCII"),
         };
-        self.c.delete(&pfx, Some(&end)).await?;
+        // Not while the state moves (ADR 0057).
+        let r = self
+            .c
+            .txn(pb::TxnRequest {
+                compare: vec![op::created_at(&self.moving_key(), 0)],
+                success: vec![op::delete_range(&pfx, &end)],
+                failure: Vec::new(),
+            })
+            .await?;
+        if !r.succeeded {
+            return Err(Error::bare(Kind::Moving));
+        }
         Ok(())
     }
 }

@@ -203,6 +203,10 @@ pub struct Server {
     pub version: String,
     #[serde(with = "time_text")]
     pub created_at: Time,
+    /// The peer URL this server's armada-kv member takes when the state
+    /// moves (ADR 0057); empty for a release that cannot run armada-kv.
+    #[serde(rename = "KvPeerURL", skip_serializing_if = "String::is_empty")]
+    pub kv_peer_url: String,
 }
 
 /// An issued certificate on record.

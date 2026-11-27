@@ -125,3 +125,63 @@ fn terms() {
         }
     });
 }
+
+/// Runs a check of the state's move to armada-kv (replay/statemove.rs) on
+/// clusters of the pinned etcd.
+fn state_move(name: &str, f: impl AsyncFnOnce(&Path) -> Result<(), String>) {
+    let Some(prog) = etcd::program() else {
+        eprintln!("{name}: skipped, no etcd in .cache/etcd or ARMADA_ETCD_DIR");
+        if std::env::var_os("CI").is_some() {
+            panic!("CI runs the state moves: the pinned etcd is missing");
+        }
+        return;
+    };
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(4)
+        .enable_all()
+        .build()
+        .expect("a runtime");
+    if let Err(e) = rt.block_on(f(&prog)) {
+        panic!("{name}: {e}");
+    }
+}
+
+/// One server on etcd moved to armada-kv.
+#[test]
+fn state_move_one_server() {
+    state_move("state_move_one_server", async |p| {
+        replay::statemove::moved(p, 1).await
+    });
+}
+
+/// Three servers on etcd moved to armada-kv.
+#[test]
+fn state_move_three_servers() {
+    state_move("state_move_three_servers", async |p| {
+        replay::statemove::moved(p, 3).await
+    });
+}
+
+/// A move that fails in the middle leaves the cluster on etcd.
+#[test]
+fn state_move_failed() {
+    state_move("state_move_failed", async |p| {
+        replay::statemove::failed(p).await
+    });
+}
+
+/// Writes are refused while the key space is copied.
+#[test]
+fn state_move_copying() {
+    state_move("state_move_copying", async |p| {
+        replay::statemove::copying(p).await
+    });
+}
+
+/// A new leader gives up a move its predecessor left half done.
+#[test]
+fn state_move_interrupted() {
+    state_move("state_move_interrupted", async |p| {
+        replay::statemove::interrupted(p).await
+    });
+}

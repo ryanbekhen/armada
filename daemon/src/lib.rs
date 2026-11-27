@@ -18,6 +18,7 @@ pub mod gopath;
 pub mod hooks;
 pub mod joinclient;
 pub mod kvmember;
+pub mod kvmove;
 pub mod machine;
 pub mod manifest;
 pub mod netutil;

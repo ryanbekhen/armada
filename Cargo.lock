@@ -194,6 +194,7 @@ name = "armada-server"
 version = "0.1.0"
 dependencies = [
  "armada-fsutil",
+ "armada-kv",
  "armada-node",
  "armada-pki",
  "armada-proto",

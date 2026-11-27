@@ -510,6 +510,8 @@ struct Setup {
     client: Client,
     member_dir: PathBuf,
     store: state::Store,
+    /// This server's part in the move of the state to armada-kv (ADR 0057).
+    host: Arc<crate::kvmove::Host>,
     log: Logger,
     /// The term's server, for the certificate manager's events.
     current: Arc<Mutex<Option<Server>>>,
@@ -545,6 +547,7 @@ async fn run_term(
         dir: s.member_dir.clone(),
         store: s.store,
     }));
+    cfg.state_mover = Some(s.host.clone() as Arc<dyn armada_server::statemove::MoveHost>);
     // The scheduled backups to a bucket (ADR 0051) hold what armadad
     // backup writes.
     {
@@ -585,8 +588,15 @@ async fn run_term(
                 ));
             }
         };
-        let storage =
-            Arc::new(EtcdStorage::new(s.client.clone(), ACME_PREFIX).map_err(|e| e.to_string())?);
+        let storage = Arc::new(
+            EtcdStorage::new(s.client.clone(), ACME_PREFIX)
+                .map_err(|e| e.to_string())?
+                .frozen_by(&format!(
+                    "{}{}",
+                    backup::ETCD_PREFIX,
+                    armada_store::statemove::KEY_MOVING
+                )),
+        );
         let mut opts = Options::new(storage.clone(), &directory);
         opts.email = ts.email.clone();
         opts.dns = dns;
@@ -743,11 +753,57 @@ async fn serve(
     {
         return Err(format!("{data_dir} is not initialized; run `armadad init`"));
     }
+    let pem = read_private(&data_dir, &[FILE_SERVER_CERT])?;
+    let name = server_identity(&pem[0])?;
+    // This server's part in the move of the state to armada-kv (ADR
+    // 0057): once it moved, the server switches its store and serves on.
+    let host = Arc::new(crate::kvmove::Host::new(&data_dir, log.clone()));
+    loop {
+        let run = serve_store(
+            &data_dir,
+            &name,
+            &tls,
+            &flags,
+            &join_flag,
+            &ac,
+            &log,
+            host.clone(),
+            stop.clone(),
+        )
+        .await?;
+        match run {
+            Served::Stopped => return Ok(()),
+            Served::Moved(id) => host.switch(&id).await?,
+        }
+    }
+}
+
+/// How one run of the control plane on a store ended.
+enum Served {
+    Stopped,
+    /// The state moved to armada-kv (the move's ID).
+    Moved(String),
+}
+
+/// The control plane on the server's store until stop, or, on etcd, until
+/// the state moved to armada-kv.
+#[allow(clippy::too_many_arguments)]
+async fn serve_store(
+    data_dir: &str,
+    name: &str,
+    tls: &TlsFlags,
+    flags: &SettingFlags,
+    join_flag: &str,
+    ac: &AgentConfig,
+    log: &Logger,
+    host: Arc<crate::kvmove::Host>,
+    stop: watch::Receiver<bool>,
+) -> std::result::Result<Served, String> {
     // armadad runs no etcd member inside the server (ADR 0055): the member
     // is armada-etcd.service's, which armada-server.service wants, or
     // armada-kv.service's on a cluster whose state is in armada-kv (ADR
     // 0057).
-    let store = state::Store::of(&data_dir);
+    let store = state::Store::of(data_dir);
     let (component, member_name) = match store {
         state::Store::Etcd => ("etcd", "etcd"),
         state::Store::Kv => ("kv", "armada-kv"),
@@ -755,7 +811,7 @@ async fn serve(
     let wait_log = log.clone();
     let learner_log = log.clone();
     let member = state::connect(
-        &data_dir,
+        data_dir,
         &move |addr, err| {
             wait_log.info(
                 &format!("waiting for the {member_name} member"),
@@ -776,6 +832,107 @@ async fn serve(
         },
     )
     .await?;
+    // The run stops with the server, or when the state moved.
+    let (run_stop_tx, run_stop) = watch::channel(false);
+    let run_stop_tx = Arc::new(run_stop_tx);
+    let fwd = {
+        let tx = run_stop_tx.clone();
+        let mut outer = stop.clone();
+        tokio::spawn(async move {
+            crate::stopped(&mut outer).await;
+            let _ = tx.send(true);
+        })
+    };
+    let moved: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+    let follower = (store == state::Store::Etcd).then(|| {
+        let c = member.client.clone();
+        let tx = run_stop_tx.clone();
+        let moved = moved.clone();
+        let h = host.clone() as Arc<dyn armada_server::statemove::MoveHost>;
+        let (name, log, stop) = (name.to_string(), log.clone(), stop.clone());
+        tokio::spawn(async move {
+            let f = armada_server::statemove::follow(
+                c,
+                backup::ETCD_PREFIX.to_string(),
+                name,
+                h,
+                log,
+                Duration::from_secs(1),
+                stop,
+            )
+            .await;
+            if let armada_server::statemove::Followed::Moved(id) = f {
+                *moved.lock().unwrap_or_else(|p| p.into_inner()) = Some(id);
+                let _ = tx.send(true);
+            }
+        })
+    });
+    let res = serve_on(
+        data_dir,
+        name,
+        store,
+        &member,
+        tls,
+        flags,
+        join_flag,
+        ac,
+        log,
+        host.clone(),
+        run_stop,
+    )
+    .await;
+    fwd.abort();
+    let take = |m: &Arc<Mutex<Option<String>>>| m.lock().unwrap_or_else(|p| p.into_inner()).take();
+    if let Some(id) = take(&moved) {
+        drop(member);
+        return Ok(Served::Moved(id));
+    }
+    if *stop.borrow() {
+        if let Some(f) = follower {
+            f.abort();
+        }
+        return Ok(Served::Stopped);
+    }
+    if let Err(e) = res {
+        // A server whose etcd lost its quorum because the others moved
+        // on: the follower, reading its member's own state, finds the
+        // move.
+        if let Some(f) = follower {
+            if armada_server::statemove::MoveHost::current(host.as_ref()).is_some() {
+                let _ = tokio::time::timeout(Duration::from_secs(30), f).await;
+                if let Some(id) = take(&moved) {
+                    return Ok(Served::Moved(id));
+                }
+            } else {
+                f.abort();
+            }
+        }
+        return Err(e);
+    }
+    if let Some(f) = follower {
+        f.abort();
+    }
+    Err("control plane stopped unexpectedly".to_string())
+}
+
+/// The control plane's terms on the server's member until stop.
+#[allow(clippy::too_many_arguments)]
+async fn serve_on(
+    data_dir: &str,
+    name: &str,
+    store: state::Store,
+    member: &state::State,
+    tls: &TlsFlags,
+    flags: &SettingFlags,
+    join_flag: &str,
+    ac: &AgentConfig,
+    log: &Logger,
+    host: Arc<crate::kvmove::Host>,
+    stop: watch::Receiver<bool>,
+) -> std::result::Result<(), String> {
+    let data_dir = data_dir.to_string();
+    let flags = flags.clone();
+    let log = log.clone();
     let st = Etcd::new(member.client.clone(), backup::ETCD_PREFIX)
         .await
         .map_err(|e| e.to_string())?;
@@ -803,7 +960,7 @@ async fn serve(
         &data_dir,
         &[FILE_CA_CERT, FILE_SERVER_CERT, FILE_SERVER_KEY],
     )?;
-    let name = server_identity(&pem[1])?;
+    let name = name.to_string();
     let ip = server_ip(&pem[1])?;
     let servers = st.list_servers().await.map_err(|e| e.to_string())?;
     let Some(me) = servers.into_iter().find(|s| s.name == name) else {
@@ -815,7 +972,7 @@ async fn serve(
     netutil::check_private_listen(&listen)?;
     let cert = ServerCert::new(&pem[0], &pem[1], &pem[2])?;
     renewer.server = Some(cert.clone());
-    let mut join_addr = resolve_join_listen(&join_flag, &listen)?;
+    let mut join_addr = resolve_join_listen(join_flag, &listen)?;
     // A mesh cluster's machines join over the leader's public endpoint,
     // while a join token is open (ADR 0049).
     let join_public = ac.network == NETWORK_MESH && !join_addr.is_empty();
@@ -825,7 +982,7 @@ async fn serve(
     // Machines of another site join over the leader's endpoint, while a
     // token for one is open (ADR 0050).
     let mut join_site_addr = String::new();
-    if let Ok(ep) = crate::commands::endpoint::announced(&ac).parse::<IpAddr>()
+    if let Ok(ep) = crate::commands::endpoint::announced(ac).parse::<IpAddr>()
         && !join_public
         && !join_addr.is_empty()
     {
@@ -837,7 +994,7 @@ async fn serve(
     }
     let keys = Arc::new(load_master_key(&st, &data_dir, &log).await?);
     acme_listen(&tls.listen, &listen)?;
-    st.upsert_server(&armada_store::Server {
+    let record = armada_store::Server {
         name: name.clone(),
         private_ip: ip.to_string(),
         api_addr: listen.clone(),
@@ -846,9 +1003,24 @@ async fn serve(
         schema: SCHEMA,
         version: armada_client::commands::version::get().version.to_string(),
         created_at: armada_spec::gotime::Time::zero(),
-    })
-    .await
-    .map_err(|e| e.to_string())?;
+        // The peer URL this server's armada-kv member takes in a move,
+        // which also says this release can run armada-kv (ADR 0057).
+        kv_peer_url: crate::kvmove::Host::peer_url(&data_dir),
+    };
+    // While the state moves, writes wait; this server may take part.
+    let mut stop_wait = stop.clone();
+    loop {
+        match st.upsert_server(&record).await {
+            Ok(()) => break,
+            Err(e) if e.kind == Kind::Moving => {
+                tokio::select! {
+                    _ = crate::stopped(&mut stop_wait) => return Ok(()),
+                    _ = tokio::time::sleep(Duration::from_secs(2)) => {}
+                }
+            }
+            Err(e) => return Err(e.to_string()),
+        }
+    }
     // The node's agent is a unit of its own on server machines (ADR
     // 0055); a node certificate that expired while the machine was down
     // is signed again for it. An agent that started first with the
@@ -871,6 +1043,7 @@ async fn serve(
         client: member.client.clone(),
         member_dir,
         store,
+        host,
         log: log.clone(),
         current: Arc::new(Mutex::new(None)),
     });
@@ -906,7 +1079,6 @@ async fn serve(
     )
     .await;
     renew.abort();
-    drop(member);
     res
 }
 

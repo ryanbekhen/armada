@@ -70,6 +70,7 @@ mod secret_api;
 mod servers;
 mod settings;
 mod spaces;
+pub mod statemove;
 mod status;
 pub mod tls;
 mod top;
@@ -200,6 +201,10 @@ pub struct Config {
     /// Stages the files of a control plane backup (ADR 0051); none
     /// disables the backups.
     pub control_plane_backup: Option<cpbackup::ControlPlaneBackup>,
+    /// What this server's machine does when the state moves to armada-kv
+    /// (ADR 0057); none never moves it.
+    pub state_mover: Option<Arc<dyn statemove::MoveHost>>,
+    pub state_move_timing: statemove::Timing,
     pub log: log::Logger,
 }
 
@@ -248,6 +253,8 @@ impl Config {
             metrics_cache: Duration::ZERO,
             alert_endpoints: alert::Endpoints::default(),
             control_plane_backup: None,
+            state_mover: None,
+            state_move_timing: statemove::Timing::default(),
             log: log::Logger::discard(),
         }
     }
@@ -355,6 +362,10 @@ pub(crate) struct Inner {
     /// their settings change.
     pub cp_backup: Option<cpbackup::ControlPlaneBackup>,
     pub cp_wake: Notify,
+    /// The move of the state to armada-kv (ADR 0057).
+    pub state_mover: Option<Arc<dyn statemove::MoveHost>>,
+    pub state_move_timing: statemove::Timing,
+    pub state_moves: statemove::MoveRuns,
 }
 
 impl Server {
@@ -499,6 +510,9 @@ impl Server {
             live_logs: logs::CallerSlots::live(),
             cp_backup: cfg.control_plane_backup,
             cp_wake: Notify::new(),
+            state_mover: cfg.state_mover,
+            state_move_timing: cfg.state_move_timing,
+            state_moves: statemove::MoveRuns::default(),
         })))
     }
 
@@ -592,6 +606,9 @@ impl Server {
             let s = self.clone();
             let sd = shutdown.clone();
             tokio::spawn(async move { s.control_plane_backup_loop(sd).await });
+            let s = self.clone();
+            let sd = shutdown.clone();
+            tokio::spawn(async move { s.state_move_loop(sd).await });
             let s = self.clone();
             let sd = shutdown.clone();
             tokio::spawn(async move { s.placement_loop(sd).await });
@@ -689,6 +706,7 @@ pub(crate) fn store_err(e: &armada_store::Error) -> Status {
         Kind::Conflict => Status::new(Code::AlreadyExists, sentence(e)),
         Kind::Precondition => Status::new(Code::FailedPrecondition, sentence(e)),
         Kind::NotLeader => Status::new(Code::Unavailable, e.msg.clone()),
+        Kind::Moving => Status::new(Code::Unavailable, e.msg.clone()),
         Kind::Other => Status::new(Code::Internal, "internal error"),
     }
 }

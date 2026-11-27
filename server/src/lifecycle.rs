@@ -124,6 +124,11 @@ where
 {
     let (key, rev) = lead.fence();
     let fenced = st.fenced(&key, rev);
+    // A move of the state to armada-kv another term left half done is
+    // given up first: until then every write is refused (ADR 0057).
+    crate::statemove::clean_up(&fenced, log, &armada_store::gojson::now())
+        .await
+        .map_err(|e| TermEnd::Failed(format!("give up an unfinished state move: {e}")))?;
     upgrade_state(&fenced, log).await?;
     let mut restarting = false;
     let mut tries = 0;
