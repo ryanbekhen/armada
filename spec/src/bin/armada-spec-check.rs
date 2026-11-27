@@ -1,6 +1,6 @@
-//! armada-spec-check: Go's parity tests (internal/spec/nativespec_test.go)
-//! send it one JSON request per line on stdin and compare each answer line
-//! with what the Go package gives for the same request. Never packed.
+//! armada-spec-check: the recorded cases (tests/parity.rs) send it one JSON
+//! request per line on stdin and compare each answer line with the
+//! recorded answer. Never packed.
 
 #![recursion_limit = "256"]
 
@@ -62,7 +62,7 @@ fn app_from(v: &Value) -> Result<App, String> {
     App::from_json(v.as_str().unwrap_or_default().as_bytes())
 }
 
-/// The values of App's methods, as the Go test lists them.
+/// The values of App's methods, in the recording's order.
 fn summary(a: &App) -> Value {
     let (lo, hi) = a.scale_bounds();
     let ing = a.ingress.as_ref();

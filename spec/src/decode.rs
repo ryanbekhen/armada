@@ -1,10 +1,9 @@
 //! Decoding YAML nodes into spec types as go-yaml v3's decoder does
-//! (decode.go): the same order of checks, type errors collected with Go's
-//! texts and Go's type names, fatal errors where Go panics, aliases,
-//! merge keys, duplicate keys, and strict fields. The UnmarshalYAML
-//! methods of internal/spec are here too, decodeStrict included: it
-//! encodes the node again and decodes that text, so its errors count lines
-//! the way Go's do.
+//! (decode.go, MIT and Apache-2.0): the same order of checks, type errors
+//! collected with its texts and type names, fatal errors where it stops,
+//! aliases, merge keys, duplicate keys, and strict fields. The spec types'
+//! own decoding is here too, strict decoding included: it encodes the node
+//! again and decodes that text, so its errors count lines in that text.
 
 use std::collections::{BTreeMap, HashSet};
 
@@ -15,7 +14,7 @@ use crate::yaml::encode::encode_node;
 use crate::yaml::resolve::{Resolved, resolve, short_tag};
 use crate::yaml::types::*;
 
-/// A fatal error (a panic in go-yaml), with Go's text.
+/// A fatal error (one that stops go-yaml's decoder), with its text.
 pub(crate) type R<T> = Result<T, String>;
 
 /// A value a key decodes to when go-yaml decodes into interface{}, as a
@@ -27,13 +26,13 @@ enum Key {
     Bool(bool),
     Int(i64),
     Uint(u64),
-    /// The bits of a float; NaN never equals itself in Go, so each NaN gets
+    /// The bits of a float; NaN never equals itself, so each NaN gets
     /// a key of its own.
     Float(u64),
     Nan(usize),
     Str(String),
     Time(String),
-    /// A map or slice, which Go cannot hash; the type's name.
+    /// A map or slice, which cannot be a key; the type's name.
     Unhashable(String),
 }
 
@@ -50,7 +49,7 @@ pub(crate) struct Decoder<'t> {
 }
 
 pub(crate) trait Decode: Default {
-    /// The Go type's name in type errors.
+    /// The type's name in type errors (`int64`, `spec.Duration`).
     fn type_name() -> String;
 
     /// UnmarshalYAML, for the types that have one; None otherwise.
@@ -109,7 +108,7 @@ fn allowed_alias_ratio(decode_count: u64) -> f64 {
 /// 2^63 as a float.
 const TWO63: f64 = 9_223_372_036_854_775_808.0;
 
-/// Go's conversion of a float64 to int64 on amd64: out of range is MinInt64.
+/// A float64 converted to int64 as amd64 does: out of range is MinInt64.
 fn float_to_int(f: f64) -> i64 {
     if f.is_nan() || !(-TWO63..TWO63).contains(&f) {
         i64::MIN
@@ -660,7 +659,7 @@ impl Decode for i64 {
     }
 }
 
-/// An int64 field (Go's type name differs from int's).
+/// An int64 field (its type name in errors differs from int's).
 #[derive(Default)]
 pub(crate) struct Int64(pub i64);
 
@@ -849,7 +848,7 @@ impl<T: Fields> Fields for Plain<T> {
 }
 
 /// Fields for a struct, with the type each field decodes as (its own, or a
-/// wrapper with Go's type name).
+/// wrapper with the type name errors use).
 macro_rules! fields {
     ($ty:ty, $name:literal, [$($key:literal => $field:ident : $dty:ty),* $(,)?]) => {
         impl Fields for $ty {

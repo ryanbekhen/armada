@@ -1,5 +1,4 @@
-//! The spec's types (spec.go and the types of the other files of
-//! internal/spec), their defaults, and the methods that read them.
+//! The spec's types, their defaults, and the methods that read them.
 
 use std::collections::BTreeMap;
 
@@ -27,7 +26,7 @@ pub const REVISIONS_MULTIPLE: &str = "multiple";
 
 pub const DNS_PROVIDER_CLOUDFLARE: &str = "cloudflare";
 
-/// A time.Duration written as a Go duration string ("10s"), in
+/// A duration written as a duration string ("10s", "1m30s"), in
 /// nanoseconds.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Duration(pub i64);
@@ -214,7 +213,7 @@ pub struct Resources {
     pub memory: String,
 }
 
-/// Placement; Require's keys sort as Go's map keys are listed in JSON.
+/// Placement; Require's keys sort as they are listed in JSON.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Placement {
     pub require: BTreeMap<String, LabelValues>,
@@ -744,7 +743,7 @@ impl Trigger {
         if length <= 0 || q.per_run <= 0 {
             return 0;
         }
-        // Go's length + perRun - 1 wraps on overflow.
+        // length + perRun - 1 wraps on overflow.
         let n = length.wrapping_add(q.per_run - 1) / q.per_run;
         n.min(Trigger::max_runs(Some(self)))
     }

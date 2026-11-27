@@ -56,8 +56,8 @@ pub struct Parser {
     pub(super) input_pos: usize,
     pub(super) eof: bool,
 
-    /// The working buffer: its array (whose length is Go's capacity) and
-    /// the length of the slice Go uses.
+    /// The working buffer: its array (whose length is go-yaml's capacity)
+    /// and the length of the slice go-yaml uses.
     pub(super) buffer: Vec<u8>,
     pub(super) buffer_len: usize,
     pub(super) buffer_pos: usize,
@@ -86,7 +86,7 @@ pub struct Parser {
     pub(super) flow_level: i64,
 
     pub(super) tokens: Vec<Token>,
-    /// The capacity Go's tokens slice would have: the queue is moved to
+    /// The capacity go-yaml's tokens slice would have: the queue is moved to
     /// its start only when full, which some checks of the last two tokens
     /// can see.
     pub(super) tokens_cap: usize,
@@ -292,7 +292,7 @@ impl Parser {
             self.state = State::BlockNode;
             let mut head_comment = Vec::new();
             if !self.head_comment.is_empty() {
-                // [Go] Scan the header comment backwards, and if an empty
+                // Scan the header comment backwards, and if an empty
                 // line is found, break the header so the part before the
                 // last empty line goes into the document header, while the
                 // bottom of it goes into a follow up event.
@@ -552,7 +552,7 @@ impl Parser {
             return true;
         }
         if token.typ == TokenType::FlowSequenceStart {
-            // [Go] Some of the events below can be merged as they differ only on style.
+            // Some of the events below can be merged as they differ only on style.
             end_mark = token.end_mark;
             self.state = State::FlowSequenceFirstEntry;
             *event = Event {
@@ -765,7 +765,7 @@ impl Parser {
         let Some(mut token) = self.peek_token() else {
             return false;
         };
-        // [Go] A tail comment was left from the prior mapping value processed. Emit an event
+        // A tail comment was left from the prior mapping value processed. Emit an event
         //      as it needs to be processed with that value and not the following key.
         if !self.tail_comment.is_empty() {
             *event = Event {
@@ -931,7 +931,7 @@ impl Parser {
             }
         }
         self.state = State::FlowSequenceEntryMappingEnd;
-        // The outer token's mark, as Go's shadowed variable keeps it.
+        // The outer token's mark, as go-yaml's shadowed variable keeps it.
         self.process_empty_scalar(event, token.start_mark)
     }
 

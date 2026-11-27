@@ -1,6 +1,7 @@
-//! What the spec package takes from Go's standard library, ported so its
-//! texts and acceptance match: strconv's Quote and Atoi, the time package's
-//! durations, net/netip's addresses and prefixes, and unicode's classes.
+//! The text rules specs keep, with their error texts: quoting with
+//! backslash escapes, integers (errors `strconv.Atoi: parsing ...`),
+//! durations ("1m30s"), IP addresses and prefixes, and Unicode classes.
+//! Derived from the Go standard library (BSD-3-Clause).
 
 use crate::gotables::{IS_DIGIT, IS_LETTER, IS_PRINT, IS_SPACE};
 
@@ -123,7 +124,7 @@ pub fn decode_rune(b: &[u8]) -> (Option<char>, usize) {
     }
 }
 
-/// A byte string as Go's encoding/json writes it: each byte of an invalid
+/// A byte string as a JSON string: each byte of an invalid
 /// UTF-8 sequence becomes U+FFFD.
 pub fn lossy(b: &[u8]) -> String {
     let mut out = String::with_capacity(b.len());
@@ -146,7 +147,7 @@ pub fn trim_space(s: &str) -> &str {
     s.trim_matches(is_space)
 }
 
-/// The error of strconv.Atoi or ParseInt, with Go's text.
+/// The error of strconv.Atoi or ParseInt, with its fixed text.
 fn num_error(func: &str, s: &str, why: &str) -> String {
     format!("strconv.{func}: parsing {}: {why}", quote(s))
 }
@@ -398,7 +399,7 @@ fn fmt_int(buf: &mut Vec<u8>, mut v: u64) {
     }
 }
 
-/// time.Duration.String. The buffer is built backwards, as Go does.
+/// A duration as text ("1h2m3.5s", "10ms"). The buffer is built backwards.
 pub fn format_duration(d: i64) -> String {
     let mut buf: Vec<u8> = Vec::with_capacity(32);
     let neg = d < 0;

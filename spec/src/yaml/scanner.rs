@@ -1,8 +1,8 @@
 //! The scanner (go-yaml's scannerc.go, from libyaml): turns the characters
 //! of the working buffer into tokens, with go-yaml's simple key rules,
-//! indentation, comment collection, and error texts. Marks keep Go's
+//! indentation, comment collection, and error texts. Marks keep go-yaml's
 //! arithmetic: an index or column one before 0 wraps, and is compared as
-//! the signed number Go has.
+//! a signed number.
 
 use super::chars::{
     as_digit, as_hex, at, is_alpha, is_blank, is_blankz, is_bom, is_break, is_breakz, is_crlf,
@@ -78,7 +78,8 @@ pub struct Comment {
 const MAX_FLOW_LEVEL: i64 = 10000;
 const MAX_INDENTS: usize = 10000;
 
-/// The size of a yaml_token_t on 64-bit Go, for the capacity of the queue.
+/// The size of one of go-yaml's yaml_token_t on 64-bit machines, for the
+/// capacity of the queue.
 const TOKEN_SIZE: usize = 144;
 
 const SIZE_CLASSES: [usize; 67] = [
@@ -89,7 +90,8 @@ const SIZE_CLASSES: [usize; 67] = [
     32768,
 ];
 
-/// Go's roundupsize for objects with pointers (runtime/msize.go).
+/// The allocation size class go-yaml's slices grow into, for objects with
+/// pointers (the Go 1.27 runtime's roundupsize, BSD-3-Clause).
 fn roundupsize(size: usize) -> usize {
     if size <= 32768 - 8 {
         let mut req = size;
@@ -170,7 +172,7 @@ impl Parser {
         if !is_blank(self.buf(), self.buffer_pos) {
             self.newlines = 0;
         }
-        // Go slices the buffer up to its capacity here.
+        // The buffer is read up to its capacity here, as go-yaml does.
         let w = width(self.b(0)).max(1);
         let end = (self.buffer_pos + w).min(self.buffer.len());
         s.extend_from_slice(&self.buffer[self.buffer_pos..end]);
@@ -321,7 +323,7 @@ impl Parser {
         if !self.fetch_token_proper() {
             return false;
         }
-        // Go runs this in a deferred function once the token is fetched.
+        // Once the token is fetched (deferred in go-yaml).
         if !self.tokens.is_empty()
             && self.tokens[self.tokens.len() - 1].typ == TokenType::BlockEntry
         {
@@ -1038,7 +1040,7 @@ impl Parser {
             }
         }
         if self.b(0) == b'#' {
-            // [Go] Discard this inline comment for the time being.
+            // Discard this inline comment for the time being.
             while !is_breakz(self.buf(), self.buffer_pos) {
                 self.skip();
                 if !self.cache(1) {
@@ -2093,7 +2095,7 @@ impl Parser {
         let mut scan_mark = scan_mark;
         let mut token = self.tokens[self.tokens.len() - 1].clone();
         if token.typ == TokenType::FlowEntry && self.tokens.len() > 1 {
-            // [Go] The next token is the one that follows the flow entry.
+            // The next token is the one that follows the flow entry.
             token = self.tokens[self.tokens.len() - 2].clone();
         }
         let mut token_mark = token.start_mark;
@@ -2233,7 +2235,7 @@ impl Parser {
             column = 0;
             line = self.mark.line;
             next_indent = self.indent.max(0);
-            // Go sets peek to 0 here, then its loop adds one.
+            // go-yaml sets peek to 0 here, then its loop adds one.
             peek = 1;
         }
         if !text.is_empty() {
@@ -2259,8 +2261,9 @@ mod tests {
     use super::grow_cap;
 
     #[test]
-    fn token_queue_grows_as_go_slices_do() {
-        // What Go 1.27 prints appending yaml_token_t values one at a time.
+    fn token_queue_grows_as_recorded() {
+        // The capacities go-yaml's token slice takes, appending tokens one
+        // at a time.
         let mut cap = 0;
         let mut caps = Vec::new();
         while cap < 5000 {

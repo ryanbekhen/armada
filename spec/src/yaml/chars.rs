@@ -1,7 +1,6 @@
 //! Character classes of the YAML reader and scanner (go-yaml's
-//! yamlprivateh.go, from libyaml). Each takes the buffer and an index, as
-//! the Go functions do; a byte past the buffer's end reads as 0, where Go
-//! would panic, so a check never crashes.
+//! yamlprivateh.go, from libyaml). Each takes the buffer and an index; a
+//! byte past the buffer's end reads as 0, so a check never crashes.
 
 pub const INPUT_RAW_BUFFER_SIZE: usize = 512;
 pub const INPUT_BUFFER_SIZE: usize = INPUT_RAW_BUFFER_SIZE * 3;
@@ -61,7 +60,8 @@ pub fn is_z(b: &[u8], i: usize) -> bool {
     at(b, i) == 0
 }
 
-/// Whether the buffer starts with a UTF-8 BOM (Go's is_bom ignores i).
+/// Whether the buffer starts with a UTF-8 BOM (i is ignored, as go-yaml's
+/// is_bom ignores it).
 pub fn is_bom(b: &[u8], _i: usize) -> bool {
     at(b, 0) == 0xef && at(b, 1) == 0xbb && at(b, 2) == 0xbf
 }

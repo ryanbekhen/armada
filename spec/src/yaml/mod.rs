@@ -1,9 +1,9 @@
 //! YAML as go-yaml v3 (go.yaml.in/yaml/v3 v3.0.6) reads and writes it: its
 //! reader, scanner, parser, node composer, resolver, emitter, and node
-//! encoder, ported so specs parse, fail, and print exactly as they do in
-//! Go. The scanner, parser, reader, and emitter are ported from its C
-//! (libyaml) derived files, which are under the MIT license; the rest is
-//! under the Apache License 2.0 (THIRD_PARTY_NOTICES.md).
+//! encoder, derived from it so specs parse, fail, and print exactly as
+//! they always have. The scanner, parser, reader, and emitter are derived
+//! from its C (libyaml) derived files, which are under the MIT license; the
+//! rest is under the Apache License 2.0 (THIRD_PARTY_NOTICES.md).
 
 pub mod chars;
 pub mod compose;

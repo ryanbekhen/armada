@@ -1,6 +1,8 @@
-//! Go's time.Time and time.Location, as much as schedules use: loading a
-//! zone as time.LoadLocation does on Linux, civil fields in a zone, Date's
-//! normalization, AddDate, Truncate, and RFC 3339 output.
+//! Times and time zones, as much as schedules use: loading a zone by name
+//! ($ZONEINFO, the system's zoneinfo directories, then a bundled
+//! database), civil fields in a zone, normalization of out-of-range
+//! fields, adding years, months, and days, truncation, and RFC 3339
+//! output.
 
 use std::sync::Arc;
 
@@ -35,10 +37,9 @@ impl Location {
     }
 
     /// The zone as a table of offsets from UTC and the Unix times each
-    /// starts, the first covering all earlier times, from 1900 to 2300 (Go's
-    /// zoneTable in internal/agent: Zone, then ZoneBounds' ends, kept only
-    /// where the offset changes), which armada-node's backup pruning
-    /// counts days and weeks in.
+    /// starts, the first covering all earlier times, from 1900 to 2300
+    /// (kept only where the offset changes), which armada-node's backup
+    /// pruning counts days and weeks in.
     pub fn zone_table(&self) -> Vec<(i64, i64)> {
         // 1900-01-01 and 2301-01-01, UTC.
         const START: i64 = -2_208_988_800;
@@ -54,8 +55,7 @@ impl Location {
             }
             let at = tr.timestamp().as_second();
             let off = i64::from(tr.offset().seconds());
-            // Go stops once the next boundary's year, in the zone, is past
-            // 2300.
+            // Stop once the next boundary's year, in the zone, is past 2300.
             if at + off >= END {
                 break;
             }
@@ -78,7 +78,7 @@ impl Location {
     }
 }
 
-/// The directories Go reads zones from on Unix (platformZoneSources).
+/// The system's zoneinfo directories, in the order they are read.
 const ZONE_SOURCES: [&str; 4] = [
     "/usr/share/zoneinfo/",
     "/usr/share/lib/zoneinfo/",
@@ -94,9 +94,9 @@ fn from_tzif(name: &str, data: &[u8]) -> Option<Location> {
     })
 }
 
-/// Go's loadLocation: the ZONEINFO file or directory, then the system's
-/// directories, then the database Go embeds (time/tzdata), here jiff's,
-/// whose names must match exactly as Go's zip entries do.
+/// Loads a zone: from the ZONEINFO directory, then the system's
+/// directories, then jiff's bundled database, whose names must match
+/// exactly (no case folding).
 fn load_named(name: &str) -> Option<Location> {
     if let Ok(z) = std::env::var("ZONEINFO")
         && !z.is_empty()
@@ -107,7 +107,7 @@ fn load_named(name: &str) -> Option<Location> {
     }
     for dir in ZONE_SOURCES {
         if let Ok(data) = std::fs::read(format!("{dir}{name}")) {
-            // Go stops at the first file it can read, valid or not.
+            // The first file that reads decides, valid or not.
             return from_tzif(name, &data);
         }
     }
@@ -122,7 +122,7 @@ fn load_named(name: &str) -> Option<Location> {
     })
 }
 
-/// time.Local, as Go's initLocal finds it: $TZ, else /etc/localtime, UTC
+/// The local zone: $TZ, else /etc/localtime, UTC
 /// when neither loads. Its name is "Local".
 fn local() -> Location {
     let tz = match std::env::var("TZ") {
@@ -171,7 +171,7 @@ fn contains_dot_dot(s: &str) -> bool {
     s.split(['/', '\\']).any(|p| p == "..")
 }
 
-/// Seconds from 0001-01-01 to 1970-01-01, the Unix time of Go's zero Time.
+/// Seconds from 0001-01-01 to 1970-01-01: the Unix time of the zero time.
 const ZERO_UNIX: i64 = -62_135_596_800;
 
 /// A time.Time: a Unix time with nanoseconds and the zone it is shown in.
@@ -207,7 +207,7 @@ fn civil_from_days(z: i64) -> (i64, i64, i64) {
     (if m <= 2 { y + 1 } else { y }, m, d)
 }
 
-/// Go's norm: hi and lo with lo moved into [0, base).
+/// hi and lo with lo moved into [0, base).
 fn norm(hi: i64, lo: i64, base: i64) -> (i64, i64) {
     (hi + lo.div_euclid(base), lo.rem_euclid(base))
 }
@@ -259,7 +259,7 @@ impl Time {
         let (day, hour) = norm(day, hour, 24);
         let days = days_from_civil(year, month, 1) + day - 1;
         let mut unix = days * 86_400 + hour * 3600 + min * 60 + sec;
-        // As Go: the offset at the wall time read as UTC, then the offset
+        // The offset at the wall time read as UTC, then the offset
         // at the instant that gives, unless both are in one zone period.
         let offset = loc.offset(unix);
         if offset != 0 {
@@ -323,8 +323,9 @@ impl Time {
         )
     }
 
-    /// Time.Truncate for a whole number of seconds d (seconds from year 1,
-    /// as Go counts, are seconds from 1970 plus a multiple of a minute).
+    /// Truncates to a whole number of seconds d, counted from year 1
+    /// (seconds from year 1 are seconds from 1970 plus a multiple of a
+    /// minute).
     pub fn truncate_seconds(&self, d: i64) -> Time {
         let r = (self.unix - ZERO_UNIX).rem_euclid(d);
         Time {
@@ -389,8 +390,8 @@ impl Time {
 }
 
 impl Location {
-    /// The zone's abbreviation at a Unix time ("UTC", "WIB", "+07"); Go
-    /// writes the offset as -0700 where a zone has none.
+    /// The zone's abbreviation at a Unix time ("UTC", "WIB", "+07"); the
+    /// offset as -0700 where a zone has none.
     pub fn abbreviation(&self, unix: i64) -> String {
         let Some(tz) = &self.tz else {
             return "UTC".to_string();
@@ -411,7 +412,7 @@ impl Location {
 }
 
 /// Reads an RFC 3339 time with an optional fraction ("2026-03-29T01:30:00Z"
-/// or with an offset) into a time in UTC, for the parity program.
+/// or with an offset) into a time in UTC, for armada-spec-check.
 pub fn parse_rfc3339(s: &str) -> Option<Time> {
     let ts: Timestamp = s.parse().ok()?;
     Some(Time {
@@ -434,7 +435,7 @@ mod tests {
         let Some(ny) = load_location("America/New_York") else {
             return;
         };
-        // 02:30 does not exist on 2026-03-08 in New York; Go's Date lands
+        // 02:30 does not exist on 2026-03-08 in New York; the date lands
         // an hour before it.
         let t = Time::date(2026, 3, 8, 2, 30, 0, 0, &ny);
         assert_eq!(t.rfc3339_nano(), "2026-03-08T01:30:00-05:00");

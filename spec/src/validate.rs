@@ -1,6 +1,5 @@
-//! Validation (validate.go and the validators of the other files of
-//! internal/spec), with Go's messages. Go's regular expressions are written
-//! out as byte checks: every class in them is ASCII.
+//! Validation, with fixed messages. The name rules are written out as byte
+//! checks: every character class in them is ASCII.
 
 use std::collections::{HashMap, HashSet};
 
@@ -610,7 +609,7 @@ impl Validator {
                         "multiple cannot be combined with scale.min: 0",
                     );
                 }
-                // Go reads a.Ingress.TCP() here; a nil ingress is not TCP.
+                // A missing ingress is not TCP.
                 if Ingress::tcp(ing) {
                     self.add(
                         "revisions.mode",
@@ -774,7 +773,7 @@ impl Validator {
                 );
             }
             seen.insert(r.typ.clone());
-            // Sorted by name, as Go sorts the map's keys.
+            // Sorted by name.
             let set = [
                 ("command", !r.command.is_empty()),
                 ("concurrent", r.concurrent != 0),
@@ -978,8 +977,7 @@ impl Validator {
                 );
             }
         }
-        // Go ranges over a map here, so its order varies; this is the
-        // order the map is written in.
+        // In the order the fields are written in.
         for (field, list) in [
             ("allowHeaders", &c.allow_headers),
             ("exposeHeaders", &c.expose_headers),
@@ -1119,7 +1117,7 @@ impl Validator {
             );
             return;
         }
-        // Go ranges over the map in no fixed order; keys are sorted here.
+        // Keys in sorted order.
         for (k, vals) in &p.require {
             let f = format!("placement.require.{k}");
             if let Err(e) = check_label_key(k) {
@@ -1223,8 +1221,8 @@ impl Validator {
                     "restores the latest backup, so the volume needs backup",
                 );
             }
-            // Go indexes a.Volumes[first] with first -1 only when no volume
-            // is local, and then vol.Local() is false first.
+            // With no local volume first is None, and vol.local() is
+            // false first.
             if vol.local()
                 && let Some(first) = first
                 && vol.failover.is_empty() != a.volumes[first].failover.is_empty()
@@ -1410,8 +1408,7 @@ impl Validator {
 
     fn job(&mut self, a: &App) {
         if !a.is_job() {
-            // Go ranges over a map here, so its order varies; this is the
-            // order the map is written in.
+            // In the order the fields are written in.
             for (field, set) in [
                 ("schedule", !a.schedule.is_empty()),
                 ("timeZone", !a.time_zone.is_empty()),

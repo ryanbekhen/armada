@@ -70,7 +70,7 @@ pub struct Schedule {
     dow: u64,
 }
 
-/// Go's `1 << n` on a uint64, which is 0 once n reaches 64.
+/// `1 << n` on a uint64, 0 once n reaches 64.
 fn bit(n: i64) -> u64 {
     if (0..64).contains(&n) { 1u64 << n } else { 0 }
 }
@@ -98,7 +98,7 @@ fn must_parse_int(expr: &str) -> Result<u64, String> {
     if num < 0 {
         return Err(format!("negative number ({num}) not allowed: {expr}"));
     }
-    // Go converts to uint.
+    // Read as unsigned.
     Ok(num as u64)
 }
 

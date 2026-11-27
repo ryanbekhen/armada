@@ -1,13 +1,13 @@
-//! The spec as Go's encoding/json writes and reads it (the JSON tags,
-//! omitempty, omitzero, the MarshalJSON and UnmarshalJSON methods of
-//! Duration and EnvFrom), as the control plane stores revisions.
+//! The spec as JSON, as the control plane stores revisions: field names,
+//! fields left out when empty or zero, Duration and EnvFrom's own forms,
+//! and the `json: cannot unmarshal ...` error texts.
 
 use std::collections::BTreeMap;
 
 use crate::go;
 use crate::spec::*;
 
-/// A JSON writer with Go's string escaping (HTML characters, U+2028 and
+/// A JSON writer whose strings escape HTML characters, U+2028, and
 /// U+2029 escaped).
 struct W {
     out: String,
@@ -278,7 +278,7 @@ fn placement(w: &mut W, v: &Placement) {
     if !v.require.is_empty() {
         w.key("require");
         w.open();
-        // Go writes map keys sorted, as a BTreeMap holds them.
+        // Map keys sorted, as a BTreeMap holds them.
         for (k, vals) in &v.require {
             w.key(k);
             w.strings(vals.as_deref());
@@ -594,7 +594,7 @@ impl Reader {
     fn fail(&mut self, v: &Json, field: &str, typ: &str, strukt: &str) {
         if self.first.is_none() {
             self.first = Some(format!(
-                "json: cannot unmarshal {} into Go struct field {strukt}.{field} of type {typ}",
+                "json: cannot unmarshal {} into struct field {strukt}.{field} of type {typ}",
                 match v {
                     Json::Num(_) => "number".to_string(),
                     other => other.kind(),
@@ -603,7 +603,7 @@ impl Reader {
         }
     }
 
-    /// The object's fields, each matched to one of keys (Go's names), the
+    /// The object's fields, each matched to one of keys (ignoring case), the
     /// last value winning.
     fn fields<'j>(
         &mut self,
@@ -632,7 +632,7 @@ impl Reader {
                 if field.is_empty() {
                     if self.first.is_none() {
                         self.first = Some(format!(
-                            "json: cannot unmarshal {} into Go value of type {typ}",
+                            "json: cannot unmarshal {} into value of type {typ}",
                             other.kind()
                         ));
                     }
@@ -652,7 +652,7 @@ impl Reader {
         }
     }
 
-    /// A string in a list: Go names the element without "Go struct field".
+    /// A string in a list: its errors name the element without "struct field".
     fn element(&mut self, v: &Json, out: &mut String, path: &str, strukt: &str) {
         match v {
             Json::Null => {}
@@ -680,7 +680,7 @@ impl Reader {
                 Err(_) => {
                     if self.first.is_none() {
                         self.first = Some(format!(
-                            "json: cannot unmarshal number {n} into Go struct field {strukt}.{field} of type {typ}"
+                            "json: cannot unmarshal number {n} into struct field {strukt}.{field} of type {typ}"
                         ));
                     }
                 }
@@ -966,7 +966,7 @@ impl Reader {
             }
             other => {
                 self.first.get_or_insert(format!(
-                    "json: cannot unmarshal {} into Go value of type []spec.EnvFromSecret",
+                    "json: cannot unmarshal {} into value of type []spec.EnvFromSecret",
                     other.kind()
                 ));
             }
