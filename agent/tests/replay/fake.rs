@@ -700,7 +700,6 @@ impl Fake {
                 Value::Array(a) => Value::Array(a.clone()),
                 _ => Value::Null,
             }),
-            "netUserspace" => Ok(json!(inn["userspace"].as_bool().unwrap_or(false))),
             "netRotate" => {
                 self.record(st, "net.rotate", Value::Null);
                 Self::err_of(inn, "keyErr")?;

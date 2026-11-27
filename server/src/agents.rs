@@ -38,7 +38,6 @@ const MAX_NODE_CPU_MILLIS: i64 = 1024 * 1000;
 const MAX_NODE_MEMORY: i64 = 16 << 40;
 const MAX_UNREACHABLE_PEERS: usize = 32;
 const FILE_NETWORK_KEY_HINT: &str = "network.key in the data directory";
-const WIREGUARD_USERSPACE_MESSAGE: &str = "the kernel has no WireGuard: traffic to other nodes is encrypted in userspace inside the agent, markedly slower and with more CPU; use a kernel with WireGuard (Linux 5.6 or later) and restart armada-server or armada-agent";
 
 /// What the agent announced it can do (Hello).
 #[derive(Clone, Copy, Default)]
@@ -838,8 +837,7 @@ impl Server {
     }
 
     /// Keeps a PeerUnreachable condition on a node while its report names
-    /// WireGuard peers with no recent handshake, and a WireGuardUserspace
-    /// one while its WireGuard runs in userspace (ADR 0025).
+    /// WireGuard peers with no recent handshake (ADR 0025).
     async fn peers_checked(&self, node: &str, u: &UsageReport) {
         if !u.peers_checked {
             return;
@@ -863,18 +861,6 @@ impl Server {
                     "no WireGuard handshake for 3 minutes with {}",
                     peers.join(", ")
                 ),
-            ),
-        )
-        .await;
-        self.condition(
-            &format!("wireguard-userspace:{node}"),
-            u.wireguard_userspace,
-            event(
-                events::NODE,
-                node,
-                node,
-                "WireGuardUserspace",
-                WIREGUARD_USERSPACE_MESSAGE,
             ),
         )
         .await;

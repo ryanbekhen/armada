@@ -51,8 +51,7 @@
       "n3"
      ],
      "proxyErr": "",
-     "switching": null,
-     "userspace": true
+     "switching": null
     },
     "initExits": {},
     "platforms": {},
@@ -76,7 +75,7 @@
   },
   {
    "expect": [
-    "usage first: totals only {\"load\":[{\"id\":\"web-r1-a\",\"inFlight\":\"2\"}],\"loadMeasured\":true,\"peersChecked\":true,\"unreachablePeers\":[\"n2\",\"n3\"],\"wireguardUserspace\":true}",
+    "usage first: totals only {\"load\":[{\"id\":\"web-r1-a\",\"inFlight\":\"2\"}],\"loadMeasured\":true,\"peersChecked\":true,\"unreachablePeers\":[\"n2\",\"n3\"]}",
     "calls proxy.load null"
    ],
    "name": "first: totals only",
@@ -118,8 +117,7 @@
       "to": "wireguard",
       "step": "prepare",
       "ready": true
-     },
-     "userspace": true
+     }
     },
     "initExits": {},
     "platforms": {},
@@ -143,7 +141,7 @@
   },
   {
    "expect": [
-    "usage requests since, a counter that went back, a switch {\"load\":[{\"id\":\"web-r1-a\",\"requests\":\"2\"},{\"id\":\"web-r1-b\",\"requests\":\"1\"},{\"id\":\"web-r1-c\",\"inFlight\":\"1\"}],\"loadMeasured\":true,\"networkSwitch\":{\"to\":\"wireguard\",\"step\":\"prepare\",\"ready\":true},\"peersChecked\":true,\"wireguardUserspace\":true}",
+    "usage requests since, a counter that went back, a switch {\"load\":[{\"id\":\"web-r1-a\",\"requests\":\"2\"},{\"id\":\"web-r1-b\",\"requests\":\"1\"},{\"id\":\"web-r1-c\",\"inFlight\":\"1\"}],\"loadMeasured\":true,\"networkSwitch\":{\"to\":\"wireguard\",\"step\":\"prepare\",\"ready\":true},\"peersChecked\":true}",
     "calls proxy.load null"
    ],
    "name": "requests since, a counter that went back, a switch",
@@ -185,8 +183,7 @@
       "to": "wireguard",
       "step": "prepare",
       "ready": true
-     },
-     "userspace": true
+     }
     },
     "initExits": {},
     "platforms": {},
@@ -210,7 +207,7 @@
   },
   {
    "expect": [
-    "usage unreadable load {\"networkSwitch\":{\"to\":\"wireguard\",\"step\":\"prepare\",\"ready\":true},\"peersChecked\":true,\"wireguardUserspace\":true}",
+    "usage unreadable load {\"networkSwitch\":{\"to\":\"wireguard\",\"step\":\"prepare\",\"ready\":true},\"peersChecked\":true}",
     "calls proxy.load null"
    ],
    "name": "unreadable load",

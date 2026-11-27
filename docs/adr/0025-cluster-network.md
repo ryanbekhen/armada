@@ -286,11 +286,6 @@ exists only where a pair of nodes uses it.
 - The leader raises a `PeerUnreachable` condition event (ADR 0018) for the
   reporting node, naming the peers, which alert channels receive by default
   (ADR 0045), and clears it once a report names none.
-- With the same report, a node whose WireGuard runs in userspace because
-  its kernel has none says so (`wireguard_userspace`), and the leader keeps
-  a `WireGuardUserspace` condition on it, an alert warning too: traffic
-  between nodes is markedly slower there. The agent itself uses only the
-  kernel's WireGuard, so it never reports one.
 - HAProxy health checks already mark the replicas behind a broken path as
   down, and local-first keeps requests on the node. Scheduling does not
   change, because the control plane can still reach both nodes. A node the

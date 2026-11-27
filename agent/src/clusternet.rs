@@ -386,15 +386,6 @@ impl Network for ClusterNet {
         })
     }
 
-    fn reports_wireguard(&self) -> bool {
-        true
-    }
-
-    fn wireguard_userspace(&self) -> BoxFut<'_, bool> {
-        // The kernel's device or none: never the userspace one.
-        Box::pin(async { false })
-    }
-
     fn rotates_keys(&self) -> bool {
         true
     }
@@ -582,7 +573,6 @@ mod tests {
             n.apply(&cfg, None).await.unwrap_err(),
             ERR_NO_KERNEL_WIREGUARD
         );
-        assert!(!n.wireguard_userspace().await);
         let _ = std::fs::remove_dir_all(dir);
     }
 

@@ -626,21 +626,6 @@ impl Network for RemoteNet {
         )
     }
 
-    fn reports_wireguard(&self) -> bool {
-        true
-    }
-
-    fn wireguard_userspace(&self) -> BoxFut<'_, bool> {
-        Box::pin(async move {
-            self.0
-                .call("netUserspace", json!({}))
-                .await
-                .ok()
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false)
-        })
-    }
-
     fn rotates_keys(&self) -> bool {
         true
     }

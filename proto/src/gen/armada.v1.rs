@@ -2088,10 +2088,6 @@ pub struct UsageReport {
     pub peers_checked: bool,
     #[prost(string, repeated, tag = "14")]
     pub unreachable_peers: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
-    /// Set with peers_checked while the node's WireGuard runs in userspace
-    /// inside the agent because the kernel has none (ADR 0025).
-    #[prost(bool, tag = "15")]
-    pub wireguard_userspace: bool,
     /// How the node runs containers.
     #[prost(message, optional, tag = "16")]
     pub runtime: ::core::option::Option<RuntimeStatus>,
@@ -2151,8 +2147,8 @@ pub struct SandboxQueue {
     /// a new reading.
     #[prost(int64, tag = "6")]
     pub reading: i64,
-    /// Set while the latest reading failed: why, as one of internal/queuelen's
-    /// fixed texts (queuelen.Reason), never the URL or what the broker sent.
+    /// Set while the latest reading failed: why, as one of the agent's fixed
+    /// queue reading texts, never the URL or what the broker sent.
     #[prost(string, tag = "7")]
     pub error: ::prost::alloc::string::String,
 }
