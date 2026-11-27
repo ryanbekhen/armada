@@ -366,13 +366,32 @@ v3.7.4, under the [Apache License 2.0](proto/vendor/etcd/LICENSE)). Source:
 
 `armada-kv` (`kv/`, Apache-2.0) is Armada's own state store (ADR 0057):
 the subset of etcd's v3 API armada-store uses, served with tonic's server
-on a multi-version key space. Besides armada-proto, prost, ring, sha2,
-tokio, tokio-stream, tonic, and tower (above), it is built with this
-crate:
+on a multi-version key space, replicated between members with Raft.
+Besides armada-proto, prost, ring, sha2, tokio, tokio-stream, tonic,
+tonic-prost, tower, hyper-util, and futures-util (above), it is built
+with these crates:
 
 | Crate | License |
 | --- | --- |
+| anyerror, backoff-series, base2histogram, display-more | Apache-2.0 |
+| chacha20, getrandom, rand (rand 0.10 and its getrandom 0.4) | MIT or Apache-2.0 |
+| derive_more | MIT |
+| generic-array | MIT |
+| maplit | MIT or Apache-2.0 |
+| openraft, openraft-rt, openraft-rt-tokio | MIT or Apache-2.0 ([text](third_party/licenses/rust/openraft/LICENSE-APACHE)) |
+| peel-off | MIT |
+| quorum-set, validit | MIT or Apache-2.0 |
 | redb | MIT or Apache-2.0 |
+| sha2 0.10 and its block-buffer, crypto-common, digest (RustCrypto, through quorum-set) | MIT or Apache-2.0 |
+
+Used only while building, not linked: openraft-macros (MIT or
+Apache-2.0), derive_more-impl and convert_case (MIT), futures-macro,
+unicode-segmentation, unicode-xid, and version_check (MIT or Apache-2.0).
+r-efi (MIT, Apache-2.0, or LGPL-2.1-or-later; used under MIT) is in the
+lock file for UEFI targets only, through getrandom 0.4. openraft and its
+crates, and r-efi, are published without their license files: release
+archives carry the ones from their repositories, kept in
+`third_party/licenses/rust/`.
 
 It serves etcd's messages (`proto/vendor/etcd`, under the
 [Apache License 2.0](proto/vendor/etcd/LICENSE)) and follows etcd's

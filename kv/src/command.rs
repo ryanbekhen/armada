@@ -43,6 +43,23 @@ pub enum Op {
     Compact(pb::CompactionRequest),
 }
 
+/// What a log entry shows of a command: its kind, never its keys or
+/// values.
+impl std::fmt::Display for Command {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match &self.op {
+            None => "empty",
+            Some(Op::Put(_)) => "put",
+            Some(Op::DeleteRange(_)) => "delete-range",
+            Some(Op::Txn(_)) => "txn",
+            Some(Op::LeaseGrant(_)) => "lease-grant",
+            Some(Op::LeaseRevoke(_)) => "lease-revoke",
+            Some(Op::LeaseExpire(_)) => "lease-expire",
+            Some(Op::Compact(_)) => "compact",
+        })
+    }
+}
+
 impl Command {
     pub fn new(op: Op) -> Command {
         Command { op: Some(op) }
