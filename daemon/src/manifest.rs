@@ -18,6 +18,9 @@ pub struct Manifest {
     pub listen: String,
     pub master_key_id: String,
     pub ca_fingerprint: String,
+    /// The store the state snapshot is of (ADR 0057): "kv" for armada-kv
+    /// (format 4), empty for etcd (format 3, which names none).
+    pub state: String,
     /// name → SHA-256 (hex); None is a nil map.
     pub files: Option<BTreeMap<String, String>>,
 }
@@ -125,6 +128,9 @@ impl Manifest {
             "  \"caFingerprint\": {},\n",
             json_string(&self.ca_fingerprint)
         ));
+        if !self.state.is_empty() {
+            s.push_str(&format!("  \"state\": {},\n", json_string(&self.state)));
+        }
         match &self.files {
             None => s.push_str("  \"files\": null\n"),
             Some(f) if f.is_empty() => s.push_str("  \"files\": {}\n"),
@@ -467,7 +473,7 @@ struct Decoder {
     first: Option<String>,
 }
 
-const FIELDS: [&str; 8] = [
+const FIELDS: [&str; 9] = [
     "format",
     "armadaVersion",
     "created",
@@ -475,6 +481,7 @@ const FIELDS: [&str; 8] = [
     "listen",
     "masterKeyId",
     "caFingerprint",
+    "state",
     "files",
 ];
 
@@ -526,6 +533,7 @@ impl Decoder {
                 "listen" => self.string(v, name, &mut m.listen),
                 "masterKeyId" => self.string(v, name, &mut m.master_key_id),
                 "caFingerprint" => self.string(v, name, &mut m.ca_fingerprint),
+                "state" => self.string(v, name, &mut m.state),
                 "created" => self.time(v, name, &mut m.created),
                 _ => self.files(v, &mut m.files),
             }
@@ -762,8 +770,17 @@ mod tests {
             listen: "10.0.0.5:7443".into(),
             master_key_id: "k<1>".into(),
             ca_fingerprint: "ff".into(),
-            files: Some(files),
+            state: String::new(),
+            files: Some(files.clone()),
         };
+        let kv = Manifest {
+            format: 4,
+            state: "kv".into(),
+            ..m.clone()
+        };
+        let back = Manifest::decode(kv.to_json().as_bytes()).unwrap();
+        assert_eq!((back.format, back.state.as_str()), (4, "kv"));
+        assert!(kv.to_json().contains("\n  \"state\": \"kv\",\n  \"files\""));
         assert_eq!(
             m.to_json(),
             "{\n  \"format\": 3,\n  \"armadaVersion\": \"dev\",\n  \"created\": \"2026-11-18T11:06:40Z\",\n  \"schema\": 15,\n  \"listen\": \"10.0.0.5:7443\",\n  \"masterKeyId\": \"k\\u003c1\\u003e\",\n  \"caFingerprint\": \"ff\",\n  \"files\": {\n    \"agent.json\": \"cd\",\n    \"ca.crt\": \"ab\"\n  }\n}"

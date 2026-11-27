@@ -15,6 +15,9 @@ instead of an archive: --snapshot names one (armadad backup list), latest by
 default. Both flags take a file (mode 0600) holding the URL or the key, or
 - for stdin (one of them). The snapshot is checked exactly like an archive.
 
+The state goes back into the store it was taken from: etcd's member, or a
+new armada-kv store of this server alone (ADR 0057).
+
 ```
 armadad restore FILE | --backup-url FILE --backup-key FILE [--snapshot ID|latest] [flags]
 ```

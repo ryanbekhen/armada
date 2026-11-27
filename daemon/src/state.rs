@@ -711,3 +711,120 @@ pub async fn connect(
         kv: None,
     })
 }
+
+/// What [`inspect_kv`] reads of armada-kv's snapshots: at most this much.
+pub const MAX_KV_SNAPSHOT: u64 = 2 << 30;
+
+/// An armada-kv snapshot read from a file and checked (its format, its
+/// SHA-256, its revision, and its keys' order and revisions).
+pub fn read_kv_snapshot(snapshot: &Path) -> Result<Vec<u8>, String> {
+    use std::io::Read;
+    let f = fs::File::open(snapshot).map_err(|e| {
+        format!(
+            "open {}: {}",
+            snapshot.display(),
+            armada_fsutil::errno_text(&e)
+        )
+    })?;
+    let mut b = Vec::new();
+    f.take(MAX_KV_SNAPSHOT + 1)
+        .read_to_end(&mut b)
+        .map_err(|e| format!("read {}: {e}", snapshot.display()))?;
+    if b.len() as u64 > MAX_KV_SNAPSHOT {
+        return Err("the armada-kv snapshot is too large".to_string());
+    }
+    armada_kv::snapshot::read(&b).map_err(|e| e.to_string())?;
+    Ok(b)
+}
+
+/// The snapshot turned into a new single-member armada-kv store in dir
+/// (the member's directory of a kv server, created 0700): its database,
+/// whose member starts a cluster of its own on its first start.
+pub fn restore_kv(snapshot: &Path, dir: &Path) -> Result<(), String> {
+    let b = read_kv_snapshot(snapshot)?;
+    armada_fsutil::mkdir_private(dir).map_err(|e| e.to_string())?;
+    let db = dir.join(armada_kv::node::DB_FILE);
+    armada_kv::mvcc::Store::restore(&b, &db, armada_kv::mvcc::Limits::default())
+        .map(drop)
+        .map_err(|e| format!("restore armada-kv snapshot: {e}"))
+}
+
+/// inspect for an armada-kv snapshot: restored into a scratch member
+/// below scratch, opened in this process on a Unix socket of its
+/// directory, its state opened (which checks the schema), and the
+/// cluster's records read. The scratch member is removed again.
+pub async fn inspect_kv(
+    snapshot: &Path,
+    scratch: &Path,
+    server: &str,
+) -> Result<StateInfo, String> {
+    let dir = pack::temp_dir(scratch, ".inspect-")?;
+    struct Remove(PathBuf);
+    impl Drop for Remove {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let _remove = Remove(dir.clone());
+    let kv = dir.join("kv");
+    restore_kv(snapshot, &kv)?;
+    let node = armada_kv::Node::open(
+        &kv,
+        armada_kv::Options {
+            name: "inspect".to_string(),
+            ..Default::default()
+        },
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    let sock = dir.join("client.sock");
+    let (tx, mut rx) = tokio::sync::watch::channel(false);
+    let served = {
+        let (node, sock) = (node.clone(), sock.clone());
+        tokio::spawn(async move {
+            let _ = armada_kv::serve_unix(node, &sock, async move {
+                let _ = rx.wait_for(|v| *v).await;
+            })
+            .await;
+        })
+    };
+    let read = async {
+        let client = Client::connect_unix(&sock).map_err(|e| e.to_string())?;
+        let deadline = Instant::now() + READY_LIMIT;
+        loop {
+            if let Ok(Ok(st)) = tokio::time::timeout(Duration::from_secs(3), client.status()).await
+                && st.leader != 0
+            {
+                break;
+            }
+            if Instant::now() > deadline {
+                return Err("armada-kv did not become ready within a minute".to_string());
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        let st = armada_store::Etcd::new(client, crate::backup::ETCD_PREFIX)
+            .await
+            .map_err(|e| e.to_string())?;
+        let master_key_id = match st.get_meta(crate::backup::META_MASTER_KEY).await {
+            Ok(v) => v,
+            Err(e) if e.is(armada_store::error::Kind::NotFound) => String::new(),
+            Err(e) => return Err(e.to_string()),
+        };
+        let mut listen = String::new();
+        for srv in st.list_servers().await.map_err(|e| e.to_string())? {
+            if srv.name == server {
+                listen = srv.api_addr;
+            }
+        }
+        Ok(StateInfo {
+            schema: armada_store::SCHEMA,
+            master_key_id,
+            listen,
+        })
+    }
+    .await;
+    let _ = tx.send(true);
+    let _ = served.await;
+    node.close().await;
+    read
+}
