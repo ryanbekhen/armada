@@ -158,6 +158,8 @@ struct Lab {
     clock: Arc<TestClock>,
     agent: Agent<Fake>,
     proxy: Arc<FakeProxy>,
+    /// Addresses whose checks fail (replicas never ready).
+    bad: Arc<Mutex<std::collections::HashSet<String>>>,
 }
 
 fn t0() -> SystemTime {
@@ -166,8 +168,18 @@ fn t0() -> SystemTime {
 
 fn lab(with_proxy: bool) -> Lab {
     let clock = Arc::new(TestClock::new(t0()));
-    let check: crate::check::CheckFn =
-        Arc::new(|_addr: String, _path, _timeout| Box::pin(async { Ok(()) }));
+    let bad: Arc<Mutex<std::collections::HashSet<String>>> = Arc::default();
+    let b = bad.clone();
+    let check: crate::check::CheckFn = Arc::new(move |addr: String, _path, _timeout| {
+        let fails = b.lock().unwrap().contains(&addr);
+        Box::pin(async move {
+            if fails {
+                Err("connection refused".to_string())
+            } else {
+                Ok(())
+            }
+        })
+    });
     let proxy = Arc::new(FakeProxy::default());
     let cfg = Config {
         node_id: "n1".into(),
@@ -192,6 +204,7 @@ fn lab(with_proxy: bool) -> Lab {
         agent: Agent::new(cfg, fake),
         clock,
         proxy,
+        bad,
     }
 }
 
@@ -212,11 +225,28 @@ impl Lab {
     }
 
     fn assign(&self, replicas: &[pb::ReplicaSpec]) {
+        self.assign_with(replicas, pb::ProxyConfig::default());
+    }
+
+    fn assign_with(&self, replicas: &[pb::ReplicaSpec], proxy: pb::ProxyConfig) {
         self.agent.set_assignment(&pb::Assignment {
             replicas: replicas.to_vec(),
-            proxy: Some(pb::ProxyConfig::default()),
+            proxy: Some(proxy),
             ..Default::default()
         });
+    }
+
+    /// The next container run never gets ready.
+    fn next_never_ready(&self) {
+        let n = self.rt().n.load(Ordering::SeqCst) + 1;
+        self.bad.lock().unwrap().insert(format!("10.0.0.{n}:8080"));
+    }
+
+    /// The calls of the last pass, sorted.
+    fn sorted_calls(&self) -> Vec<String> {
+        let mut v = self.rt().calls();
+        v.sort();
+        v
     }
 
     async fn pass(&self) -> pb::ReplicaReport {
@@ -241,40 +271,205 @@ impl Lab {
     }
 }
 
-/// Every replica runc created is ended at once (no grace) and created
-/// again on crun in the same pass, reported starting with its old
-/// container meanwhile; a replica crun created stays.
+/// The calls that end a runc container and create its replica again,
+/// sorted.
+fn recreated(replica: &str, old: &str) -> Vec<String> {
+    let mut v = vec![
+        format!("remove {old}"),
+        format!("run {replica}"),
+        format!("stop {old} 0"),
+    ];
+    v.sort();
+    v
+}
+
+/// Two replicas of one app on the node: one at a time, each reported
+/// starting (out of the proxies) for DRAIN before it is ended, the second
+/// only once the first runs on crun and is ready. A replica crun created
+/// stays.
 #[tokio::test]
-async fn ends_and_recreates_every_replica_runc_created() {
+async fn one_replica_of_an_app_at_a_time_with_a_drain() {
     let lab = lab(false);
     let rs = [spec("web-r1", "web"), spec("web-r2", "web")];
     lab.on_runc(&rs).await;
     let (old1, old2) = (lab.rt().of("web-r1").id, lab.rt().of("web-r2").id);
     let all = [rs[0].clone(), rs[1].clone(), spec("api-r1", "api")];
     lab.assign(&all);
+    *lab.rt().next.lock().unwrap() = OCI_CRUN.into();
+
+    // web-r2 is ready: web-r1 drains, its runc container left running.
+    let r = lab.pass().await;
+    assert_eq!(lab.sorted_calls(), ["run api-r1"]);
+    let st = r.replicas.iter().find(|s| s.id == "web-r1").unwrap();
+    assert_eq!(
+        (st.state.as_str(), st.container_id.as_str()),
+        (REPLICA_STARTING, old1.as_str())
+    );
+    assert!(st.address.is_empty());
+    assert_eq!(st.message, format!("{RESTART_NOTE}{RUNC_NOTE}"));
     lab.pass().await;
-    let mut calls = lab.rt().calls();
-    calls.sort();
-    let mut want = vec![
-        format!("remove {old1}"),
-        format!("remove {old2}"),
-        "run api-r1".to_string(),
-        "run web-r1".to_string(),
-        "run web-r2".to_string(),
-        format!("stop {old1} 0"),
-        format!("stop {old2} 0"),
-    ];
-    want.sort();
-    assert_eq!(calls, want);
+    assert!(lab.rt().calls().is_empty(), "drains for DRAIN");
+
+    lab.advance(DRAIN);
+    lab.pass().await;
+    assert_eq!(lab.sorted_calls(), recreated("web-r1", &old1));
+    assert_eq!(lab.rt().on_runc(), ["web-r2"]);
+
+    // web-r1 runs on crun and is ready: web-r2's turn, drained too.
+    lab.pass().await;
+    assert!(lab.rt().calls().is_empty());
+    lab.advance(DRAIN);
+    lab.pass().await;
+    assert_eq!(lab.sorted_calls(), recreated("web-r2", &old2));
     assert!(lab.rt().on_runc().is_empty());
+
     // Every one on crun now: the next passes change nothing.
     lab.pass().await;
     lab.pass().await;
     assert!(lab.rt().calls().is_empty());
-    assert!(
-        lock(&lab.agent.inner.st).runc.ended.is_empty(),
-        "forgotten once gone"
-    );
+    let st = lock(&lab.agent.inner.st);
+    assert!(st.runc.ended.is_empty(), "forgotten once gone");
+    assert!(st.runc.recovering.is_empty());
+}
+
+/// A replica that is its app's only one (on the node and in the proxy
+/// configuration) is ended at once: there is nothing to drain to.
+#[tokio::test]
+async fn ends_an_only_replica_at_once() {
+    let lab = lab(false);
+    let rs = [spec("web-r1", "web")];
+    lab.on_runc(&rs).await;
+    let old = lab.rt().of("web-r1").id;
+    lab.pass().await;
+    assert_eq!(lab.sorted_calls(), recreated("web-r1", &old));
+    assert!(lab.rt().on_runc().is_empty());
+}
+
+/// A replica alone on the node whose app has a ready replica elsewhere
+/// (a server of its backends) is drained first.
+#[tokio::test]
+async fn drains_when_the_app_serves_from_another_node() {
+    let lab = lab(false);
+    let rs = [spec("web-r1", "web")];
+    lab.on_runc(&rs).await;
+    let old = lab.rt().of("web-r1").id;
+    let px = pb::ProxyConfig {
+        backends: vec![pb::ProxyBackend {
+            name: "web".into(),
+            servers: vec![
+                pb::ProxyServer {
+                    name: "web-r1".into(),
+                    address: "10.0.0.1:8080".into(),
+                    ..Default::default()
+                },
+                pb::ProxyServer {
+                    name: "web-r9".into(),
+                    address: "10.2.0.9:8080".into(),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    lab.assign_with(&rs, px);
+    let r = lab.pass().await;
+    assert!(lab.rt().calls().is_empty());
+    assert_eq!(r.replicas[0].state, REPLICA_STARTING);
+    lab.advance(DRAIN);
+    lab.pass().await;
+    assert_eq!(lab.sorted_calls(), recreated("web-r1", &old));
+}
+
+/// Apps go in parallel, one replica each.
+#[tokio::test]
+async fn apps_in_parallel() {
+    let lab = lab(false);
+    let rs = [
+        spec("a-r1", "a"),
+        spec("a-r2", "a"),
+        spec("b-r1", "b"),
+        spec("b-r2", "b"),
+        spec("c-r1", "c"),
+    ];
+    lab.on_runc(&rs).await;
+    let old: Vec<String> = ["a-r1", "b-r1", "c-r1"]
+        .iter()
+        .map(|r| lab.rt().of(r).id)
+        .collect();
+    // c's only replica at once; a-r1 and b-r1 drain together.
+    lab.pass().await;
+    assert_eq!(lab.sorted_calls(), recreated("c-r1", &old[2]));
+    lab.advance(DRAIN);
+    lab.pass().await;
+    let mut want = recreated("a-r1", &old[0]);
+    want.extend(recreated("b-r1", &old[1]));
+    want.sort();
+    assert_eq!(lab.sorted_calls(), want);
+    assert_eq!(lab.rt().on_runc(), ["a-r2", "b-r2"]);
+}
+
+/// A recreated replica that never gets ready holds its app's next one
+/// back READY_WAIT, then the next goes on (with nothing ready to drain
+/// to, at once).
+#[tokio::test]
+async fn goes_on_after_a_bound_when_never_ready() {
+    let lab = lab(false);
+    let rs = [spec("web-r1", "web"), spec("web-r2", "web")];
+    lab.on_runc(&rs).await;
+    let old2 = lab.rt().of("web-r2").id;
+    lab.next_never_ready();
+    lab.pass().await;
+    lab.advance(DRAIN);
+    lab.pass().await;
+    assert_eq!(lab.rt().on_runc(), ["web-r2"]);
+    lab.rt().calls();
+    lab.pass().await;
+    lab.advance(READY_WAIT - Duration::from_secs(1));
+    lab.pass().await;
+    assert!(lab.rt().calls().is_empty(), "waits for web-r1");
+    lab.advance(Duration::from_secs(1));
+    lab.pass().await;
+    assert_eq!(lab.sorted_calls(), recreated("web-r2", &old2));
+    assert!(lab.rt().on_runc().is_empty());
+}
+
+/// An agent restarted in the middle (its memory gone) waits for the
+/// replica it recreated, found from the containers, before the next.
+#[tokio::test]
+async fn rebuilt_after_a_restart() {
+    let lab = lab(false);
+    let rs = [spec("web-r1", "web"), spec("web-r2", "web")];
+    lab.on_runc(&rs).await;
+    let old2 = lab.rt().of("web-r2").id;
+    lab.next_never_ready();
+    lab.pass().await;
+    lab.advance(DRAIN);
+    lab.pass().await;
+    lab.rt().calls();
+    {
+        let mut st = lock(&lab.agent.inner.st);
+        st.runc = RuncLeft::default();
+        for (_, w) in st.probes.drain() {
+            w.cancel();
+        }
+    }
+    lab.pass().await;
+    lab.pass().await;
+    assert!(lab.rt().calls().is_empty(), "waits for web-r1");
+    assert_eq!(lab.rt().on_runc(), ["web-r2"]);
+    // web-r1 gets ready: web-r2 drains, then is recreated.
+    lab.bad.lock().unwrap().clear();
+    lock(&lab.agent.inner.st)
+        .probes
+        .drain()
+        .for_each(|(_, w)| w.cancel());
+    lab.pass().await;
+    lab.pass().await;
+    assert!(lab.rt().calls().is_empty(), "drains");
+    lab.advance(DRAIN);
+    lab.pass().await;
+    assert_eq!(lab.sorted_calls(), recreated("web-r2", &old2));
 }
 
 /// While its new container starts, the replica is reported starting with

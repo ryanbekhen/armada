@@ -492,8 +492,8 @@ Before upgrading from v0.1.0-alpha.44:
   `sudo armadad doctor` on the node shows no `runc` warning (and
   `armada node show NODE` no runc containers on its Runtime line) before
   upgrading it. A node upgraded earlier ends what is left on runc and
-  creates it again on crun at once: its apps with one replica there are
-  down for about their start time.
+  creates it again on crun, one replica of each app at a time: its apps
+  with one replica there are down for about their start time.
 - **Containerd nodes.** This release runs containers on the supervisor
   runtime only. Every node still on containerd moves to the supervisor
   runtime on v0.1.0-alpha.44 first (its documentation says how). On a
@@ -912,16 +912,25 @@ has no runc. A node upgraded before that move finished still has some
 (their records name no runtime). Its agent ends them without runc and
 creates them again on crun, at its start and in every pass:
 
-- **Replicas** are ended at once: every process in the container's
+- **Replicas** go one per app at a time, apps in parallel. A replica
+  whose app has another ready replica (on the node, or on another node
+  per the node's proxy configuration) is first reported starting while
+  it still runs, so the proxies stop sending it requests, and ended 5
+  seconds later; an app's only replica is ended at once, as there is
+  nothing to drain to. Ending one: every process in the container's
   cgroup (`/sys/fs/cgroup/armada/<ID>`) is killed and the cgroup removed,
   then the container's network, bundle, root filesystem, and runc's
   state of it (`/run/armada/shim/<shim>/runc/<ID>`). The replica starts
-  again on crun right away; it is reported starting meanwhile, so the
-  proxies stop sending it requests, and `armada app show` names the
-  restart: "its container was created by runc, which this release does
-  not carry; recreated on crun". An app with replicas on other nodes keeps
-  serving; one whose only replica is there is down for about its start
-  time.
+  again on crun right away, reported starting meanwhile, and `armada app
+  show` names the restart: "its container was created by runc, which
+  this release does not carry; recreated on crun". The app's next
+  replica waits until this one runs and is ready, for at most 5 minutes
+  (the agent then logs `a replica recreated on crun is not ready; going
+  on with its app's next`). An agent restarted in the middle waits the
+  same way for a replica created on crun in the last 5 minutes that is
+  not ready yet. So an app with more than one replica keeps serving; one
+  whose only replica is there is down for about its start time. A runc
+  container that already stopped is ended at once.
 - **Job attempts** still running are left to end by themselves; finished
   ones leave with the job's history.
 - **HAProxy** gets a new container on crun beside the old one (both
@@ -930,8 +939,10 @@ creates them again on crun, at its start and in every pass:
   a failure is tried again 10 minutes later.
 - A shim of alpha.44 left holding only such containers is stopped.
 
-The agent's log (`journalctl -u armada-agent`) says `ended a container
-runc created; recreating it on crun` for each, and `moving the proxy
+The agent's log (`journalctl -u armada-agent`) says `taking a replica
+runc created out of service before recreating it on crun` for a drain,
+`ended a container runc created; recreating it on crun` and `recreated
+a replica on crun` for each, and `moving the proxy
 from runc to crun` and `moved the proxy to crun` for HAProxy. To list
 what is left on a node:
 
