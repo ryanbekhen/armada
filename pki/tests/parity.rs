@@ -124,16 +124,16 @@ fn shape(der: &[u8]) -> Value {
 /// The crate's certificate has the recorded shape: the lifetime within two
 /// seconds of the recorded one (both count from the moment of issue),
 /// unless capped at the CA.
-fn same_shape(what: &str, go: &Value, rust_der: &[u8], capped_at: Option<i64>) {
-    let mut g = go.clone();
-    let mut r = shape(rust_der);
+fn same_shape(what: &str, rec: &Value, der: &[u8], capped_at: Option<i64>) {
+    let mut g = rec.clone();
+    let mut r = shape(der);
     let (gl, rl) = (
         g["lifeSeconds"].as_i64().unwrap(),
         r["lifeSeconds"].as_i64().unwrap(),
     );
     match capped_at {
         Some(not_after) => {
-            let c = Certificate::from_der(rust_der).unwrap();
+            let c = Certificate::from_der(der).unwrap();
             assert_eq!(c.not_after, not_after, "{what}: not capped at the CA");
         }
         None => assert!(
@@ -149,7 +149,7 @@ fn same_shape(what: &str, go: &Value, rust_der: &[u8], capped_at: Option<i64>) {
             .unwrap()
             .iter()
             .filter(|(k, v)| r.get(k.as_str()) != Some(v))
-            .map(|(k, v)| format!("  {k}:\n    go   {v}\n    rust {}", r[k.as_str()]))
+            .map(|(k, v)| format!("  {k}:\n    recorded {v}\n    got      {}", r[k.as_str()]))
             .collect();
         panic!("{what}: the certificates differ\n{}", differs.join("\n"));
     }
@@ -163,8 +163,8 @@ fn der_of(pem: &[u8]) -> Vec<u8> {
 /// the private scalar and the public point in the same places.
 fn key_like_recorded(f: &Value, key_pem: &[u8]) {
     let k = PrivateKey::from_pem(key_pem).expect("the crate's key");
-    let go = &f["caKeyDER"];
-    let (gder, d, point) = (b64(go, "pkcs8"), b64(go, "d"), b64(go, "point"));
+    let rec = &f["caKeyDER"];
+    let (gder, d, point) = (b64(rec, "pkcs8"), b64(rec, "d"), b64(rec, "point"));
     let rder = k.pkcs8().expose().to_vec();
     assert_eq!(rder.len(), gder.len(), "PKCS#8 length");
     let find = |hay: &[u8], needle: &[u8]| {
@@ -269,9 +269,9 @@ fn issues_as_recorded() {
 #[test]
 fn new_ca_and_load_refusals() {
     let f = fixture();
-    let go = &f["newCA"];
-    let ca = Ca::new(s(go, "name")).unwrap();
-    same_shape("CA", &go["shape"], &ca.cert.raw, None);
+    let rec = &f["newCA"];
+    let ca = Ca::new(s(rec, "name")).unwrap();
+    same_shape("CA", &rec["shape"], &ca.cert.raw, None);
     assert_eq!(shape(&ca.cert.raw)["skiFromKey"], json!(true));
     key_like_recorded(&f, ca.key_pem().expose());
     ca.cert.check_signature_from(&ca.cert).unwrap();
@@ -326,28 +326,28 @@ fn signs_csrs_as_recorded() {
 
     // The crate's request looks like the recorded one, and the recorded CA
     // signs it.
-    let go = &f["nodeCSR"];
+    let rec = &f["nodeCSR"];
     let (key, rust_csr) = new_csr(&Identity::new("node", "web-1")).unwrap();
     key_like_recorded(&f, key.expose());
-    let go_csr = b64(go, "csr");
-    let (_, gr) = X509CertificationRequest::from_der(&go_csr).unwrap();
+    let recorded_csr = b64(rec, "csr");
+    let (_, gr) = X509CertificationRequest::from_der(&recorded_csr).unwrap();
     let (_, rr) = X509CertificationRequest::from_der(&rust_csr).unwrap();
     let ginfo = &gr.certification_request_info;
     let rinfo = &rr.certification_request_info;
-    assert_eq!(base64_encode(ginfo.subject.as_raw()), s(go, "rawSubject"));
+    assert_eq!(base64_encode(ginfo.subject.as_raw()), s(rec, "rawSubject"));
     assert_eq!(rinfo.subject.as_raw(), ginfo.subject.as_raw(), "subject");
     assert_eq!(
         rinfo.raw.len() as u64,
-        go["tbsLength"].as_u64().unwrap(),
+        rec["tbsLength"].as_u64().unwrap(),
         "request length"
     );
     assert_eq!(
         rr.signature_algorithm.algorithm.to_id_string(),
         "1.2.840.10045.4.3.2",
         "{}",
-        s(go, "sigAlg")
+        s(rec, "sigAlg")
     );
-    assert_eq!(rinfo.version.0 as u64, go["version"].as_u64().unwrap());
+    assert_eq!(rinfo.version.0 as u64, rec["version"].as_u64().unwrap());
     assert!(rinfo.attributes().is_empty(), "no extensions");
     let nc = ca
         .sign_node_csr(&rust_csr, "web-1", Duration::ZERO)
