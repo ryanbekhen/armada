@@ -49,8 +49,7 @@ impl Member {
             .arg("--initial-cluster")
             .arg(format!("replay={peer}"))
             .args(["--initial-cluster-token", "armada"])
-            // The store's transactions hold up to 4096 operations
-            // (internal/etcd's maxTxnOps).
+            // The store's transactions hold up to 4096 operations.
             .args(["--max-txn-ops", "4096", "--unsafe-no-fsync"])
             .args(["--enable-grpc-gateway=false", "--log-level", "error"])
             .stdin(Stdio::null())

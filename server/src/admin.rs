@@ -1,6 +1,5 @@
 //! The gRPC services' methods: each runs the server's own method with the
-//! caller the dispatcher authorized (ADR 0055: every method of both
-//! services is ported).
+//! caller the dispatcher authorized.
 
 use std::pin::Pin;
 

@@ -1,13 +1,13 @@
-//! HAProxy behind the agent's [`Proxy`] seam (ADR 0055, item 16d): Go's
-//! internal/proxy/haproxy driver with armada-node's renderer called in
-//! process. Structural changes are rendered, checked with `haproxy -c`,
-//! and reloaded (SIGUSR2, then the new process is waited for through `show
-//! info`); servers, weights, the local and clients maps, and renewed
-//! certificates change live through the Runtime API; a running HAProxy that
-//! outlived its agent is taken over without a reload when its
+//! HAProxy behind the agent's [`Proxy`] seam, with armada-node's renderer
+//! called in process. Structural changes are rendered, checked with
+//! `haproxy -c`, and reloaded (SIGUSR2, then the new process is waited for
+//! through `show info`); servers, weights, the local and clients maps, and
+//! renewed certificates change live through the Runtime API; a running
+//! HAProxy that outlived its agent is taken over without a reload when its
 //! configuration differs only in server lines. The files it writes (the
-//! configuration, route maps, local.map, clients.map, certificates) are
-//! Go's byte for byte, so either agent takes over from the other.
+//! configuration, route maps, local.map, clients.map, certificates) keep
+//! their format across releases, so an upgraded agent takes over from the
+//! one before.
 
 pub mod api;
 pub mod config;
@@ -53,7 +53,7 @@ pub const MAP_CHUNK: usize = 8 << 10;
 pub const RELOAD_WAIT: Duration = Duration::from_secs(10);
 pub const RELOAD_POLL: Duration = Duration::from_millis(50);
 
-/// The HAProxy process (Go's Engine).
+/// The HAProxy process.
 pub trait Engine: Send + Sync + 'static {
     fn running(&self) -> BoxFut<'_, Result<bool, String>>;
     /// (Re)creates the HAProxy container from the current config file.
@@ -77,7 +77,7 @@ pub trait Engine: Send + Sync + 'static {
 /// The node's listening TCP sockets (ADR 0039).
 pub type ListenersFn = Arc<dyn Fn() -> Result<Vec<SocketAddr>, String> + Send + Sync>;
 
-/// What a Driver runs with (Go's haproxy.Config).
+/// What a Driver runs with.
 pub struct DriverConfig {
     /// Holds etc/ (configuration, certificates) and run/ (the Runtime API
     /// socket), 0700.
@@ -157,7 +157,7 @@ fn slot_key(pool: &str, i: usize) -> String {
     format!("{pool}/{}", render::slot_name(i))
 }
 
-/// assignLayout: replicas keep their slot; new ones take the lowest free.
+/// Replicas keep their slot; new ones take the lowest free.
 pub fn assign_layout(prev: &Layout, cfg: &armada_node::proxy::Config, n: &render::Node) -> Layout {
     let mut next = Layout::new();
     for (name, servers) in render::pools(cfg, n) {
@@ -182,7 +182,7 @@ pub fn assign_layout(prev: &Layout, cfg: &armada_node::proxy::Config, n: &render
     next
 }
 
-/// desiredServers: what every slot serves.
+/// What every slot serves.
 pub fn desired_servers(
     cfg: &armada_node::proxy::Config,
     layout: &Layout,
@@ -269,7 +269,7 @@ fn signature(cfg: &armada_node::proxy::Config, layout: &Layout, opts: &Options) 
     hex(&Sha256::digest(s.to_string().as_bytes()))
 }
 
-/// clientsMap: one "<address> <space>:<app ID>" line per container of the
+/// One "<address> <space>:<app ID>" line per container of the
 /// node subnet, sorted, each checked again.
 pub fn clients_map(clients: &Clients, subnet: &str) -> Result<Vec<u8>, String> {
     if clients.len() > MAX_CLIENTS {
@@ -277,7 +277,7 @@ pub fn clients_map(clients: &Clients, subnet: &str) -> Result<Vec<u8>, String> {
     }
     let subnet = parse_prefix(subnet).ok_or("invalid subnet")?;
     let mut out = String::new();
-    // BTreeMap<IpAddr, _> sorts IPv4 addresses as netip.Addr.Compare does.
+    // BTreeMap<IpAddr, _> sorts IPv4 addresses by their bytes.
     for (a, app) in clients {
         let ok = match a {
             IpAddr::V4(v4) => {
@@ -297,7 +297,7 @@ pub fn clients_map(clients: &Clients, subnet: &str) -> Result<Vec<u8>, String> {
     Ok(out.into_bytes())
 }
 
-/// mapChunks: content split at line ends into pieces of about limit bytes.
+/// Content split at line ends into pieces of about limit bytes.
 pub fn map_chunks(content: &[u8], limit: usize) -> Vec<&[u8]> {
     let mut out = Vec::new();
     let mut content = content;
@@ -321,7 +321,7 @@ pub fn map_chunks(content: &[u8], limit: usize) -> Vec<&[u8]> {
     out
 }
 
-/// selfSignedPEM: the certificate served for unknown names, so HAProxy
+/// The certificate served for unknown names, so HAProxy
 /// starts before any real one exists.
 pub fn self_signed_pem() -> Result<Vec<u8>, String> {
     let key =
@@ -350,7 +350,7 @@ pub fn self_signed_pem() -> Result<Vec<u8>, String> {
 
 impl Driver {
     /// Prepares the directories, the empty maps, and the default
-    /// certificate (Go's New).
+    /// certificate.
     pub fn new(cfg: DriverConfig) -> Result<Driver, String> {
         if !cfg.private_ip.is_empty() && parse_addr(&cfg.private_ip).is_none() {
             return Err(format!(
@@ -447,7 +447,7 @@ impl Driver {
         }
     }
 
-    /// busyPorts: the TCP ports of cfg another program holds; logs when
+    /// The TCP ports of cfg another program holds; logs when
     /// that changes.
     fn busy_ports(&self, st: &mut St, pc: &ProxyConfig, opts: &Options) -> Vec<i64> {
         let mut busy = Vec::new();
@@ -482,7 +482,7 @@ impl Driver {
         busy
     }
 
-    /// liveConfig: takes over a running HAProxy whose certificates are the
+    /// Takes over a running HAProxy whose certificates are the
     /// configuration's, from the slots it reports.
     async fn live_config(&self, st: &mut St, pc: &ProxyConfig, opts: &Options) -> Option<Vec<u8>> {
         if !st.sig.is_empty() {
@@ -526,7 +526,7 @@ impl Driver {
         Some(live)
     }
 
-    /// writeCerts: writes changed certificates, removes stale ones, and
+    /// Writes changed certificates, removes stale ones, and
     /// returns the names that existed and changed.
     fn write_certs(&self, st: &mut St, pc: &ProxyConfig) -> Result<Vec<String>, String> {
         let dir = self.etc().join(CERT_DIR);
@@ -609,7 +609,7 @@ impl Driver {
         }
     }
 
-    /// removeOldRoutes: deletes route maps the configuration does not use.
+    /// Deletes route maps the configuration does not use.
     fn remove_old_routes(&self, keep: &BTreeMap<String, Vec<u8>>) {
         let Ok(entries) = std::fs::read_dir(self.etc()) else {
             return;
@@ -626,7 +626,7 @@ impl Driver {
         }
     }
 
-    /// writeValidated: the new configuration replaces the live one only
+    /// The new configuration replaces the live one only
     /// once haproxy -c accepts it, unless only servers changed.
     async fn write_validated(&self, path: &Path, content: &[u8]) -> Result<(), String> {
         let cur = std::fs::read(path);
@@ -684,7 +684,7 @@ impl Driver {
             .map(|_| ())
     }
 
-    /// replaceMap: swaps a map of the running HAProxy in one step.
+    /// Swaps a map of the running HAProxy in one step.
     async fn replace_map(&self, name: &str, content: &[u8]) -> Result<(), String> {
         let file = format!("{CONTAINER_CONF_DIR}/{name}");
         let out = self.api.command(&format!("prepare map {file}")).await?;
@@ -710,7 +710,7 @@ impl Driver {
             .map(|_| ())
     }
 
-    /// Apply of a proxy.Config.
+    /// Applies a checked configuration.
     pub async fn apply_config(&self, pc: &ProxyConfig) -> Result<(), String> {
         pc.validate()
             .map_err(|e| format!("refusing invalid proxy config: {e}"))?;
@@ -853,7 +853,7 @@ impl Driver {
         Ok(())
     }
 
-    /// SetClients: the clients map for the internal frontend's checks,
+    /// The clients map for the internal frontend's checks,
     /// written for the next start and swapped into a running HAProxy.
     pub async fn set_clients_map(&self, clients: &Clients) -> Result<(), String> {
         if self.subnet.is_empty() {
@@ -904,7 +904,7 @@ impl Driver {
     }
 }
 
-/// layoutFromSlots: the layout and slots of a running HAProxy, its servers
+/// The layout and slots of a running HAProxy, its servers
 /// named by the configuration's replica at each address.
 fn layout_from_slots(
     live: &HashMap<String, Vec<Slot>>,

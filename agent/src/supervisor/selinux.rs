@@ -1,11 +1,9 @@
-//! SELinux confinement of containers (ADR 0011; Go's internal/runtime/
-//! containerd selinux.go and selinux_linux.go over go-selinux v1.15.1):
-//! on SELinux hosts every container runs as the policy's container
-//! process type with categories of its own, its spec carries the matching
-//! mount label, and the files Armada bind-mounts into it are relabelled,
-//! so a container reaches neither the host's files nor another
-//! container's. The kernel's side (the policy's contexts, the context
-//! check, extended attributes) goes through [`Host`].
+//! SELinux confinement of containers (ADR 0011): on SELinux hosts every
+//! container runs as the policy's container process type with categories of its
+//! own, its spec carries the matching mount label, and the files Armada
+//! bind-mounts into it are relabelled, so a container reaches neither the
+//! host's files nor another container's. The kernel's side (the policy's
+//! contexts, the context check, extended attributes) goes through [`Host`].
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -16,7 +14,8 @@ use super::host::Host;
 /// The policy's type for files every container may read; policies
 /// without it get the plain container file type.
 pub const RO_FILE_TYPE: &str = "container_ro_file_t";
-/// go-selinux's maxCategory and its default category range.
+/// Categories are picked below this; the last two are the privileged
+/// mount label's.
 const MAX_CATEGORY: u32 = 1024;
 /// The extended attribute holding a file's label.
 pub const XATTR: &str = "security.selinux";
@@ -33,7 +32,7 @@ pub enum State {
     NoPolicy,
 }
 
-/// A container's labels (selinuxLabels); empty when it is not confined.
+/// A container's labels; empty when it is not confined.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Labels {
     /// e.g. system_u:system_r:container_t:s0:c1,c2
@@ -42,7 +41,7 @@ pub struct Labels {
     pub mount: String,
 }
 
-/// A label's parts (go-selinux's Context).
+/// A label's parts.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Context {
     pub user: String,
@@ -52,7 +51,7 @@ pub struct Context {
 }
 
 impl Context {
-    /// NewContext: "" is an empty context; fewer than three parts is
+    /// "" is an empty context; fewer than three parts is
     /// ErrInvalidLabel.
     pub fn new(label: &str) -> Result<Context, String> {
         if label.is_empty() {
@@ -70,7 +69,7 @@ impl Context {
         })
     }
 
-    /// Context.Get.
+    /// The label as text: user:role:type, then :level when it has one.
     pub fn get(&self) -> String {
         if self.level.is_empty() {
             format!("{}:{}:{}", self.user, self.role, self.typ)
@@ -86,15 +85,15 @@ fn level_of(label: &str) -> Option<&str> {
     (p.len() > 3).then(|| p[3])
 }
 
-/// go-selinux's state in this process: whether SELinux is on, the
+/// The SELinux state of this process: whether SELinux is on, the
 /// policy's container contexts, and the categories handed out.
 pub struct Selinux {
     host: Arc<dyn Host>,
     enabled: OnceLock<bool>,
     contexts: OnceLock<HashMap<String, String>>,
     mcs: Mutex<HashSet<String>>,
-    /// The categories of existing containers were reserved
-    /// (Driver.labelsReserved), under the driver's labelsMu.
+    /// The categories of existing containers were reserved; held while
+    /// they are.
     pub(crate) reserved: tokio::sync::Mutex<bool>,
 }
 
@@ -109,7 +108,7 @@ fn random_below(n: u32) -> u32 {
     u32::from_ne_bytes(b) % n
 }
 
-/// parseContexts: lxc_contexts' "key = value" lines, quotes trimmed,
+/// lxc_contexts' "key = value" lines, quotes trimmed,
 /// blank lines and comments (';' or '#') skipped.
 pub fn parse_contexts(b: &[u8]) -> HashMap<String, String> {
     let mut out = HashMap::new();
@@ -131,7 +130,7 @@ pub fn parse_contexts(b: &[u8]) -> HashMap<String, String> {
     out
 }
 
-/// bytes.Trim(v, `"`).
+/// v without leading and trailing `"`.
 fn trim_quotes(mut v: &[u8]) -> &[u8] {
     while let [b'"', rest @ ..] = v {
         v = rest;
@@ -153,12 +152,12 @@ impl Selinux {
         }
     }
 
-    /// selinux.GetEnabled, asked once per process as go-selinux does.
+    /// Whether SELinux is on, asked once per process.
     pub fn enabled(&self) -> bool {
         *self.enabled.get_or_init(|| self.host.selinux_enabled())
     }
 
-    /// loadLabels: the policy's container contexts, read once; the
+    /// The policy's container contexts, read once; the
     /// privileged mount label's categories are reserved then.
     fn label(&self, key: &str) -> String {
         self.contexts
@@ -179,7 +178,7 @@ impl Selinux {
             .unwrap_or_default()
     }
 
-    /// mcsAdd: false when mcs is taken; a level without categories is
+    /// False when mcs is taken; a level without categories is
     /// not recorded.
     fn mcs_add(&self, mcs: &str) -> bool {
         if !mcs.contains(":c") {
@@ -191,7 +190,7 @@ impl Selinux {
             .insert(mcs.to_string())
     }
 
-    /// uniqMcs: two distinct categories, lower first, not handed out yet.
+    /// Two distinct categories, lower first, not handed out yet.
     fn uniq_mcs(&self) -> String {
         loop {
             let (mut c1, mut c2) = (random_below(MAX_CATEGORY), random_below(MAX_CATEGORY));
@@ -208,7 +207,7 @@ impl Selinux {
         }
     }
 
-    /// containerLabels (addMcs): the policy's process and file labels with
+    /// The policy's process and file labels with
     /// fresh categories; ("", file) when the policy has no container
     /// types.
     fn container_labels(&self) -> (String, String) {
@@ -248,7 +247,7 @@ impl Selinux {
         State::Confined
     }
 
-    /// newLabels: a process and mount label with categories no other
+    /// A process and mount label with categories no other
     /// container of this process holds, or empty labels when containers
     /// cannot be confined.
     pub fn new_labels(&self) -> Labels {
@@ -266,7 +265,7 @@ impl Selinux {
         }
     }
 
-    /// reserveLabel (ReserveLabelV2): an existing container's categories
+    /// An existing container's categories
     /// are not handed out again; already reserved is fine.
     pub fn reserve(&self, process: &str) {
         if let Some(l) = level_of(process) {
@@ -274,7 +273,7 @@ impl Selinux {
         }
     }
 
-    /// releaseLabel.
+    /// Hands a container's categories back.
     pub fn release(&self, process: &str) {
         if let Some(l) = level_of(process)
             && !l.is_empty()
@@ -298,7 +297,7 @@ impl Selinux {
     }
 
     /// relabel: path, recursively, gets the container's mount label, so
-    /// only that container can use it (selinux.Chcon with recurse).
+    /// only that container can use it.
     pub fn relabel(&self, path: &Path, l: &Labels) -> Result<(), String> {
         if l.mount.is_empty() {
             return Ok(());
@@ -306,7 +305,7 @@ impl Selinux {
         chcon(&*self.host, path, &l.mount, &excluded_homes())
     }
 
-    /// relabelShared: path gets the label every container may read but
+    /// Path gets the label every container may read but
     /// not write (level s0, the read-only type where the policy has it).
     pub fn relabel_shared(&self, path: &Path, l: &Labels) -> Result<(), String> {
         if l.mount.is_empty() {
@@ -328,7 +327,7 @@ impl Selinux {
     }
 }
 
-/// The process label of a container's config.json (processLabel): only a
+/// The process label of a container's config.json: only a
 /// label with a colon.
 pub fn process_label(spec: &[u8]) -> String {
     let v: serde_json::Value = serde_json::from_slice(spec).unwrap_or_default();
@@ -358,7 +357,7 @@ fn excluded_homes() -> Vec<String> {
     out
 }
 
-/// user.Lookup's home directory, from the password database.
+/// A user's home directory, from the password database.
 fn home_of(user: &str) -> Option<String> {
     let text = std::fs::read_to_string("/etc/passwd").ok()?;
     text.lines().find_map(|l| {
@@ -435,7 +434,7 @@ pub fn chcon(host: &dyn Host, path: &Path, label: &str, homes: &[String]) -> Res
     set(root)
 }
 
-/// filepath.WalkDir below dir in lexical order (dir itself left to the
+/// Walks below dir in lexical order (dir itself left to the
 /// caller); entries gone meanwhile are skipped.
 fn walk(dir: &Path, f: &dyn Fn(&Path) -> Result<(), String>) -> Result<(), String> {
     let rd = match std::fs::read_dir(dir) {

@@ -1,22 +1,19 @@
-//! NFS volumes' mounts on the node (ADR 0042), as internal/agent's
-//! nfs_linux.go makes them (ADR 0054 step 5):
+//! NFS volumes' mounts on the node (ADR 0042):
 //!
 //!   armada-node nfs mount     stdin {"server", "path", "target",
 //!                             "readOnly", "timeoutMs"}; stdout {} or
 //!                             {"error": TEXT}: the export checked again,
-//!                             then mountNFS (nfs4, nosuid and nodev, hard,
+//!                             then mounted (nfs4, nosuid and nodev, hard,
 //!                             over TCP, 4.2 then 4.1 then 4.0)
-//!   armada-node nfs unmount   stdin {"target"}: unmountNFS (detached)
+//!   armada-node nfs unmount   stdin {"target"}: unmounted (detached)
 //!   armada-node nfs source    stdin {"target", "export", "mountinfo"?}; stdout
 //!                             {"source", "mounted", "readOnly"} or
-//!                             {"error"}: mountedSource and
-//!                             mountedReadOnly
+//!                             {"error"}: what is mounted there, and
+//!                             whether read-only
 //!   armada-node nfs plan      stdin as mount plus "selinux" and "errnos";
 //!                             stdout {"calls", "error"?}: the mount(2)
 //!                             calls mount makes when the kernel answers
 //!                             with errnos in turn (tests; no mount made)
-//!
-//! Go's TestArmadaNodeNFS* (internal/agent) compare them with Go.
 
 use crate::net::addr::Addr;
 use crate::runtime::container::errno_text;
@@ -93,7 +90,7 @@ fn check_path(p: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// nfsSource: the export as the kernel names it.
+/// The export as the kernel names it.
 pub fn nfs_source(server: &str, path: &str) -> String {
     match Addr::parse(server) {
         Some(Addr::V6(..)) => format!("[{server}]:{path}"),
@@ -145,7 +142,7 @@ fn read_only(c: &CString) -> bool {
     unsafe { libc::statvfs(c.as_ptr(), &mut st) == 0 && (st.f_flag & libc::ST_RDONLY) != 0 }
 }
 
-/// getSelinuxMountPoint: where selinuxfs is mounted read-write, or "".
+/// Where selinuxfs is mounted read-write, or "".
 pub fn selinux_mount() -> String {
     if verify_selinuxfs(SELINUXFS_MOUNT) {
         return SELINUXFS_MOUNT.into();
@@ -251,7 +248,7 @@ fn sys_mount(c: &Call) -> Result<(), i32> {
 
 /// The real mount, bounded by the deadline: the call runs on a thread of
 /// its own, which the process leaves behind when the server does not
-/// answer in time (Go leaves its goroutine).
+/// answer in time.
 fn real_mount(c: &Call, deadline: Option<Instant>) -> Result<(), MountError> {
     let (tx, rx) = std::sync::mpsc::channel();
     let call = c.clone();
@@ -295,7 +292,7 @@ fn unmount(target: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// unescapeMount: mountinfo's octal escapes undone. The kernel writes
+/// mountinfo's octal escapes undone. The kernel writes
 /// every escape as a backslash and exactly three octal digits (`\040`
 /// for a space), so only that form is decoded; anything else (a
 /// backslash before fewer digits, a value past 255, a backslash at the

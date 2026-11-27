@@ -1,14 +1,13 @@
-//! Scheduled volume backups (Go's backups.go and backuptargets.go, ADR
-//! 0041): the backup loop starts the backups that are due, at most one per
-//! volume and one scheduled per node, on the volume's node through a
-//! volume session carrying the bucket and key from the revision's pinned
-//! secrets; outcomes are kept on the volume's record, with the
-//! VolumeBackupFailed and VolumeBackupUnsupported conditions. The methods
-//! ListVolumeSnapshots, CreateVolumeSnapshot, and RestoreVolumeSnapshot
-//! run there too, or, for a listing or a restore elsewhere while the
-//! volume's node is away, on a node that may hold the app's secrets. The
-//! bucket checks of deploys, rollbacks, and secret changes keep a bucket
-//! on a private address to cluster-admins.
+//! Scheduled volume backups (ADR 0041): the backup loop starts the backups
+//! that are due, at most one per volume and one scheduled per node, on the
+//! volume's node through a volume session carrying the bucket and key from
+//! the revision's pinned secrets; outcomes are kept on the volume's record,
+//! with the VolumeBackupFailed and VolumeBackupUnsupported conditions. The
+//! methods ListVolumeSnapshots, CreateVolumeSnapshot, and
+//! RestoreVolumeSnapshot run there too, or, for a listing or a restore
+//! elsewhere while the volume's node is away, on a node that may hold the
+//! app's secrets. The bucket checks of deploys, rollbacks, and secret
+//! changes keep a bucket on a private address to cluster-admins.
 
 use std::collections::{BTreeMap, HashSet};
 use std::net::IpAddr;
@@ -37,12 +36,12 @@ use crate::store_err;
 use crate::volumes::check_volume_args;
 
 pub(crate) const DEFAULT_BACKUP_INTERVAL: Duration = Duration::from_secs(30);
-/// backupRetry: the longest wait after a failed backup.
+/// The longest wait after a failed backup.
 pub(crate) const BACKUP_RETRY: i64 = 5 * 60 * 1_000_000_000;
-/// backupTimeout bounds one backup or restore.
+/// Bounds one backup or restore.
 pub(crate) const BACKUP_TIMEOUT: Duration = Duration::from_secs(6 * 3600);
 
-/// backupRuns: the backups in flight, one per volume, one scheduled per
+/// The backups in flight, one per volume, one scheduled per
 /// node.
 #[derive(Default)]
 pub struct BackupRuns {
@@ -73,7 +72,7 @@ impl BackupRuns {
     }
 }
 
-/// Releases a claim of BackupRuns when dropped (Go's deferred done).
+/// Releases a claim of BackupRuns when dropped.
 struct Claim<'a> {
     runs: &'a BackupRuns,
     volume: String,
@@ -87,7 +86,7 @@ impl Drop for Claim<'_> {
     }
 }
 
-/// backupDue: when a volume's next backup is due, on the schedule after
+/// When a volume's next backup is due, on the schedule after
 /// the last success, and after a failure no later than backupRetry.
 pub(crate) fn backup_due(b: &VolumeBackup, st: &VolumeBackupState) -> Time {
     let mut due = b.next(&st.last_at);
@@ -103,7 +102,7 @@ pub(crate) fn backup_due(b: &VolumeBackup, st: &VolumeBackupState) -> Time {
     due
 }
 
-/// volumeBackupInfo fills a listed volume's backup fields.
+/// Fills a listed volume's backup fields.
 pub(crate) fn volume_backup_info(
     out: &mut Volume,
     b: Option<&VolumeBackup>,
@@ -128,7 +127,7 @@ pub(crate) fn volume_backup_info(
     out.next_backup_at = Some(timestamp(&next));
 }
 
-/// mayHoldSecrets: n is ready and the placement of every revision in revs
+/// n is ready and the placement of every revision in revs
 /// allows it, so n may be sent the secrets they pin.
 pub(crate) fn may_hold_secrets(n: &Node, revs: &[Revision]) -> bool {
     n.state == NODE_READY && !revs.is_empty() && revs.iter().all(|r| placement_allows(n, r))
@@ -146,7 +145,7 @@ fn private_ip(t: &volbackup::Target) -> Option<IpAddr> {
     volbackup::is_private(ip).then(|| volbackup::unmap(ip))
 }
 
-/// net.SplitHostPort for what ParseTarget writes as an endpoint.
+/// The host and port of what ParseTarget writes as an endpoint.
 fn split_host_port(s: &str) -> Option<(String, String)> {
     if let Some(rest) = s.strip_prefix('[') {
         let (h, p) = rest.split_once("]:")?;
@@ -163,8 +162,8 @@ fn has_backups(sp: &Spec) -> bool {
     sp.volumes.iter().any(|v| v.backup.is_some())
 }
 
-/// A failure of a backup step: Go's errors that are not gRPC statuses
-/// read as Unknown here, and CreateVolumeSnapshot answers them as
+/// A failure of a backup step that is not a gRPC status: Unknown here,
+/// and CreateVolumeSnapshot answers it as
 /// FailedPrecondition.
 fn plain(msg: impl Into<String>) -> Status {
     Status::new(Code::Unknown, msg.into())
@@ -188,7 +187,7 @@ impl Server {
         }
     }
 
-    /// volumeBackupSpec: the backup settings of a volume from the revision
+    /// The backup settings of a volume from the revision
     /// the app serves (or rolls out, before it serves any), with it.
     async fn volume_backup_spec(
         &self,
@@ -214,7 +213,7 @@ impl Server {
         Ok((b, Some(rev)))
     }
 
-    /// scheduleBackups starts the backups that are due; each runs on its
+    /// Starts the backups that are due; each runs on its
     /// own (until shutdown, when given), and the handles say when they end.
     pub async fn schedule_backups(
         &self,
@@ -301,7 +300,7 @@ impl Server {
         Ok(started)
     }
 
-    /// backupTarget: the request's bucket and key from the revision's
+    /// The request's bucket and key from the revision's
     /// pinned secrets.
     pub(crate) async fn backup_target(
         &self,
@@ -340,7 +339,7 @@ impl Server {
         })
     }
 
-    /// runSnapshot backs a volume up on its node and records how it went.
+    /// Backs a volume up on its node and records how it went.
     async fn run_snapshot(
         &self,
         v: &armada_store::Volume,
@@ -449,7 +448,7 @@ impl Server {
         }
     }
 
-    /// repoOp: a bucket operation on node; the agent's answer is its last
+    /// A bucket operation on node; the agent's answer is its last
     /// message, which may carry a result and an error together.
     pub(crate) async fn repo_op(
         &self,
@@ -480,7 +479,7 @@ impl Server {
         }
     }
 
-    /// repoNode: where a bucket operation runs: the volume's node, or,
+    /// Where a bucket operation runs: the volume's node, or,
     /// when it is not connected and the operation needs no data, a
     /// connected node that backs volumes up and may hold the app's
     /// secrets.
@@ -546,7 +545,7 @@ impl Server {
         Ok(out)
     }
 
-    /// backupFor: the volume and its backup settings for a method.
+    /// The volume and its backup settings for a method.
     async fn backup_for(
         &self,
         app: &str,
@@ -789,7 +788,7 @@ impl Server {
         Ok(RestoreVolumeResponse { node })
     }
 
-    /// checkBackupTargets: only cluster-admins point an app's volume
+    /// Only cluster-admins point an app's volume
     /// backups at a bucket on a private IP address (ADR 0041). A change
     /// that keeps the private addresses of the revision the app is heading
     /// to is anyone's who may deploy it. value reads the URL secret sp
@@ -828,7 +827,7 @@ impl Server {
         Ok(())
     }
 
-    /// approvedBackupIPs: the private bucket addresses of the revision the
+    /// The private bucket addresses of the revision the
     /// app is heading to (its target, else its active one).
     async fn approved_backup_ips(&self, app_id: &str) -> Result<HashSet<IpAddr>, Status> {
         let mut out = HashSet::new();
@@ -871,7 +870,7 @@ impl Server {
         Ok(out)
     }
 
-    /// revisionSecrets: the secret versions rev pins.
+    /// The secret versions rev pins.
     async fn revision_secrets(&self, rev: &Revision) -> Result<BTreeMap<String, Value>, Status> {
         Revisions::new(self).secrets(rev).await.map_err(|_| {
             Status::new(
@@ -881,7 +880,7 @@ impl Server {
         })
     }
 
-    /// checkRollbackBackups: checkBackupTargets on the revision a rollback
+    /// check_backup_targets on the revision a rollback
     /// restores, with the secret versions it pins.
     pub(crate) async fn check_rollback_backups(
         &self,
@@ -908,7 +907,7 @@ impl Server {
             .await
     }
 
-    /// checkSecretBackups: checkBackupTargets when a change to a secret's
+    /// check_backup_targets when a change to a secret's
     /// key sets the bucket URL of the revision an app is heading to, for
     /// the secret's own app and every app whose revisions pin the key.
     pub(crate) async fn check_secret_backups(
@@ -1007,7 +1006,7 @@ impl Server {
 /// secret change sets.
 pub(crate) enum UrlSource<'a> {
     Pinned(BTreeMap<String, Value>),
-    /// latestValue, with the secrets listed so far.
+    /// The latest values, with the secrets listed so far.
     Latest {
         app: &'a str,
         infos: BTreeMap<String, Vec<armada_store::SecretInfo>>,

@@ -1,10 +1,9 @@
-//! Jobs (ADR 0019; Go's jobs.go and jobtasks.go): the reconcile pass
+//! Jobs (ADR 0019): the reconcile pass
 //! schedules runs from cron fires, starts runs for queues (`triggers`),
 //! places and watches each attempt, retries with backoff, runs the tasks
 //! of runs with several, and prunes old runs; and the AdminService methods
 //! of jobs, with the counter of ended runs on the metrics endpoint. Job
-//! logs come with the second part of watching (pull request 15 of ADR
-//! 0055).
+//! logs are the logs module's.
 
 use std::collections::HashMap;
 
@@ -30,19 +29,20 @@ type Result<T> = std::result::Result<T, armada_store::Error>;
 
 const SECOND: i64 = 1_000_000_000;
 const MINUTE: i64 = 60 * SECOND;
-/// jobStartingDeadline: how late a scheduled run may still start.
+/// How late a scheduled run may still start.
 const JOB_STARTING_DEADLINE: i64 = 60 * MINUTE;
-/// jobLogsKept: how long the container of a finished run is kept.
+/// How long the container of a finished run is kept.
 pub(crate) const JOB_LOGS_KEPT: i64 = 24 * 60 * MINUTE;
-/// maxScheduleCatchUp bounds the fires walked to find the latest due one.
+/// Bounds the fires walked to find the latest due one.
 const MAX_SCHEDULE_CATCH_UP: usize = 100_000;
 const JOB_ACTOR: &str = "armada:schedule";
 /// The delay before a retry doubles with each failed attempt, from the
-/// server's base (defaultJobRetryBase) up to jobRetryMax.
+/// server's base up to five minutes.
 pub(crate) const DEFAULT_JOB_RETRY_BASE: std::time::Duration = std::time::Duration::from_secs(10);
 const JOB_RETRY_MAX: i64 = 5 * MINUTE;
 
-/// Go's Duration.Round.
+/// d rounded to the nearest multiple of m, halfway away from zero,
+/// saturating at the i64 bounds; m <= 0 leaves d as it is.
 pub(crate) fn round(d: i64, m: i64) -> i64 {
     if m <= 0 {
         return d;
@@ -69,7 +69,7 @@ pub(crate) fn round(d: i64, m: i64) -> i64 {
     }
 }
 
-/// runObject: a run's name in events.
+/// A run's name in events.
 pub(crate) fn run_object(r: &JobRun) -> String {
     format!("{}#{}", r.job, r.seq)
 }
@@ -92,7 +92,7 @@ fn retry_wait(base: i64, attempts: i64) -> i64 {
         .min(JOB_RETRY_MAX)
 }
 
-/// attemptOutcome: whether the attempt rep, placed at `at`, is over:
+/// Whether the attempt rep, placed at `at`, is over:
 /// finished, failed to start, lost its node, or ran past timeout.
 fn attempt_outcome(
     rc: &Run<'_>,
@@ -175,7 +175,7 @@ impl Server {
         crate::reconcile::nanos(self.0.job_retry_base)
     }
 
-    /// reconcileJobs schedules runs, places and watches their attempts,
+    /// Schedules runs, places and watches their attempts,
     /// and prunes old runs.
     pub(crate) async fn reconcile_jobs(
         &self,
@@ -233,7 +233,7 @@ impl Server {
         self.prune_runs(rc, job, &runs).await
     }
 
-    /// scheduleJob creates the run for the latest due fire of job's
+    /// Creates the run for the latest due fire of job's
     /// schedule, if any.
     async fn schedule_job(
         &self,
@@ -338,7 +338,7 @@ impl Server {
         runs
     }
 
-    /// startAttempt places the next attempt of a pending run once its
+    /// Places the next attempt of a pending run once its
     /// retry delay has passed.
     async fn start_attempt(
         &self,
@@ -444,7 +444,7 @@ impl Server {
         }
     }
 
-    /// watchAttempt ends a running attempt that finished, failed to start,
+    /// Ends a running attempt that finished, failed to start,
     /// lost its node, or ran past its timeout.
     async fn watch_attempt(&self, rc: &mut Run<'_>, job: &App, r: &mut JobRun) -> Result<()> {
         let Some(rep) = rc.all.iter().find(|x| x.id == r.replica).cloned() else {
@@ -467,7 +467,7 @@ impl Server {
         self.attempt_failed(rc, job, r, code, &msg).await
     }
 
-    /// attemptFailed retries a run if its job allows another attempt, or
+    /// Retries a run if its job allows another attempt, or
     /// ends it as failed.
     async fn attempt_failed(
         &self,
@@ -502,7 +502,7 @@ impl Server {
         Ok(())
     }
 
-    /// endRun records the end of a run.
+    /// Records the end of a run.
     async fn end_run(&self, r: &mut JobRun, state: &str, code: i64, msg: &str) -> Result<()> {
         r.state = state.to_string();
         r.exit_code = code;
@@ -535,7 +535,7 @@ impl Server {
         Ok(())
     }
 
-    /// pruneRuns keeps the newest finished runs the job's history allows,
+    /// Keeps the newest finished runs the job's history allows,
     /// and the containers of finished runs for jobLogsKept.
     async fn prune_runs(&self, rc: &mut Run<'_>, job: &App, runs: &[JobRun]) -> Result<()> {
         let ended: Vec<&JobRun> = runs.iter().filter(|r| !r.active()).collect();
@@ -572,7 +572,7 @@ impl Server {
         Ok(())
     }
 
-    /// reconcileTasks moves a run with several tasks: watches the running
+    /// Moves a run with several tasks: watches the running
     /// ones, retries or fails those that ended badly, starts pending ones
     /// while fewer than the parallelism run, and ends the run once every
     /// task succeeded or one failed for good.
@@ -785,7 +785,7 @@ impl Server {
         self.store().update_job_run(r).await
     }
 
-    /// stopTasks ends the tasks of r that have not ended as cancelled, and
+    /// Ends the tasks of r that have not ended as cancelled, and
     /// marks their attempts done so their agents stop them.
     async fn stop_tasks(&self, rc: &mut Run<'_>, r: &mut JobRun) -> Result<()> {
         for i in 0..r.tasks.len() {
@@ -808,7 +808,7 @@ impl Server {
         Ok(())
     }
 
-    /// jobOf: the job named name, or a gRPC error.
+    /// The job named name, or a gRPC error.
     async fn job_of(&self, name: &str) -> std::result::Result<App, Status> {
         let a = match self.store().get_app(name).await {
             Ok(a) => a,
@@ -904,7 +904,7 @@ impl Server {
         self.jobs_and_runs(a).await.map(|(resp, _)| resp)
     }
 
-    /// listJobs: the jobs the caller sees, with every job's runs (one
+    /// The jobs the caller sees, with every job's runs (one
     /// read).
     pub(crate) async fn jobs_and_runs(
         &self,
@@ -1033,7 +1033,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn rounds_as_go() {
+    fn rounds() {
         assert_eq!(round(90 * SECOND, MINUTE), 2 * MINUTE);
         assert_eq!(round(89 * SECOND, MINUTE), MINUTE);
         assert_eq!(round(1_499_999_999, SECOND), SECOND);

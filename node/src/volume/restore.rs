@@ -1,4 +1,4 @@
-//! restoreArchive: a gzipped tar from stdin into a new directory next to
+//! A gzipped tar from stdin into a new directory next to
 //! the volume, swapped in only when every entry was restored. Entries may
 //! only be directories, regular files (sparse ones expanded), and links,
 //! with relative names that stay inside the volume; no entry is written
@@ -9,8 +9,8 @@
 //! deepest first, so a read-only directory still takes its entries. The
 //! whole stream is read: what follows the tar's end blocks may only be
 //! zeros, and the gzip trailer (CRC-32 and length) of every member is
-//! checked, so a damaged or extended archive is refused. Paths are used as
-//! Go uses them: the new directory is private (0700, under the volumes'
+//! checked, so a damaged or extended archive is refused. Paths are used
+//! whole: the new directory is private (0700, under the volumes'
 //! root-owned 0700 directory), so nothing else changes it meanwhile.
 
 use super::gzip;
@@ -43,8 +43,8 @@ pub fn command(dir: &str) -> Result<(), String> {
 }
 
 /// stdin, whose end is the agent's error when it wrote one on descriptor
-/// 4 (the session failed): Go's reader gives that error where it read,
-/// and again on every later read. The agent closes descriptor 4 before
+/// 4 (the session failed): that error is given where it read, and again
+/// on every later read. The agent closes descriptor 4 before
 /// stdin, so it is complete once stdin ends.
 struct Feed {
     r: io::Stdin,
@@ -281,7 +281,7 @@ fn parent(p: &[u8]) -> Vec<u8> {
     crate::runtime::image::unpack::clean(&p[..i])
 }
 
-/// os.MkdirAll(p, 0700).
+/// Makes p and its missing parents, 0700.
 fn mkdir_all(p: &[u8]) -> Result<(), String> {
     match stat(p) {
         Ok(st) if is_dir(&st) => return Ok(()),
@@ -395,9 +395,9 @@ fn reserve(f: &Free) -> (u64, u64) {
     ((f.total_bytes / 20).max(1 << 30), f.total_inodes / 20)
 }
 
-/// os.Chtimes(p, t, t): the zero time leaves a time alone. A time past
-/// what 64 bits of nanoseconds hold (2262) is set whole, not wrapped as
-/// Go's UnixNano wraps it.
+/// Sets p's access and modification times to t: the zero time leaves a
+/// time alone. A time past what 64 bits of nanoseconds hold (2262) is set
+/// whole, not wrapped.
 fn chtimes(p: &[u8], t: tar::Time) -> Result<(), i32> {
     const ZERO_SECS: i128 = -62_135_596_800;
     let ts = match t {
@@ -427,7 +427,7 @@ fn join(a: &[u8], b: &[u8]) -> Vec<u8> {
     crate::runtime::image::unpack::join(a, b)
 }
 
-/// archivePath: "." (or "./") names the volume itself; an empty name
+/// "." (or "./") names the volume itself; an empty name
 /// names nothing and is refused.
 fn archive_path(root: &[u8], name: &[u8]) -> Result<Vec<u8>, String> {
     if name.is_empty() {
@@ -601,7 +601,7 @@ impl Writer {
             }
         }
         let c = cstr(&target).map_err(errno::text)?;
-        // SAFETY: lchown with a valid C string; ids truncate as Go's do.
+        // SAFETY: lchown with a valid C string; ids truncate to 32 bits.
         if unsafe { libc::lchown(c.as_ptr(), e.uid as u32, e.gid as u32) } < 0 {
             return Err(format!(
                 "archive entry {q}: {}",
@@ -680,7 +680,7 @@ mod tests {
         e.finish().unwrap()
     }
 
-    /// An archive Go's writer would make of entries (name, type, mode,
+    /// An archive the tar writer makes of entries (name, type, mode,
     /// mtime, body), owned by the user running the tests.
     fn archive(entries: &[(&str, u8, i64, i64, &str)]) -> Vec<u8> {
         let mut tw = super::super::archive::TarWriter::new(Vec::new());
@@ -837,7 +837,7 @@ mod tests {
     }
 
     #[test]
-    fn restores_and_refuses_as_go() {
+    fn restores_and_refuses() {
         let dir = tmp("ok");
         let mut tw = super::super::archive::TarWriter::new(Vec::new());
         let (uid, gid) = unsafe { (i64::from(libc::getuid()), i64::from(libc::getgid())) };

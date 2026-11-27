@@ -1,4 +1,4 @@
-//! Control plane nodes (Go's servers.go): the recorded servers joined
+//! Control plane nodes: the recorded servers joined
 //! with the etcd membership, the API addresses agents and clients are
 //! given, learners promoted by the leader, and a term's start.
 

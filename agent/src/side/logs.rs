@@ -1,7 +1,6 @@
-//! Log sessions and the log history (ADR 0043; Go's serveLogs, serveLive,
-//! loghistory.go): live logs and follows of a replica's container,
-//! searches of the node's history, and its prune with the cluster's
-//! settings.
+//! Log sessions and the log history (ADR 0043): live logs and follows of a
+//! replica's container, searches of the node's history, and its prune with
+//! the cluster's settings.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -27,14 +26,14 @@ pub const MAX_SEARCHES: usize = 2;
 /// its tail in memory.
 pub const MAX_LIVE_LOGS: usize = 32;
 
-/// Go's runtime.ContainsFold: whether line holds needle (lower case),
+/// Whether line holds needle (lower case),
 /// ignoring case.
 pub fn contains_fold(line: &[u8], needle: &[u8]) -> bool {
     if needle.is_empty() {
         return true;
     }
     if needle.iter().any(|&c| c >= 0x80) {
-        // bytes.ToLower: Unicode lower case of valid UTF-8, other bytes as
+        // Unicode lower case of valid UTF-8, other bytes as
         // they are.
         let lower = lower_bytes(line);
         return lower.windows(needle.len()).any(|w| w == needle);
@@ -45,12 +44,12 @@ pub fn contains_fold(line: &[u8], needle: &[u8]) -> bool {
     (0..=line.len() - needle.len()).any(|i| line[i..i + needle.len()].eq_ignore_ascii_case(needle))
 }
 
-/// Go's bytes.ToLower.
+/// b in lower case, rune by rune; invalid UTF-8 kept as it is.
 fn lower_bytes(b: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(b.len());
     for chunk in b.utf8_chunks() {
         for c in chunk.valid().chars() {
-            // unicode.ToLower maps one rune to one rune.
+            // Lower case maps one rune to one rune here.
             let mut l = c.to_lowercase();
             let lower = match (l.next(), l.next()) {
                 (Some(x), None) => x,
@@ -64,7 +63,7 @@ fn lower_bytes(b: &[u8]) -> Vec<u8> {
     out
 }
 
-/// Go's containerFor: the replica's own container, or its init container
+/// The replica's own container, or its init container
 /// or sidecar by name.
 pub(crate) fn container_for(
     cs: &[crate::runtime::Container],
@@ -94,7 +93,7 @@ fn stream_of(stderr: bool) -> i32 {
 }
 
 impl<R: Runtime> Inner<R> {
-    /// One log request (Go's serveLogs).
+    /// One log request.
     pub(crate) async fn serve_logs(self: Arc<Self>, req: pb::LogRequest) {
         let (cancel_tx, mut cancel) = watch::channel(false);
         lock(&self.side.cancels).insert(req.request_id.clone(), cancel_tx);
@@ -134,7 +133,7 @@ impl<R: Runtime> Inner<R> {
         let _ = call.await;
     }
 
-    /// Streams a replica's live logs (serveLive), at most MAX_LIVE_LOGS at
+    /// Streams a replica's live logs, at most MAX_LIVE_LOGS at
     /// once.
     async fn serve_live(&self, req: &pb::LogRequest, push: &Push) {
         let Ok(_permit) = self.side.live_logs.clone().try_acquire_owned() else {
@@ -205,7 +204,7 @@ impl<R: Runtime> Inner<R> {
         }
     }
 
-    /// Answers a search of the node's log history (serveSearch).
+    /// Answers a search of the node's log history.
     async fn serve_search(&self, req: &pb::LogRequest, q: &pb::LogQuery, push: &Push) {
         let Ok(_permit) = self.side.searches.clone().try_acquire_owned() else {
             push.finish("busy with other log searches; try again shortly")
@@ -265,8 +264,8 @@ impl<R: Runtime> Inner<R> {
         *lock(&self.side.logs) = Some(s.cloned().unwrap_or_default());
     }
 
-    /// Bounds the node's log history with the cluster's settings
-    /// (pruneLogs); nothing before the first assignment.
+    /// Bounds the node's log history with the cluster's settings; nothing
+    /// before the first assignment.
     pub(crate) async fn prune_logs(&self) {
         if !self.rt.prunes_logs() {
             return;

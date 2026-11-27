@@ -1,8 +1,6 @@
-//! The command line reference written from the Rust armadad's commands
-//! equals docs/cli: armadad's pages there are the daemon's (ADR 0055,
-//! item 20: `make docs` writes them from these commands, as Go's
-//! TestReferenceIsCurrent wrote them from Go's, which still checks them
-//! while Go is in the repository). With ARMADA_CLIDOC_UPDATE=1 the test
+//! The command line reference written from armadad's commands equals
+//! docs/cli: armadad's pages there are the daemon's (`make docs` writes
+//! them from these commands). With ARMADA_CLIDOC_UPDATE=1 the test
 //! writes the daemon's pages into docs/cli instead, removing armadad's
 //! pages no command has. armada's pages are the client's
 //! (client/tests/clidoc.rs).
@@ -35,7 +33,7 @@ fn reference_equals_docs_cli() {
             let (w, g): (Vec<&str>, Vec<&str>) = (want.lines().collect(), page.lines().collect());
             if let Some(i) = (0..w.len().max(g.len())).find(|&i| w.get(i) != g.get(i)) {
                 eprintln!(
-                    "docs/cli/{name}:{}:\n  docs: {:?}\n  Rust: {:?}",
+                    "docs/cli/{name}:{}:\n  docs: {:?}\n  got: {:?}",
                     i + 1,
                     w.get(i),
                     g.get(i)

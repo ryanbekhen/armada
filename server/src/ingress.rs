@@ -1,5 +1,4 @@
-//! Ingress (Go's ingress.go and the proxy parts of reconciler.go; ADR
-//! 0055, pull request 14): the proxy configuration every node's HAProxy
+//! Ingress: the proxy configuration every node's HAProxy
 //! renders, built by each pass from the apps and their replicas (backends,
 //! internal and public rules, labelled revisions' backends and weights,
 //! local-first, sticky sessions, CORS, client address rules, wake backends,
@@ -11,8 +10,8 @@
 //! certificates by reference for agents that fetch them
 //! (GetCertificates), custom domains with their TXT proof (ListDomains,
 //! VerifyDomain), and the trusted proxies and PROXY protocol sources of
-//! SetClusterConfig. Go's proxy.Config.Validate is ported here too: the
-//! leader checks what it sends as the agents check what they render.
+//! SetClusterConfig. The configuration is validated here too: the leader
+//! checks what it sends as the agents check what they render.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::time::Duration;
@@ -48,7 +47,6 @@ pub(crate) const META_PROXY_PROTOCOL: &str = "proxy_protocol";
 /// TXTPrefix: the label under which domain owners publish the
 /// verification token.
 pub const TXT_PREFIX: &str = "_armada-verify.";
-/// defaultVerifyInterval.
 pub const DEFAULT_VERIFY_INTERVAL: Duration = Duration::from_secs(60);
 
 const EVENT_DOMAIN: &str = "domain";
@@ -61,19 +59,18 @@ const MAX_RULES: usize = 1_000_000;
 const MAX_CERTIFICATES: usize = 100_000;
 const MAX_SERVERS: usize = 2 * MAX_REPLICAS as usize;
 const MAX_CERTIFICATE_PEM: usize = 64 << 10;
-/// proxy.MaxTrustedProxies.
 pub(crate) const MAX_TRUSTED_PROXIES: usize = 64;
 const MAX_TCP_ROUTES: usize = 100_000;
 const MAX_TCP_PORTS: usize = 4096;
 const MAX_WEIGHT: i64 = 256;
 const MAX_CORS_MAX_AGE_SECONDS: i64 = 86400;
-/// maxCertificateNames bounds one GetCertificates call.
+/// Bounds one GetCertificates call.
 const MAX_CERTIFICATE_NAMES: usize = 256;
 
 /// The bridge subnet of clusters without a cluster network.
 const LEGACY_CONTAINER_SUBNET: &str = "10.121.0.0/24";
 
-/// proxy.Config, as Go's server builds and validates it.
+/// The proxy configuration, as the leader builds and validates it.
 #[derive(Default)]
 pub(crate) struct Px {
     backends: Vec<Backend>,
@@ -134,13 +131,13 @@ struct TcpRoute {
     allow: Vec<String>,
 }
 
-/// proxy.BackendSpace: the space of the app a backend serves, or "".
+/// The space of the app a backend serves, or "".
 fn backend_space(backend: &str) -> String {
     let id = backend.split_once("--").map_or(backend, |(_, id)| id);
     split_app_id(id).map(|(p, _)| p).unwrap_or_default()
 }
 
-/// netip.ParseAddrPort with its canonical text, or None.
+/// An address and port with its canonical text, or None.
 pub(crate) fn parse_addr_port(s: &str) -> Option<(Addr, u16, String)> {
     let i = s.rfind(':')?;
     let (host, port) = (&s[..i], &s[i + 1..]);
@@ -189,7 +186,6 @@ fn around(p: &Prefix, e: &Prefix) -> Vec<Prefix> {
     res
 }
 
-/// proxy.ExcludePrefixes.
 pub(crate) fn exclude_prefixes(trusted: &[String], out: &[Prefix]) -> Vec<String> {
     let mut cur: Vec<Prefix> = trusted
         .iter()
@@ -216,7 +212,7 @@ pub(crate) fn exclude_prefixes(trusted: &[String], out: &[Prefix]) -> Vec<String
     res
 }
 
-/// parseProxyPrefixes: canonical, sorted, without duplicates; a prefix
+/// Canonical, sorted, without duplicates; a prefix
 /// matching every address is refused.
 fn parse_proxy_prefixes(one: &str, many: &str, prefixes: &[String]) -> Result<Vec<String>, String> {
     if prefixes.len() > MAX_TRUSTED_PROXIES {
@@ -240,12 +236,10 @@ fn parse_proxy_prefixes(one: &str, many: &str, prefixes: &[String]) -> Result<Ve
     Ok(out)
 }
 
-/// proxy.ParseTrustedProxies.
 pub(crate) fn parse_trusted_proxies(p: &[String]) -> Result<Vec<String>, String> {
     parse_proxy_prefixes("trusted proxy", "trusted proxies", p)
 }
 
-/// proxy.ParseProxyProtocol.
 pub(crate) fn parse_proxy_protocol(p: &[String]) -> Result<Vec<String>, String> {
     parse_proxy_prefixes("PROXY protocol source", "PROXY protocol sources", p)
 }
@@ -254,7 +248,6 @@ fn join_prefixes(ps: &[Prefix]) -> String {
     ps.iter().map(Prefix::string).collect::<Vec<_>>().join(", ")
 }
 
-/// validCORS.
 fn valid_cors(c: &Option<Cors>) -> Result<(), String> {
     let Some(c) = c else { return Ok(()) };
     if c.origins.is_empty() || c.origins.len() > MAX_CORS_ORIGINS {
@@ -289,7 +282,6 @@ fn valid_cors(c: &Option<Cors>) -> Result<(), String> {
     Ok(())
 }
 
-/// validIPRules.
 fn valid_ip_rules(b: &Backend) -> Result<(), String> {
     if !b.ip_allow.is_empty() && !b.ip_deny.is_empty() {
         return Err("both allowed and denied client addresses".into());
@@ -380,7 +372,7 @@ fn trim_right_ws(b: &[u8]) -> &[u8] {
     &b[..e]
 }
 
-/// checkPEM: a certificate chain followed by one private key.
+/// A certificate chain followed by one private key.
 fn check_pem(b: &[u8]) -> Result<(), String> {
     if b.len() > MAX_CERTIFICATE_PEM {
         return Err("bundle too large".into());
@@ -566,7 +558,6 @@ impl Px {
         }
     }
 
-    /// validTCP.
     fn valid_tcp(&self) -> Vec<String> {
         let mut errs = Vec::new();
         if self.tcp.len() > MAX_TCP_ROUTES || self.tcp_ports().len() > MAX_TCP_PORTS {
@@ -701,7 +692,7 @@ fn server_address_ok(addr: &str) -> bool {
     matches!(parse_addr_port(addr), Some((a, port, text)) if is_private(&a) && port != 0 && text == addr)
 }
 
-/// tcpPorts: the ports of a proxy configuration's TCP routes, sorted.
+/// The ports of a proxy configuration's TCP routes, sorted.
 pub(crate) fn tcp_ports(px: Option<&ProxyConfig>) -> Vec<u32> {
     let mut out: Vec<u32> = px
         .map(|p| p.tcp_routes.iter().map(|r| r.port).collect())
@@ -715,7 +706,7 @@ fn spec_of(a: &App) -> &Spec {
     a.spec.as_deref().expect("a stored app has a spec")
 }
 
-/// rootHost: the host Armada gives a name under the root domain, or "".
+/// The host Armada gives a name under the root domain, or "".
 fn root_host(name: &str, root: &str) -> String {
     if root.is_empty() {
         return String::new();
@@ -727,7 +718,7 @@ fn root_host(name: &str, root: &str) -> String {
     h
 }
 
-/// appHosts: <app>.<root> and the app's verified custom domains, once.
+/// <app>.<root> and the app's verified custom domains, once.
 fn app_hosts(app: &App, root: &str, verified: &BTreeSet<String>) -> Vec<String> {
     let mut hosts = Vec::new();
     let h = root_host(&app.name, root);
@@ -744,7 +735,7 @@ fn app_hosts(app: &App, root: &str, verified: &BTreeSet<String>) -> Vec<String> 
     hosts
 }
 
-/// rootHosts: every host under the root domain an external app or one of
+/// Every host under the root domain an external app or one of
 /// its labelled revisions is served at, with its backend.
 fn root_hosts(apps: &[App], root: &str) -> HashMap<String, String> {
     let mut hosts = HashMap::new();
@@ -776,7 +767,7 @@ fn root_hosts(apps: &[App], root: &str) -> HashMap<String, String> {
     hosts
 }
 
-/// appRoutes: (path, strip) of each route, "/" without any.
+/// (path, strip) of each route, "/" without any.
 fn app_routes(sp: &Spec) -> Vec<(String, bool)> {
     match &sp.ingress {
         Some(i) if !i.routes.is_empty() => i
@@ -788,7 +779,7 @@ fn app_routes(sp: &Spec) -> Vec<(String, bool)> {
     }
 }
 
-/// allowedCallers: the app IDs ingress.allow lets call, the app first;
+/// The app IDs ingress.allow lets call, the app first;
 /// empty when it allows its whole space.
 fn allowed_callers(id: &str, names: &[String]) -> Vec<String> {
     if names.is_empty() {
@@ -800,13 +791,13 @@ fn allowed_callers(id: &str, names: &[String]) -> Vec<String> {
     out
 }
 
-/// underWildcard: host is exactly one label under root.
+/// host is exactly one label under root.
 fn under_wildcard(host: &str, root: &str) -> bool {
     host.strip_suffix(&format!(".{root}"))
         .is_some_and(|l| !l.is_empty() && !l.contains('.'))
 }
 
-/// inProxy: r serves app's traffic.
+/// r serves app's traffic.
 fn in_proxy(app: &App, r: &Replica) -> bool {
     r.app == app.name
         && (r.revision == app.active_revision
@@ -818,7 +809,7 @@ fn in_proxy(app: &App, r: &Replica) -> bool {
         && !r.address.is_empty()
 }
 
-/// claimedTwice: the addresses and container IPs replicas of more than one
+/// The addresses and container IPs replicas of more than one
 /// app claim.
 fn claimed_twice(replicas: &[Replica]) -> BTreeSet<String> {
     let mut owner: HashMap<String, &str> = HashMap::new();
@@ -851,7 +842,7 @@ fn clashes(r: &Replica, clash: &BTreeSet<String>) -> bool {
         || (!r.ip.is_empty() && clash.contains(&format!("i/{}", r.ip)))
 }
 
-/// proxyServers: the servers of app's replicas that pass keep.
+/// The servers of app's replicas that pass keep.
 fn proxy_servers(
     app: &App,
     replicas: &[&Replica],
@@ -876,7 +867,7 @@ fn proxy_servers(
     out
 }
 
-/// weighServers: each server's revision weight divided among the
+/// Each server's revision weight divided among the
 /// revision's servers, scaled to the proxy's weight range.
 fn weigh_servers(app: &App, replicas: &[&Replica], servers: &mut [Srv]) {
     let rev_of: HashMap<&str, &str> = replicas
@@ -897,8 +888,9 @@ fn weigh_servers(app: &App, replicas: &[&Replica], servers: &mut [Srv]) {
     }
 }
 
-/// What the leader keeps of the last proxy configurations (Go's
-/// lastProxy, lastProxyRefs, servedCerts, lastCertNames).
+/// What the leader keeps of the last proxy configurations: in full, by
+/// reference, the certificates they serve, and the names given to the
+/// certificate manager.
 #[derive(Default)]
 pub struct ProxyMemory {
     last: Option<ProxyConfig>,
@@ -919,19 +911,19 @@ impl Server {
         }
     }
 
-    /// trustedProxies: the prefixes set with SetClusterConfig.
+    /// The prefixes set with SetClusterConfig.
     pub(crate) async fn trusted_proxies(&self) -> Result<Vec<String>, String> {
         self.meta_prefixes(META_TRUSTED_PROXIES, parse_trusted_proxies)
             .await
     }
 
-    /// proxyProtocol: the load balancers that send the PROXY protocol.
+    /// The load balancers that send the PROXY protocol.
     pub(crate) async fn proxy_protocol(&self) -> Result<Vec<String>, String> {
         self.meta_prefixes(META_PROXY_PROTOCOL, parse_proxy_protocol)
             .await
     }
 
-    /// containerRanges: the cluster CIDR, or the default bridge subnet.
+    /// The cluster CIDR, or the default bridge subnet.
     async fn container_ranges(&self) -> Result<Vec<Prefix>, armada_store::Error> {
         match self.store().get_network().await {
             Err(e) if e.kind == Kind::NotFound => Ok(vec![
@@ -961,7 +953,7 @@ impl Server {
         Ok(out)
     }
 
-    /// checkProxyPrefixes: refuses prefixes of only container addresses,
+    /// Refuses prefixes of only container addresses,
     /// or too many once those are taken out.
     pub(crate) async fn check_proxy_prefixes(
         &self,
@@ -994,7 +986,7 @@ impl Server {
         Ok(())
     }
 
-    /// addressConflict: records, once until it clears, that an app's
+    /// Records, once until it clears, that an app's
     /// replicas are out of the proxy because another app's claims their
     /// address.
     async fn address_conflict(&self, app: &str, replicas: &[&Replica], clash: &BTreeSet<String>) {
@@ -1015,7 +1007,7 @@ impl Server {
             .await;
     }
 
-    /// appDNS: the DNS token an app's ingress.dns names, pinned by its
+    /// The DNS token an app's ingress.dns names, pinned by its
     /// active revision (ADR 0047); DNSTokenUnavailable otherwise.
     async fn app_dns(&self, revs: &mut Revisions<'_>, app: &App) -> Option<Dns> {
         let d = spec_of(app)
@@ -1068,7 +1060,7 @@ impl Server {
         out
     }
 
-    /// buildProxy: the ingress configuration shared by every node.
+    /// The ingress configuration shared by every node.
     async fn build_proxy(&self, apps: &[App], replicas: &[Replica]) -> Result<Px, String> {
         let root = self.root_domain().await;
         let domains = self
@@ -1353,7 +1345,7 @@ impl Server {
         Ok(cfg)
     }
 
-    /// proxyConfig: the pass's proxy configuration, in full and with
+    /// The pass's proxy configuration, in full and with
     /// certificates by reference; when it cannot be built the nodes keep
     /// the last one that could.
     pub(crate) async fn proxy_config(
@@ -1565,7 +1557,7 @@ impl Server {
         out
     }
 
-    /// verifyDomain: checks the TXT record for d and records the result.
+    /// Checks the TXT record for d and records the result.
     async fn verify_domain_record(&self, d: Domain) -> Result<Domain, armada_store::Error> {
         if d.verified {
             return Ok(d);
@@ -1636,7 +1628,7 @@ impl Server {
         Ok(self.domain_proto(&d, Vec::new()).await)
     }
 
-    /// verifyLoop: checks every unverified domain's TXT record each
+    /// Checks every unverified domain's TXT record each
     /// interval.
     pub(crate) async fn verify_loop(&self, mut shutdown: tokio::sync::watch::Receiver<bool>) {
         loop {
@@ -1703,7 +1695,7 @@ mod tests {
     }
 
     #[test]
-    fn prefixes_parsed_like_go() {
+    fn prefixes_parsed() {
         assert_eq!(
             parse_trusted_proxies(&["192.0.2.7/24".into(), "192.0.2.0/24".into()]).unwrap(),
             vec!["192.0.2.0/24"]

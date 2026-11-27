@@ -1,4 +1,4 @@
-//! Armada's latest release (Go's internal/release, ADR 0030): one request
+//! Armada's latest release (ADR 0030): one request
 //! to GitHub's API for the last 100 releases, the newest stable one by
 //! version, an hour-long cache shared with `armada version`, and the notice
 //! the client shows at most once a day.
@@ -106,7 +106,7 @@ fn compare_idents(a: &[&str], b: &[&str]) -> i32 {
     }
 }
 
-/// strconv.ParseUint(s, 10, 64).
+/// A decimal 64-bit unsigned integer.
 fn parse_u64(s: &str) -> Option<u64> {
     if s.is_empty() || !s.bytes().all(|c| c.is_ascii_digit()) {
         return None;
@@ -114,7 +114,8 @@ fn parse_u64(s: &str) -> Option<u64> {
     s.parse().ok()
 }
 
-/// os.UserCacheDir.
+/// The user's cache directory: $XDG_CACHE_HOME or ~/.cache, and
+/// ~/Library/Caches on macOS.
 pub fn user_cache_dir() -> Option<PathBuf> {
     if cfg!(target_os = "macos") {
         let home = std::env::var("HOME").ok().filter(|h| !h.is_empty())?;
@@ -295,7 +296,7 @@ pub fn latest() -> Result<String, String> {
     Err("look for the latest release: no release found".to_string())
 }
 
-/// The files Go reads the machine's roots from.
+/// The files the machine's root certificates are read from.
 const ROOT_FILES: [&str; 6] = [
     "/etc/ssl/certs/ca-certificates.crt",
     "/etc/pki/tls/certs/ca-bundle.crt",
@@ -329,7 +330,7 @@ pub fn roots() -> RootCertStore {
 }
 
 /// An HTTPS GET of path on host, with GitHub's rate limit and statuses
-/// worded as Go's getJSON words them.
+/// worded in the client's own texts.
 fn get(host: &str, path: &str) -> Result<Vec<u8>, String> {
     let fail = |e: &dyn std::fmt::Display| format!("look for the latest release: {e}");
     let provider = Arc::new(rustls::crypto::ring::default_provider());

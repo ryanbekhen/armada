@@ -19,7 +19,7 @@ use super::protocol::{
 use super::{Cached, Cancel, Event, Inner, Solver, dns};
 use crate::certs::{safe, site_cert, site_private_key};
 
-/// retryIntervals and maxRetryDuration.
+/// The waits between tries, and how long tries go on.
 pub(crate) const RETRY_INTERVALS: [Duration; 25] = {
     const M: u64 = 60;
     const H: u64 = 3600;
@@ -57,10 +57,10 @@ pub(crate) const MAX_RETRY_DURATION: Duration = Duration::from_secs(30 * 24 * 36
 const RATE_EVENTS: usize = 10;
 const RATE_WINDOW: Duration = Duration::from_secs(10);
 
-/// defaultDNSPropagationTimeout.
 const PROPAGATION_TIMEOUT: Duration = Duration::from_secs(120);
 
-/// The seconds of Go's zero time, which a missing time reads as.
+/// The Unix seconds of 0001-01-01T00:00:00Z, which a missing time reads
+/// as.
 const ZERO_UNIX: i128 = -62_135_596_800;
 
 fn now_ns() -> i128 {
@@ -74,14 +74,13 @@ fn ns(t: &armada_spec::gotime::Time) -> i128 {
     t.unix as i128 * 1_000_000_000 + t.nsec as i128
 }
 
-/// currentlyInRenewalWindow.
 fn in_window(not_before: i128, not_after: i128, ratio: f64) -> bool {
     let lifetime = not_after - not_before;
     let window = (lifetime as f64 * ratio) as i128;
     now_ns() > not_after - window
 }
 
-/// certNeedsRenewal: ARI's selected time first (and an emergency window
+/// ARI's selected time first (and an emergency window
 /// of a twentieth of the lifetime), then a third of the lifetime left,
 /// then a fiftieth or less than five renewal checks.
 pub(crate) fn needs_renewal(leaf: &Leaf, ari: Option<&RenewalInfo>, interval: Duration) -> bool {
@@ -130,12 +129,11 @@ pub(crate) struct Resource {
 }
 
 impl Resource {
-    /// getACMEData.
     fn acme(&self) -> CertChain {
         CertChain::from_metadata(&self.issuer_data)
     }
 
-    /// managedCertNeedsRenewal: (left in ns, the leaf, whether due).
+    /// (left in ns, the leaf, whether due).
     pub(crate) fn needs_renewal(&self, interval: Duration) -> (i128, Option<Leaf>, bool) {
         match Leaf::from_bundle(&self.cert_pem) {
             Err(_) => (0, None, true),
@@ -163,7 +161,8 @@ impl Resource {
     }
 }
 
-/// json.MarshalIndent(CertificateResource{SANs, IssuerData}, "", "\t").
+/// A certificate's metadata (its names and the issuer's data) as JSON
+/// indented by tabs.
 fn resource_json(sans: &[String], issuer_data: &str) -> Vec<u8> {
     let mut compact = String::from("{");
     if !sans.is_empty() {
@@ -181,7 +180,7 @@ fn resource_json(sans: &[String], issuer_data: &str) -> Vec<u8> {
     go_indent_bytes(compact.as_bytes())
 }
 
-/// json.Indent(compact, "", "\t") as MarshalIndent applies it.
+/// Compact JSON indented by tabs.
 pub(crate) fn go_indent_bytes(b: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(b.len() * 2);
     let mut depth = 0usize;
@@ -246,12 +245,10 @@ fn site_meta(issuer: &str, name: &str) -> String {
     format!("certificates/{}/{n}/{n}.json", safe(issuer))
 }
 
-/// storageKeyACMECAPrefix.
 fn ca_prefix(issuer: &str) -> String {
     format!("acme/{}", safe(issuer))
 }
 
-/// emailUsername.
 fn email_username(email: &str) -> &str {
     match email.find('@') {
         None => email,
@@ -260,7 +257,6 @@ fn email_username(email: &str) -> &str {
     }
 }
 
-/// storageSafeUserKey.
 fn user_key(issuer: &str, email: &str, default_name: &str, ext: &str) -> String {
     let email = if email.is_empty() { "default" } else { email }.to_lowercase();
     let mut file = email_username(&email).to_string();
@@ -275,7 +271,6 @@ fn user_key(issuer: &str, email: &str, default_name: &str, ext: &str) -> String 
     )
 }
 
-/// getPrimaryContact.
 fn primary_contact(a: &Account) -> String {
     match a.contact.first() {
         None => String::new(),
@@ -325,7 +320,7 @@ fn qualifies_for_public_cert(s: &str) -> bool {
 }
 
 /// The DNS-01 solver: DNS01Solver with a Cloudflare provider, its
-/// records remembered per name (dnsPresentMemory).
+/// records remembered per name.
 pub(crate) struct DnsSolver {
     provider: Arc<Provider>,
     memory: Mutex<HashMap<String, Vec<(String, TxtRecord)>>>,
@@ -465,7 +460,7 @@ impl Inner {
             .insert(chal.identifier.value.clone(), chal.clone());
         match solver {
             Solver::Http => {
-                // distributedSolver: the challenge in storage, so whichever
+                // The challenge in storage, so whichever
                 // control plane node leads answers it.
                 let b = go_marshal(chal);
                 self.storage
@@ -547,7 +542,7 @@ impl Inner {
         None
     }
 
-    /// checkStorage: a random value written, read back, and deleted.
+    /// A random value written, read back, and deleted.
     async fn check_storage(&self) -> Result<(), String> {
         let key = format!("rw_test_{}", super::protocol::random_below(i64::MAX as u64));
         let mut contents = vec![0u8; 10 * 1024];
@@ -572,7 +567,6 @@ impl Inner {
         del.map_err(|e| e.to_string())
     }
 
-    /// storageHasCertResources.
     async fn has_resources(&self, name: &str) -> bool {
         self.storage.exists(&site_cert(&self.issuer, name)).await
             && self
@@ -582,7 +576,7 @@ impl Inner {
             && self.storage.exists(&site_meta(&self.issuer, name)).await
     }
 
-    /// loadCertResource: None when a part is missing.
+    /// None when a part is missing.
     pub(crate) async fn load_resource(&self, name: &str) -> Result<Option<Resource>, String> {
         let load =
             |k: String| async move { self.storage.load(&k).await.map_err(|e| e.to_string()) };
@@ -604,7 +598,7 @@ impl Inner {
         }))
     }
 
-    /// saveCertResource: key, certificate, then metadata, all or none.
+    /// Key, certificate, then metadata, all or none.
     async fn save_resource(
         &self,
         name: &str,
@@ -623,7 +617,7 @@ impl Inner {
         store_all(&self.storage, &all).await
     }
 
-    /// setEmail: the configured email, else the most recent account's in
+    /// The configured email, else the most recent account's in
     /// storage, lowercased.
     async fn set_email(&self) -> String {
         if let Some(e) = self.email.lock().unwrap_or_else(|p| p.into_inner()).clone() {
@@ -638,7 +632,6 @@ impl Inner {
         email
     }
 
-    /// mostRecentAccountEmail.
     async fn most_recent_account_email(&self) -> Option<String> {
         let users = format!("{}/users", ca_prefix(&self.issuer));
         let list = self.storage.list(&users, false).await.ok()??;
@@ -659,7 +652,7 @@ impl Inner {
         Some(primary_contact(&acct))
     }
 
-    /// loadAccount: None when it is not in storage.
+    /// None when it is not in storage.
     async fn load_account(&self, email: &str) -> Result<Option<Account>, String> {
         let reg = self
             .storage
@@ -683,7 +676,7 @@ impl Inner {
         Ok(Some(a))
     }
 
-    /// loadOrCreateAccount: the stored account, or a new one with a new
+    /// The stored account, or a new one with a new
     /// P-256 key (status empty until registered).
     async fn load_or_create_account(&self, email: &str) -> Result<Account, String> {
         if let Some(a) = self.load_account(email).await? {
@@ -699,7 +692,6 @@ impl Inner {
         Ok(a)
     }
 
-    /// saveAccount.
     async fn save_account(&self, a: &Account) -> Result<(), String> {
         let contact = primary_contact(a);
         let key = a.key.as_ref().ok_or("account has no private key")?.to_pem();
@@ -716,7 +708,6 @@ impl Inner {
         store_all(&self.storage, &all).await
     }
 
-    /// deleteAccountLocally.
     async fn delete_account(&self, a: &Account) -> Result<(), String> {
         let contact = primary_contact(a);
         self.storage
@@ -729,7 +720,7 @@ impl Inner {
             .map_err(|e| e.to_string())
     }
 
-    /// newACMEClientWithAccount: the account, registered under the
+    /// The account, registered under the
     /// account lock when it is new.
     async fn client_with_account(
         &self,
@@ -824,7 +815,7 @@ impl Inner {
         Ok(self.set_email().await)
     }
 
-    /// ACMEIssuer.Issue (doIssue): the chain and its metadata.
+    /// Issues a certificate: the chain and its metadata.
     #[allow(clippy::too_many_arguments)]
     async fn issue(
         &self,
@@ -935,7 +926,7 @@ impl Inner {
                 }
             }
         }
-        // validateOrderIdentifiers: the CSR's names are the order's.
+        // The CSR's names are the order's.
         let mut left: Vec<&Identifier> = want.iter().collect();
         if left.len() != order.identifiers.len() {
             return Err(Fail::new(format!(
@@ -977,7 +968,7 @@ impl Inner {
             })
     }
 
-    /// solveChallenges: present each pending authorization's challenge,
+    /// Present each pending authorization's challenge,
     /// tell the server, and poll; on failure every solver is cleaned up
     /// and the authorizations deactivated.
     async fn solve_challenges(
@@ -1161,7 +1152,7 @@ impl Inner {
         Ok(())
     }
 
-    /// doWithRetry: f until it succeeds, is cancelled, or 30 days passed,
+    /// f until it succeeds, is cancelled, or 30 days passed,
     /// waiting certmagic's intervals between tries.
     async fn with_retry<F, Fut>(&self, cancel: &Cancel, mut f: F) -> Result<(), Fail>
     where
@@ -1208,7 +1199,6 @@ impl Inner {
         Err(last)
     }
 
-    /// obtainCert.
     pub(crate) async fn obtain_cert(
         &self,
         name: &str,
@@ -1255,7 +1245,6 @@ impl Inner {
         r
     }
 
-    /// renewCert.
     pub(crate) async fn renew_cert(
         &self,
         name: &str,
@@ -1308,7 +1297,7 @@ impl Inner {
         r
     }
 
-    /// updateARI: the certificate's renewal information, from storage when
+    /// The certificate's renewal information, from storage when
     /// another node stored newer, else from the CA (stored with the
     /// metadata), under the `ari_<ID>` lock.
     pub(crate) async fn update_ari(&self, cert: &Cached) -> Result<(Cached, bool), String> {
@@ -1337,7 +1326,6 @@ impl Inner {
         let stored_acme = stored
             .as_ref()
             .map(|v| CertChain::from_metadata(v.get("issuer_data").unwrap_or(&Value::Null)));
-        // storageHasNewerARI.
         if let Some(s) = &stored_acme
             && let Some(ri) = &s.renewal_info
             && let Some(ra) = &ri.retry_after
@@ -1406,7 +1394,7 @@ impl Inner {
     }
 }
 
-/// %v of identifiers: [{dns a.test}].
+/// Identifiers as text: [{dns a.test}].
 fn ids(v: &[Identifier]) -> String {
     let parts: Vec<String> = v
         .iter()
@@ -1415,7 +1403,7 @@ fn ids(v: &[Identifier]) -> String {
     format!("[{}]", parts.join(" "))
 }
 
-/// storeTx: every value or none.
+/// Every value or none.
 async fn store_all(
     storage: &crate::certs::EtcdStorage,
     all: &[(String, Vec<u8>)],
@@ -1431,7 +1419,6 @@ async fn store_all(
     Ok(())
 }
 
-/// hostOnly.
 fn host_only(hostport: &str) -> String {
     if let Some(rest) = hostport.strip_prefix('[') {
         if let Some((h, port)) = rest.split_once("]:")

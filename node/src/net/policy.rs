@@ -1,4 +1,4 @@
-//! The isolation policy (policy.go's buildPolicy, ADR 0026): what the
+//! The isolation policy (ADR 0026): what the
 //! nftables tables that keep apps and spaces apart are built from.
 
 use super::addr::{Addr, Prefix};
@@ -19,7 +19,7 @@ pub struct Policy {
     pub tcp_ports: Vec<u16>,
 }
 
-/// buildPolicy: the cluster's container addresses merged with this node's
+/// The cluster's container addresses merged with this node's
 /// own (`local`), which win in the node subnet; with none, the control
 /// plane's list is used as is.
 pub fn build_policy(p: &Plan, local: Option<&HashMap<Addr, String>>) -> Policy {

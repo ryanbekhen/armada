@@ -1,8 +1,6 @@
-//! The command line reference written from the Rust client's commands
-//! equals docs/cli: armada's pages there are the client's (ADR 0055,
-//! item 20: `make docs` writes them from these commands, as Go's
-//! TestReferenceIsCurrent wrote them from Go's, which still checks them
-//! while Go is in the repository). With ARMADA_CLIDOC_UPDATE=1 the test
+//! The command line reference written from the client's commands equals
+//! docs/cli: armada's pages there are the client's (`make docs` writes
+//! them from these commands). With ARMADA_CLIDOC_UPDATE=1 the test
 //! writes the client's pages into docs/cli instead, removing armada's
 //! pages no command has. armadad's pages are the daemon's
 //! (daemon/tests/clidoc.rs).

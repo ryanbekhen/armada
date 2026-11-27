@@ -1,9 +1,9 @@
-//! Go's archive/tar reader (reader.go, strconv.go, format.go) as
-//! containerd's applier reads a layer with it: the same headers (V7,
-//! USTAR, PAX, GNU, STAR), the same PAX records and GNU long names, the
-//! same numbers (octal and base-256), and the same errors where an
-//! archive is malformed. GNU sparse files (the old GNU format and PAX
-//! 0.0, 0.1, and 1.0) are expanded as Go's reader expands them when the
+//! A tar reader, derived from Go's archive/tar (BSD-3-Clause, The Go
+//! Authors), as containerd's applier reads a layer: the headers (V7,
+//! USTAR, PAX, GNU, STAR), PAX records and GNU long names, numbers (octal
+//! and base-256), and the errors ("archive/tar: ...") where an archive is
+//! malformed. GNU sparse files (the old GNU format and PAX 0.0, 0.1, and
+//! 1.0) are expanded when the
 //! reader is made with `sparse(true)` (volume restores, which check the
 //! room an entry's full size takes before writing it); otherwise they are
 //! refused, since their expanded size is not bounded by the archive's
@@ -28,16 +28,15 @@ pub const TYPE_GNU_LONGLINK: u8 = b'K';
 
 const BLOCK: usize = 512;
 const MAX_SPECIAL_FILE: usize = 1 << 20;
-/// The most a PAX 1.0 sparse map may take (Go reads it whole, bounded only
-/// by the entry's data).
+/// The most a PAX 1.0 sparse map may take.
 const MAX_SPARSE_MAP: usize = 16 << 20;
 const ERR_SPARSE_REFUSED: &str = "archive/tar: sparse files are not supported";
 const ERR_MISS_DATA: &str = "archive/tar: sparse file references non-existent data";
 const ERR_UNREF_DATA: &str = "archive/tar: sparse file contains unreferenced data";
 const PAX_XATTR: &str = "SCHILY.xattr.";
 
-/// A time as Go's time.Time holds it: nanoseconds since the epoch, or
-/// none for the zero time (year 1).
+/// A time: nanoseconds since the epoch, or none for the zero time
+/// (0001-01-01T00:00:00Z).
 pub type Time = Option<i128>;
 
 fn unix(secs: i64, nanos: i64) -> Time {
@@ -217,7 +216,8 @@ fn parse_string(b: &[u8]) -> Vec<u8> {
     }
 }
 
-/// parser: remembers the last error like Go's.
+/// The number and string parser of headers: remembers whether a field
+/// failed.
 #[derive(Default)]
 struct Parser {
     err: bool,
@@ -261,15 +261,14 @@ impl Parser {
             Some(v) => v as i64,
             None => {
                 self.err = true;
-                // strconv.ParseUint returns the largest value on range
-                // errors and 0 on syntax errors; either way an error.
+                // Out of range or not a number: either way an error.
                 0
             }
         }
     }
 }
 
-/// strconv.ParseUint(s, base, 64) without sign or underscores.
+/// An unsigned 64-bit integer in base, without sign or underscores.
 fn parse_uint(s: &str, base: u32) -> Option<u64> {
     if s.is_empty() {
         return None;
@@ -282,7 +281,7 @@ fn parse_uint(s: &str, base: u32) -> Option<u64> {
     Some(v)
 }
 
-/// strconv.ParseInt(s, 10, 64).
+/// A signed decimal 64-bit integer.
 fn parse_int(s: &[u8]) -> Option<i64> {
     let s = std::str::from_utf8(s).ok()?;
     let (neg, digits) = match s.as_bytes().first()? {
@@ -430,8 +429,8 @@ impl<R: Read> Reader<R> {
         }
     }
 
-    /// Whether sparse files are expanded as Go's reader expands them
-    /// (true) or refused (false, the default).
+    /// Whether sparse files are expanded (true) or refused (false, the
+    /// default).
     pub fn sparse(mut self, ok: bool) -> Self {
         self.sparse_ok = ok;
         self
@@ -502,7 +501,7 @@ impl<R: Read> Reader<R> {
                 }
             }
             if got < padb.len() {
-                // tryReadFull's io.EOF, which ends the archive.
+                // The input's end, which ends the archive.
                 return Ok(None);
             }
             self.pad = 0;
@@ -575,8 +574,7 @@ impl<R: Read> Reader<R> {
                 (b"0", b"0" | b"1") => false,
                 (b"1", b"0") => true,
                 (b"", b"") if !rec(b"GNU.sparse.map").is_empty() => false,
-                // An unknown version, or no sparse file: a plain entry, as
-                // Go reads it.
+                // An unknown version, or no sparse file: a plain entry.
                 _ => return Ok(()),
             };
             if !self.sparse_ok {
@@ -1066,7 +1064,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn parses_numbers_as_go() {
+    fn parses_numbers() {
         let mut p = Parser::default();
         assert_eq!(p.numeric(&[0x80, 0, 0, 0, 0, 0, 0, 1]), 1);
         assert_eq!(p.numeric(&[0xff; 8]), -1);

@@ -94,7 +94,7 @@ for arch in amd64 arm64; do
 	esac
 done
 
-# The version string, as Go's -X flags set it: the tag and the full commit.
+# The version string: the tag and the full commit.
 if [ "$(uname -m)" = x86_64 ]; then
 	commit=$(jq -r .commit "$dist/metadata.json")
 	for b in armada armadad; do

@@ -1,4 +1,4 @@
-//! Queue readings (ADR 0034; Go's queue.go): every queue rule of the apps
+//! Queue readings (ADR 0034): every queue rule of the apps
 //! on the node is read from one ready replica of each app, every interval,
 //! and the lengths go out with the next usage report. A `queue` rule runs
 //! its command in the container; `redis` and `rabbitmq` rules are read by
@@ -31,7 +31,7 @@ pub const MAX_QUEUE_LENGTH: i64 = 1 << 40;
 pub const MAX_QUEUE_APPS: usize = 32;
 pub const MAX_QUEUE_READS: usize = 4;
 
-/// The readings' own errors (queuelen's), which never hold the URL or
+/// The readings' own errors, which never hold the URL or
 /// anything the broker sent.
 pub const ERR_URL: &str = "the URL in the secret is not valid for this rule";
 pub const ERR_DIAL: &str = "cannot reach the broker from the replica";
@@ -44,7 +44,7 @@ pub const ERR_MECHANISM: &str =
     "the URL names an authentication mechanism other than PLAIN, AMQPLAIN, or EXTERNAL";
 pub const ERR_NO_MECHANISM: &str = "the broker offers none of the URL's authentication mechanisms";
 
-/// queuelen.Reason: the error's text when it is a reading's own, a fixed
+/// The error's text when it is a reading's own, a fixed
 /// text otherwise.
 pub fn reason(err: &str) -> String {
     if err.is_empty() {
@@ -78,8 +78,7 @@ struct Reading {
     at: SystemTime,
 }
 
-/// The latest length read for each queue rule of the apps on the node
-/// (queueLengths).
+/// The latest length read for each queue rule of the apps on the node.
 #[derive(Default)]
 pub struct QueueLengths {
     m: Mutex<(HashMap<QueueKey, Reading>, HashMap<QueueKey, String>)>,
@@ -137,7 +136,7 @@ struct Target {
     probe: pb::QueueProbe,
 }
 
-/// The host and port a reading dials for a URL (queuelen.Broker), when
+/// The host and port a reading dials for a URL, when
 /// the URL has them; armada-node checks the rest.
 pub fn broker(kind: &str, url: &str) -> Option<(String, u16)> {
     let u = armada_node::queue::url::parse(url).ok()?;
@@ -159,7 +158,7 @@ pub fn broker(kind: &str, url: &str) -> Option<(String, u16)> {
 }
 
 /// The resolver containers use: the node's internal DNS, else the host's
-/// first nameserver that is not loopback (containerNameserver).
+/// first nameserver that is not loopback.
 fn nameserver_from(dns: Option<String>, resolv: Option<String>) -> String {
     if let Some(a) = dns.filter(|a| !a.is_empty()) {
         return crate::agent::join_host_port(&a, 53);
@@ -186,7 +185,7 @@ impl<R: Runtime> Inner<R> {
     }
 
     /// A reading for p with the broker's addresses resolved through dial
-    /// when the URL names it by a name (nativeQueue).
+    /// when the URL names it by a name.
     pub(crate) async fn queue_read<F, Fut>(
         &self,
         p: &pb::QueueProbe,
@@ -220,7 +219,7 @@ impl<R: Runtime> Inner<R> {
         Ok(q)
     }
 
-    /// Reads every queue rule once (measureQueues).
+    /// Reads every queue rule once.
     pub(crate) async fn measure_queues(self: &Arc<Self>) {
         let targets = self.queue_targets().await;
         let rules: HashSet<QueueKey> = targets
@@ -279,7 +278,7 @@ impl<R: Runtime> Inner<R> {
     }
 
     /// For every app with queue rules, the ready replica on this node with
-    /// the lowest ID, once per rule (queueTargets).
+    /// the lowest ID, once per rule.
     async fn queue_targets(&self) -> Vec<Target> {
         let specs: BTreeMap<String, pb::ReplicaSpec> = lock(&self.st)
             .desired
@@ -330,7 +329,7 @@ impl<R: Runtime> Inner<R> {
         w.is_some_and(|w| w.container_id == container && w.status().0)
     }
 
-    /// Reads one queue rule from the container (readQueue).
+    /// Reads one queue rule from the container.
     pub(crate) async fn read_queue(
         &self,
         container: &str,
@@ -362,8 +361,7 @@ impl<R: Runtime> Inner<R> {
     }
 
     /// Runs cmd in the container with its own security settings and reads
-    /// the number it prints; its error output is dropped
-    /// (runQueueCommand).
+    /// the number it prints; its error output is dropped.
     async fn run_queue_command(&self, container: &str, cmd: &[String]) -> Result<i64, String> {
         if !self.rt.can_exec() {
             return Err("this node's runtime cannot run commands in containers".into());
@@ -411,7 +409,7 @@ impl<R: Runtime> Inner<R> {
         }
     }
 
-    /// Reads queue rules every interval (queueLoop).
+    /// Reads queue rules every interval.
     pub(crate) async fn queue_loop(self: Arc<Self>) {
         if !self.rt.can_exec() && !self.rt.can_dial() {
             return;

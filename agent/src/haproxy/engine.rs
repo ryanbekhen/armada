@@ -1,4 +1,4 @@
-//! HAProxy as a host-network system container (engine.go): the driver's
+//! HAProxy as a host-network system container: the driver's
 //! [`Engine`] over the runtime's system containers, which the supervisor
 //! runtime provides through [`SystemRunner`].
 
@@ -12,8 +12,7 @@ use super::{CONTAINER_CONF_DIR, CONTAINER_RUN_DIR, Engine, etc_dir, run_dir};
 use crate::proxy::BoxFut;
 use crate::runtime::{self, LABEL_SYSTEM, Runtime, STATE_RUNNING};
 
-/// The HAProxy image, pinned by digest (3.2 LTS, Alpine): Go's
-/// haproxy.Image.
+/// The HAProxy image, pinned by digest (3.2 LTS, Alpine).
 pub const IMAGE: &str =
     "haproxy:3.2-alpine@sha256:5893840576071e6217cd52ebdcc14f454c6f7a631056fa6f4e0f40d3cac4215b";
 
@@ -33,7 +32,7 @@ pub struct Mount {
     pub read_only: bool,
 }
 
-/// A system container (runtime.SystemSpec): host network, the user and
+/// A system container: host network, the user and
 /// capabilities given, nothing else.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SystemSpec {
@@ -45,8 +44,8 @@ pub struct SystemSpec {
     pub cap_add: Vec<String>,
 }
 
-/// A runtime that runs system containers (runtime.SystemRunner, and the
-/// tail of a container's log).
+/// A runtime that runs system containers, and reads the tail of a
+/// container's log.
 pub trait SystemRunner: Runtime {
     fn run_system(&self, spec: &SystemSpec)
     -> impl Future<Output = runtime::Result<String>> + Send;

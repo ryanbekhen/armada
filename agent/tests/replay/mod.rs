@@ -1,11 +1,10 @@
-//! The replay of the agent's scenarios recorded from Go's agent (ADR 0055,
-//! item 20) before the Go code was removed; the recordings are goldens. Each scenario's steps are run against the Rust
-//! agent's parity program, its runtime calls answered by the fakes ported
-//! to Rust (fake.rs), the sessions' control plane, log endpoint, and
-//! armada-node by side.rs, and every step's transcript lines are compared
-//! with Go's: the same lines Go's harness wrote, JSON compared whatever
-//! the order of its keys, a step's calls sorted as Go's harness sorted
-//! them.
+//! The replay of the agent's recorded scenarios; the recordings are
+//! goldens. Each scenario's steps are run against the agent's parity
+//! program, its runtime calls answered by the fakes (fake.rs), the
+//! sessions' control plane, log endpoint, and armada-node by side.rs, and
+//! every step's transcript lines are compared with the recording's: the
+//! same lines, JSON compared whatever the order of its keys, a step's
+//! calls sorted.
 
 pub mod fake;
 pub mod gofmt;
@@ -22,7 +21,7 @@ use fake::Fake;
 use gofmt::{canon_line, duration, mode, quote};
 use program::Program;
 
-/// Where every scenario starts on the test clock (Go's parityT0).
+/// Where every scenario starts on the test clock.
 pub const T0_NS: i64 = 1_767_225_600_000_000_000;
 
 /// The recordings' directory.
@@ -162,7 +161,7 @@ impl Run {
         self.fake.normalize(s)
     }
 
-    /// The log endpoint's URL written as $EXPORT, as Go's recording wrote it.
+    /// The log endpoint's URL written as $EXPORT, as the recordings write it.
     fn unexport(&self, s: &str) -> String {
         if self.export_url.is_empty() {
             return s.to_string();
@@ -170,7 +169,7 @@ impl Run {
         s.replace(&self.export_url, "$EXPORT")
     }
 
-    /// The secret files and volume directories, as Go's files() lists them.
+    /// The secret files and volume directories, as the recordings list them.
     fn files(&self) -> String {
         let mut lines = Vec::new();
         for root in [&self.secrets, &self.volumes] {
@@ -308,8 +307,8 @@ impl Run {
                 self.step_lines(&name, &r, &e, calls)
             }
             "until" => {
-                // Go's run stopped once its report said what the scenario
-                // waited for: this one once it says what Go's said.
+                // The recorded run stopped once its report said what the
+                // scenario waited for: this one once it says the same.
                 let want = st["expect"][1].as_str().map(canon_line).unwrap_or_default();
                 let deadline = Instant::now() + Duration::from_secs(15);
                 let mut calls: Vec<String> = Vec::new();
@@ -393,7 +392,7 @@ impl Run {
     }
 }
 
-/// A message as protojson writes it compactly; null for none.
+/// A message in the protobuf JSON mapping, compact; null for none.
 fn compact(v: &Value) -> String {
     if v.is_null() {
         return "null".into();
@@ -401,7 +400,7 @@ fn compact(v: &Value) -> String {
     v.to_string()
 }
 
-/// Walks a directory as Go's filepath.WalkDir does: lexical order, a
+/// Walks a directory: lexical order, a
 /// directory before what it holds, the root left out.
 fn walk(root: &Path, f: &mut dyn FnMut(&Path, &std::fs::Metadata)) {
     let Ok(rd) = std::fs::read_dir(root) else {
@@ -421,7 +420,7 @@ fn walk(root: &Path, f: &mut dyn FnMut(&Path, &std::fs::Metadata)) {
     }
 }
 
-/// Replays one scenario; the differences from Go's transcript, if any.
+/// Replays one scenario; the differences from its recording, if any.
 pub fn replay(fx: &Value) -> Vec<String> {
     let mut run = Run::new(&fx["opts"]);
     let mut diffs = Vec::new();
@@ -487,7 +486,7 @@ pub fn replay_all(test: &str) {
     let failures = failures.into_inner().unwrap();
     assert!(
         failures.is_empty(),
-        "{} scenario(s) differ from Go's recording:\n\n{}",
+        "{} scenario(s) differ from their recording:\n\n{}",
         failures.len(),
         failures.join("\n\n")
     );

@@ -1,4 +1,4 @@
-//! The firewall rules of the cluster network (clusternet_linux.go), as
+//! The firewall rules of the cluster network, as
 //! iptables argument lists written the way `iptables -S` prints them, and
 //! the routes and tunnel addresses each transport carries.
 
@@ -34,7 +34,7 @@ pub fn tunnels(p: &Plan) -> Vec<&'static str> {
     }
 }
 
-/// wgInterface: where WireGuard peers' traffic comes out.
+/// Where WireGuard peers' traffic comes out.
 pub fn wg_interface(p: &Plan) -> &'static str {
     if p.mode == MODE_PLAIN {
         SITE_INTERFACE
@@ -43,7 +43,7 @@ pub fn wg_interface(p: &Plan) -> &'static str {
     }
 }
 
-/// inputRules: ARMADA-NET-IN's rules for a node at private_ip.
+/// ARMADA-NET-IN's rules for a node at private_ip.
 pub fn input_rules(p: &Plan, private_ip: &Addr) -> Vec<Rule> {
     if p.mode == MODE_MESH {
         return vec![rule(&["-j", "ACCEPT"])];
@@ -78,7 +78,7 @@ pub fn input_rules(p: &Plan, private_ip: &Addr) -> Vec<Rule> {
     rules
 }
 
-/// inputJump: the INPUT rule that sends the tunnel's port to ARMADA-NET-IN.
+/// The INPUT rule that sends the tunnel's port to ARMADA-NET-IN.
 pub fn input_jump(p: &Plan) -> Rule {
     if p.switching() || (p.mode == MODE_PLAIN && p.has_remote()) {
         return rule(&[
@@ -104,7 +104,7 @@ pub fn input_jump(p: &Plan) -> Rule {
     ])
 }
 
-/// mssRules: ARMADA-NET-MSS's rules.
+/// ARMADA-NET-MSS's rules.
 pub fn mss_rules(tunnels: &[&str]) -> Vec<Rule> {
     tunnels
         .iter()
@@ -127,7 +127,7 @@ pub fn mss_rules(tunnels: &[&str]) -> Vec<Rule> {
         .collect()
 }
 
-/// forwardRules: ARMADA-NET-FWD's rules, with a relay's pairs first.
+/// ARMADA-NET-FWD's rules, with a relay's pairs first.
 pub fn forward_rules(tunnels: &[&str], relaying: &[[Prefix; 2]]) -> Vec<Rule> {
     let mut rules = Vec::new();
     for pair in relaying {
@@ -176,7 +176,7 @@ pub fn forward_rules(tunnels: &[&str], relaying: &[[Prefix; 2]]) -> Vec<Rule> {
     rules
 }
 
-/// meshRules: ARMADA-NET-MESH's rules.
+/// ARMADA-NET-MESH's rules.
 pub fn mesh_rules(p: &Plan) -> Vec<Rule> {
     let me = host(p.self_.ip());
     let mut rules = Vec::new();
@@ -192,7 +192,7 @@ pub fn mesh_rules(p: &Plan) -> Vec<Rule> {
     rules
 }
 
-/// spoofRules: ARMADA-NET-PRE's rules.
+/// ARMADA-NET-PRE's rules.
 pub fn spoof_rules(p: &Plan) -> Vec<Rule> {
     let mut rules = Vec::new();
     let mut ports = vec![port(&p.mode)];
@@ -281,12 +281,12 @@ pub struct Route {
     pub src: Option<Addr>,
 }
 
-/// vtepAddr: a node's end of the tunnel, its subnet's network address.
+/// a node's end of the tunnel, its subnet's network address.
 pub fn vtep_addr(subnet: &Prefix) -> Addr {
     subnet.masked().addr
 }
 
-/// vtepMAC: the fixed hardware address of a node's tunnel end.
+/// The fixed hardware address of a node's tunnel end.
 pub fn vtep_mac(subnet: &Prefix) -> String {
     match vtep_addr(subnet) {
         Addr::V4(b) => format!("02:42:{:02x}:{:02x}:{:02x}:{:02x}", b[0], b[1], b[2], b[3]),
@@ -294,7 +294,7 @@ pub fn vtep_mac(subnet: &Prefix) -> String {
     }
 }
 
-/// wantRoutes: the routes to the peers of p, via their tunnel ends when via
+/// The routes to the peers of p, via their tunnel ends when via
 /// is set.
 pub fn want_routes(p: &Plan, via: bool, set: RouteSet) -> Vec<Route> {
     let mut out = Vec::new();

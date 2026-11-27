@@ -1,4 +1,4 @@
-//! Network sandboxes for job queue triggers (ADR 0040; Go's sandbox.go):
+//! Network sandboxes for job queue triggers (ADR 0040):
 //! the agent keeps the sandboxes the leader asks for (at most 64, one
 //! space at a time past that), removes the others, reads each one's queue
 //! every polling interval from inside it, and reports the readings and the
@@ -50,7 +50,7 @@ struct Inner_ {
     spaces: HashMap<String, usize>,
 }
 
-/// What the agent knows of its network sandboxes (Go's sandboxes).
+/// What the agent knows of its network sandboxes.
 #[derive(Default)]
 pub struct Sandboxes {
     m: Mutex<Inner_>,
@@ -64,7 +64,7 @@ impl Sandboxes {
     }
 }
 
-/// Go's runtime.CheckSandboxID.
+/// Whether id may name a sandbox.
 pub fn check_sandbox_id(id: &str) -> bool {
     !(id.is_empty()
         || id.len() > 128
@@ -82,12 +82,12 @@ fn same_probe(x: &pb::QueueProbe, y: &pb::QueueProbe) -> bool {
 
 impl<R: Runtime> Inner<R> {
     /// Whether the node reads job queues from sandboxes: only in its subnet
-    /// of a cluster network (sandboxesOn).
+    /// of a cluster network.
     pub(crate) fn sandboxes_on(&self) -> bool {
         self.cfg.unpublished && self.cfg.network.is_some() && self.rt.can_sandbox()
     }
 
-    /// Takes an assignment's sandboxes (setSandboxes).
+    /// Takes an assignment's sandboxes.
     pub(crate) fn set_sandboxes(&self, list: &[pb::QueueSandbox]) {
         let mut valid: BTreeMap<String, pb::QueueSandbox> = BTreeMap::new();
         for s in list {
@@ -131,8 +131,7 @@ impl<R: Runtime> Inner<R> {
         self.side.sb.kick.notify_one();
     }
 
-    /// Keeps the sandboxes the leader asks for and reads them
-    /// (sandboxLoop).
+    /// Keeps the sandboxes the leader asks for and reads them.
     pub(crate) async fn sandbox_loop(self: Arc<Self>) {
         if !self.sandboxes_on() {
             return;
@@ -148,7 +147,7 @@ impl<R: Runtime> Inner<R> {
     }
 
     /// Makes the node's sandboxes match the assignment and starts the
-    /// readings that are due (syncSandboxes).
+    /// readings that are due.
     pub(crate) async fn sync_sandboxes(self: &Arc<Self>) {
         let Some(want) = lock(&self.side.sb.m).want.clone() else {
             return;
@@ -246,7 +245,7 @@ impl<R: Runtime> Inner<R> {
     }
 
     /// Starts the readings that are due, longest waiting first, and returns
-    /// without waiting for them (readSandboxes).
+    /// without waiting for them.
     fn read_sandboxes(self: &Arc<Self>, want: &BTreeMap<String, pb::QueueSandbox>) {
         let now = SystemTime::now();
         struct Job {
@@ -349,7 +348,7 @@ impl<R: Runtime> Inner<R> {
         }
     }
 
-    /// Reads the job's queue from its sandbox (readSandbox).
+    /// Reads the job's queue from its sandbox.
     async fn read_sandbox(&self, id: &str, p: &pb::QueueProbe) -> Result<i64, String> {
         let read = async {
             if p.r#type != "redis" && p.r#type != "rabbitmq" {
@@ -377,8 +376,8 @@ impl<R: Runtime> Inner<R> {
         lock(&self.side.sb.m).dropped.clone()
     }
 
-    /// Every sandbox with its address and, when recent, its latest reading
-    /// (sandboxReport).
+    /// Every sandbox with its address and, when recent, its latest
+    /// reading.
     pub(crate) fn sandbox_report(&self, now: SystemTime) -> Vec<pb::SandboxQueue> {
         let m = lock(&self.side.sb.m);
         let Some(want) = &m.want else {
@@ -412,8 +411,7 @@ impl<R: Runtime> Inner<R> {
         out
     }
 
-    /// Adds the node's sandboxes to local, as addresses of their jobs
-    /// (localSandboxes).
+    /// Adds the node's sandboxes to local, as addresses of their jobs.
     pub(crate) async fn local_sandboxes(&self, local: &mut crate::proxy::Clients) {
         if !self.sandboxes_on() {
             return;

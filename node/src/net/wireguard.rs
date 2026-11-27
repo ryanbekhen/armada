@@ -1,5 +1,5 @@
-//! What a WireGuard device must change to carry a transport's peers
-//! (peers.go's peerChanges), and which peers have gone quiet (stalePeers).
+//! What a WireGuard device must change to carry a transport's peers,
+//! and which peers have gone quiet.
 //! Devices are read and configured by the caller; times are Unix seconds.
 
 use super::addr::Prefix;
@@ -70,7 +70,7 @@ fn same_nets(a: &[String], b: &[String]) -> bool {
     a == b
 }
 
-/// peerChanges: the configuration that turns d into a device with key and
+/// The configuration that turns d into a device with key and
 /// peers, or None when it already is one. Removed peers come last, by key.
 pub fn peer_changes(d: &Device, key: &Key, mode: &str, peers: &[Peer], now: i64) -> Option<Config> {
     let mut cfg = Config {
@@ -151,7 +151,7 @@ pub struct Seen {
     pub since: i64,
 }
 
-/// stalePeers: the nodes of peers configured longer ago than
+/// The nodes of peers configured longer ago than
 /// STALE_HANDSHAKE with no handshake since, sorted, at most 32.
 pub fn stale_peers(
     devices: &[Vec<DevicePeer>],

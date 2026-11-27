@@ -1,5 +1,4 @@
-//! WireGuard keys (key.go, wgtypes): base64 of 32 bytes as Go's
-//! encoding/base64 StdEncoding reads and writes it, the public half by
+//! WireGuard keys: standard base64 (padded) of 32 bytes, the public half by
 //! X25519, and the node's `network.key` file: the private key and a newline,
 //! owner-only (0600).
 
@@ -202,12 +201,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn base64_as_go() {
+    fn base64_standard() {
         assert_eq!(b64_decode("").unwrap(), b"");
         assert_eq!(b64_decode("YQ==").unwrap(), b"a");
         assert_eq!(b64_decode("YWI=").unwrap(), b"ab");
         assert_eq!(b64_decode("YW\nJj").unwrap(), b"abc");
-        // Unused bits are not checked, as in Go's non-strict decoding.
+        // Unused bits are not checked (non-strict decoding).
         assert_eq!(b64_decode("YR==").unwrap(), b"a");
         for bad in ["YQ", "Y===", "YQ==YQ==", "not-a-key", "YQ=="[..3].as_ref()] {
             assert!(b64_decode(bad).is_none(), "{bad}");

@@ -1,7 +1,6 @@
-//! The node's firewall (ADR 0054 step 3): the nftables isolation tables
-//! (nft.rs) and the iptables chains (iptables.rs), written but not yet used
-//! by nodes. Two commands print what would be done, for the parity test
-//! against Go; two do it.
+//! The node's firewall: the nftables isolation tables (nft.rs) and the
+//! iptables chains (iptables.rs). Two commands print what would be done,
+//! for tests; two do it.
 //!
 //!   armada-node net firewall nft       stdin: {Policy, Previous, HasTables, FirstSetID,
 //!                                      UpdateSetID}
@@ -175,7 +174,7 @@ struct ChainJson {
 }
 
 impl Request {
-    /// Net.plan: the plan, refused in an encrypted mode without a key.
+    /// The plan, refused in an encrypted mode without a key.
     fn plan(&self) -> Result<(Plan, Addr), String> {
         let ip = Addr::parse(&self.private_ip);
         let p = plan::parse(&self.config, &self.node, &ip)?;

@@ -1,6 +1,5 @@
 //! The app and job commands that stream or sample: app logs and job logs
-//! (Go's apps.go newLogsCommand), app events and cluster events
-//! (events.go), app exec (exec.go), and app top and node top (top.go).
+//! app events and cluster events, app exec, and app top and node top.
 
 use std::io::Write;
 use std::os::fd::FromRawFd;
@@ -22,7 +21,7 @@ use crate::rpc::printable;
 
 // ---- logs ----
 
-/// newLogsCommand: app logs, or job logs.
+/// App logs, or job logs.
 pub fn logs_node(job: bool) -> Node {
     let mut flags = vec![
         Flag::bool(
@@ -119,7 +118,7 @@ fn ts_nanos(n: i128) -> armada_proto::google::protobuf::Timestamp {
     )
 }
 
-/// parseWhen: a duration before now ("2h", "3d") or an RFC 3339 time.
+/// a duration before now ("2h", "3d") or an RFC 3339 time.
 pub fn parse_when(
     s: &str,
     now: i128,
@@ -146,7 +145,7 @@ pub fn parse_when(
     })
 }
 
-/// time.Parse(time.RFC3339, s): 2006-01-02T15:04:05, an optional
+/// An RFC 3339 time: 2006-01-02T15:04:05, an optional
 /// fraction, then Z or an offset.
 fn parse_rfc3339(s: &str) -> Option<armada_proto::google::protobuf::Timestamp> {
     let b = s.as_bytes();
@@ -304,10 +303,10 @@ fn logs(ctx: &mut Ctx<'_>, args: &[String], job: bool) -> Result {
 
 // ---- events ----
 
-/// maxEventsSince: how long the control plane keeps events.
+/// How long the control plane keeps events.
 const MAX_EVENTS_SINCE: i64 = 24 * go::HOUR;
 
-/// newEventsCommand: app events [APP], or cluster events.
+/// App events [APP], or cluster events.
 pub fn events_node(cluster: bool) -> Node {
     let mut o = output_flag(false);
     o.usage = "output format: text or json (one event per line)".to_string();
@@ -352,7 +351,7 @@ fn cluster_events(ctx: &mut Ctx<'_>, args: &[String]) -> Result {
     events(ctx, args, true)
 }
 
-/// eventTime: the time of day for today's events, with the date for older
+/// The time of day for today's events, with the date for older
 /// ones.
 fn event_time(t: Option<&armada_proto::google::protobuf::Timestamp>) -> String {
     let t = go_time(t, true);
@@ -400,7 +399,7 @@ fn events(ctx: &mut Ctx<'_>, args: &[String], cluster: bool) -> Result {
     let mut admin = ctx.admin()?;
     let interrupt = crate::term::interrupts();
     let res = crate::rpc!(ctx, admin, events, req);
-    // Go's stream opens before the server answers, so the header shows
+    // The stream opens before the server answers, so the header shows
     // above an error the server sends (one with its headers), not above a
     // failure to reach it.
     let answered = match &res {
@@ -447,7 +446,7 @@ fn events(ctx: &mut Ctx<'_>, args: &[String], cluster: bool) -> Result {
 
 // ---- exec ----
 
-/// defaultShell: what exec runs without a command.
+/// What exec runs without a command.
 const DEFAULT_SHELL: &str = "/bin/sh";
 const MAX_EXEC_ARGS: usize = 64;
 const MAX_EXEC_ARG_LEN: usize = 4096;
@@ -770,7 +769,7 @@ fn app_top(ctx: &mut Ctx<'_>, args: &[String]) -> Result {
             ));
         }
     } else {
-        // appTop: each app's replicas summed, in the order they come.
+        // Each app's replicas summed, in the order they come.
         struct AppTop {
             name: String,
             replicas: i64,

@@ -1,7 +1,7 @@
-//! The container runtime as the agent's loop sees it: the part of Go's
-//! `runtime.Driver` and its optional interfaces the loop calls (ADR 0055).
-//! The supervisor runtime over armada-node's library implements it in a
-//! later part; the parity tests implement it with a fake the test drives.
+//! The container runtime as the agent's loop sees it: the calls the loop
+//! makes, the optional ones with defaults. The supervisor runtime over
+//! armada-node's library implements it; the replays implement it with a
+//! fake the test drives.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -43,12 +43,12 @@ pub const STATE_STARTING: &str = "starting";
 pub const OCI_RUNC: &str = "runc";
 pub const OCI_CRUN: &str = "crun";
 
-/// A runtime's failure, with Go's texts.
+/// A runtime's failure, with the texts reports carry.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Error {
-    /// runtime.ErrNotFound.
+    /// The container or image does not exist.
     NotFound,
-    /// runtime.PlatformError: the image has no variant for the node.
+    /// The image has no variant for the node.
     Platform {
         image: String,
         want: String,
@@ -141,7 +141,7 @@ pub struct MemberSpec {
     pub volumes: Vec<VolumeMount>,
 }
 
-/// A container to run (runtime.ContainerSpec).
+/// A container to run.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ContainerSpec {
     pub name: String,
@@ -246,11 +246,11 @@ pub struct AgentStatus {
 }
 
 /// A container runtime as the agent uses it. Every method may be cancelled
-/// by dropping its future (Go's context).
+/// by dropping its future.
 pub trait Runtime: Send + Sync + 'static {
     /// Checks the runtime is reachable.
     fn ping(&self) -> impl Future<Output = Result<()>> + Send;
-    /// Told when the agent starts, after ping (runtime.AgentStarter); an
+    /// Told when the agent starts, after ping; an
     /// error is only logged.
     fn agent_start(&self) -> impl Future<Output = Result<()>> + Send {
         async { Ok(()) }
@@ -298,7 +298,7 @@ pub trait Runtime: Send + Sync + 'static {
     fn stats(&self, _id: &str) -> impl Future<Output = Result<Stats>> + Send {
         async { Err(Error::other("this runtime samples no containers")) }
     }
-    /// Samples many containers in one round (runtime.StatsBatcher); None
+    /// Samples many containers in one round; None
     /// when it has no such call.
     fn stats_batch(
         &self,
@@ -306,12 +306,12 @@ pub trait Runtime: Send + Sync + 'static {
     ) -> impl Future<Output = Option<Vec<Result<Stats>>>> + Send {
         async { None }
     }
-    /// Frees a kept container's network (runtime.NetworkReleaser); None
+    /// Frees a kept container's network; None
     /// when it has no such call.
     fn release_network(&self, _id: &str) -> impl Future<Output = Option<Result<()>>> + Send {
         async { None }
     }
-    /// Removes unneeded images (runtime.ImagePruner); None when it has no
+    /// Removes unneeded images; None when it has no
     /// such call.
     fn prune_images(
         &self,
@@ -320,31 +320,31 @@ pub trait Runtime: Send + Sync + 'static {
     ) -> impl Future<Output = Option<Result<Vec<String>>>> + Send {
         async { None }
     }
-    /// How the node runs containers (runtime.AgentReporter); None when it
+    /// How the node runs containers; None when it
     /// does not say.
     fn runtime_agent(&self) -> impl Future<Output = Option<AgentStatus>> + Send {
         async { None }
     }
-    /// Whether it keeps network sandboxes (runtime.CanSandbox).
+    /// Whether it keeps network sandboxes.
     fn can_sandbox(&self) -> bool {
         false
     }
-    /// Whether it keeps a log history (runtime.LogSearcher).
+    /// Whether it keeps a log history.
     fn has_log_history(&self) -> bool {
         false
     }
-    /// Whether it tails logs for export (runtime.LogTailer).
+    /// Whether it tails logs for export.
     fn tails_logs(&self) -> bool {
         false
     }
 
-    // The sessions and loops beside the reconcile pass (ADR 0055 item 16,
-    // third part): exec, logs, queues, and sandboxes. Their types are in
+    // The sessions and loops beside the reconcile pass: exec, logs,
+    // queues, and sandboxes. Their types are in
     // crate::side.
 
     /// Runs a command in a running app container (or sidecar) with its
-    /// streams (runtime.Execer's ExecApp): input until its channel ends,
-    /// output in the order written, resizes of a terminal. It returns the
+    /// streams: input until its channel ends, output in the order written,
+    /// resizes of a terminal. It returns the
     /// exit code once the command ended and its output was sent.
     fn exec_session(
         &self,
@@ -353,7 +353,7 @@ pub trait Runtime: Send + Sync + 'static {
     ) -> impl Future<Output = Result<i64>> + Send {
         async { Err(Error::other("this runtime runs no commands")) }
     }
-    /// A container's output (Driver.Logs): frames until the channel ends.
+    /// A container's output: frames until the channel ends.
     fn logs(
         &self,
         _id: &str,
@@ -361,7 +361,7 @@ pub trait Runtime: Send + Sync + 'static {
     ) -> impl Future<Output = Result<crate::side::LogFrames>> + Send {
         async { Err(Error::other("this runtime keeps no logs")) }
     }
-    /// Searches the log history (runtime.LogSearcher): the newest matching
+    /// Searches the log history: the newest matching
     /// entries, oldest first, and a notice when it stopped early.
     fn search_logs(
         &self,
@@ -369,7 +369,7 @@ pub trait Runtime: Send + Sync + 'static {
     ) -> impl Future<Output = Result<(Vec<crate::side::LogRecord>, String)>> + Send {
         async { Err(Error::other("this node keeps no log history")) }
     }
-    /// Whether it bounds its log history (runtime.LogPruner).
+    /// Whether it bounds its log history.
     fn prunes_logs(&self) -> bool {
         false
     }
@@ -380,13 +380,12 @@ pub trait Runtime: Send + Sync + 'static {
     ) -> impl Future<Output = Result<()>> + Send {
         async { Ok(()) }
     }
-    /// Whether tail_logs renders requests itself
-    /// (runtime.EncodingLogTailer).
+    /// Whether tail_logs renders requests itself.
     fn encodes_logs(&self) -> bool {
         false
     }
     /// Output written since the last committed tail for target, at most
-    /// about max_bytes (runtime.LogTailer); rendered as requests when enc
+    /// about max_bytes; rendered as requests when enc
     /// is given and the runtime encodes.
     fn tail_logs(
         &self,
@@ -396,12 +395,12 @@ pub trait Runtime: Send + Sync + 'static {
     ) -> impl Future<Output = Result<crate::side::LogTail>> + Send {
         async { Err(Error::other("this runtime tails no logs")) }
     }
-    /// Whether it dials from containers (runtime.CanDial).
+    /// Whether it dials from containers.
     fn can_dial(&self) -> bool {
         false
     }
     /// A socket connected to address (an IP and port) from the network
-    /// namespace of the running container id (runtime.ContainerDialer).
+    /// namespace of the running container id.
     fn dial_container(
         &self,
         _id: &str,
@@ -415,8 +414,8 @@ pub trait Runtime: Send + Sync + 'static {
         }
     }
     /// Reads a Redis or RabbitMQ queue's length from the container's
-    /// network namespace (runtime.QueueReader); errors are queuelen's
-    /// texts.
+    /// network namespace; errors are the readings' fixed texts
+    /// (crate::side::queue's ERR_*).
     fn read_queue(
         &self,
         _container: &str,
@@ -424,7 +423,7 @@ pub trait Runtime: Send + Sync + 'static {
     ) -> impl Future<Output = Result<i64>> + Send {
         async { Err(Error::other(crate::side::queue::ERR_DIAL)) }
     }
-    /// Network sandboxes for job queues (runtime.NetworkSandboxer).
+    /// Network sandboxes for job queues.
     fn ensure_sandbox(
         &self,
         _id: &str,

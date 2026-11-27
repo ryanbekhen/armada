@@ -1,18 +1,15 @@
 //! The cluster's state for the machine commands that need it but not the
-//! running server (Go's stateClient, startMember, and openState's member
-//! in internal/daemon/state.go, and Dial, Restore, and the scratch member
-//! of internal/etcd and internal/backup): Go embeds etcd, armadad in Rust
-//! runs the runtime pack's pinned `etcd` and `etcdutl` instead (ADR 0055).
+//! running server: armadad embeds no etcd, it runs the runtime pack's
+//! pinned `etcd` and `etcdutl` (ADR 0055).
 //!
-//! - A server's member that runs is reached as Go's etcd.Dial reaches it:
+//! - A server's member that runs is reached at
 //!   its client URL, TLS 1.3 with the member certificate, a status within
 //!   3 seconds.
 //! - One that does not run is started from the pack for the command's
 //!   length, from the configuration file `armadad etcd` writes (in a
-//!   private directory removed again), and stopped afterwards, as Go's
-//!   embedded member is closed.
+//!   private directory removed again), and stopped afterwards.
 //! - A snapshot is turned into a member's data with `etcdutl snapshot
-//!   restore`, the same code etcd.Restore runs, and checked in a scratch
+//!   restore`, and checked in a scratch
 //!   member, the pack's etcd in a private directory listening on Unix
 //!   sockets only (no TLS: nothing outside the directory reaches it).
 //!
@@ -36,7 +33,7 @@ use crate::agentconfig::FILE_ETCD_INITIAL;
 use crate::etcdmember::{self, CLUSTER_TOKEN, DIR_DATA};
 use crate::pack;
 
-/// readyLimit: how long a member may take to answer.
+/// How long a member may take to answer.
 const READY_LIMIT: Duration = Duration::from_secs(60);
 /// How long a member may take to stop before it is killed.
 const STOP_LIMIT: Duration = Duration::from_secs(10);
@@ -197,7 +194,7 @@ impl Drop for Process {
     }
 }
 
-/// Waits for a member to answer (Go's ReadyNotify, bounded by a minute).
+/// Waits for a member to answer, at most a minute.
 /// The member's ID and whether it is a learner.
 async fn wait_ready(p: &mut Process, client: &Client) -> Result<(u64, bool), String> {
     let deadline = Instant::now() + READY_LIMIT;
@@ -224,7 +221,7 @@ pub struct State {
     _member: Option<Process>,
 }
 
-/// etcd.Dial: the running member described by cfg, or an error.
+/// The running member described by cfg, or an error.
 async fn dial(cfg: &etcdmember::Config) -> Result<(Client, u64), String> {
     let Some(addr) = cfg.addr else {
         return Err("etcd: no listen address".to_string());
@@ -238,7 +235,7 @@ async fn dial(cfg: &etcdmember::Config) -> Result<(Client, u64), String> {
     }
 }
 
-/// etcd.Start and startMember: the member started from the pack, its peer
+/// The member started from the pack, its peer
 /// URL brought up to date, and, on a server that joined, a voting member.
 async fn start_member(data_dir: &str, cfg: &mut etcdmember::Config) -> Result<State, String> {
     let prepared = etcdmember::prepare_start(cfg)?;
@@ -284,14 +281,13 @@ async fn start_member(data_dir: &str, cfg: &mut etcdmember::Config) -> Result<St
 }
 
 /// The member of a data directory started from the pack for the command's
-/// length (Go's openState with etcd.Start: `armadad init`), joined as
+/// length (`armadad init`), joined as
 /// start_member joins it.
 pub async fn start(data_dir: &str) -> Result<State, String> {
     let mut cfg = etcdmember::etcd_config(data_dir)?;
     start_member(data_dir, &mut cfg).await
 }
 
-/// updatePeerURL.
 async fn update_peer_url(c: &Client, id: u64, peer: &str) -> Result<(), String> {
     let members = tokio::time::timeout(Duration::from_secs(10), c.member_list())
         .await
@@ -311,7 +307,7 @@ async fn update_peer_url(c: &Client, id: u64, peer: &str) -> Result<(), String> 
     Ok(())
 }
 
-/// stateClient: the member of a running server in data_dir, or the member
+/// The member of a running server in data_dir, or the member
 /// started for the command when no server runs.
 pub async fn state_client(data_dir: &str) -> Result<State, String> {
     let mut cfg = etcdmember::etcd_config(data_dir)?;
@@ -327,7 +323,7 @@ pub async fn state_client(data_dir: &str) -> Result<State, String> {
         .map_err(|e| format!("the server's state is not reachable (is it starting?): {e}"))
 }
 
-/// etcd.Restore: the snapshot turned into the data of a new single-member
+/// The snapshot turned into the data of a new single-member
 /// cluster of member name below dir, whose peer URL is on addr:peer_port.
 pub fn restore(
     programs: &Programs,
@@ -399,7 +395,7 @@ pub fn restore(
     })
 }
 
-/// What a snapshot holds that a backup records (Go's stateInfo).
+/// What a snapshot holds that a backup records.
 pub struct StateInfo {
     pub schema: i64,
     pub master_key_id: String,
@@ -474,7 +470,7 @@ pub async fn inspect(
     })
 }
 
-/// The status of the member at url within 3 seconds (Go's Member.status):
+/// The status of the member at url within 3 seconds:
 /// its ID and whether it is a learner.
 async fn member_status(c: &Client, host: &str) -> Result<(u64, bool), String> {
     match tokio::time::timeout(Duration::from_secs(3), c.status()).await {
@@ -507,7 +503,7 @@ pub async fn member_health(
     }
 }
 
-/// etcd.Connect and startMember: the member armada-etcd.service runs
+/// The member armada-etcd.service runs
 /// (`armadad etcd`, ADR 0055), waited for up to a minute, its peer URL
 /// brought up to date, and, on a server that joined, a voting member
 /// before the state is used. wait is told once that the member does not

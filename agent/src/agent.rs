@@ -1,5 +1,4 @@
 //! The agent's loop: assignments in, containers reconciled, reports out
-//! (Go's `internal/agent/agent.go`).
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -45,10 +44,10 @@ pub(crate) const VOLUME_STOP_GRACE: Duration = Duration::from_secs(30);
 pub(crate) const PAUSED_MESSAGE: &str = "stopped while its volume is backed up or restored";
 /// Why a container started before the machine's boot is recreated.
 pub const MACHINE_RESTARTED: &str = "the machine restarted";
-/// The prefix of a restart's reason in a report (Go's store.RestartNote).
+/// The prefix of a restart's reason in a report.
 pub const RESTART_NOTE: &str = "restarted: ";
 
-/// Replica states reported (Go's store constants).
+/// Replica states reported.
 pub const REPLICA_STARTING: &str = "starting";
 pub const REPLICA_RUNNING: &str = "running";
 pub const REPLICA_EXITED: &str = "exited";
@@ -56,7 +55,7 @@ pub const REPLICA_FAILED: &str = "failed";
 pub const REPLICA_PULLING: &str = "pulling";
 pub const REPLICA_PULLED: &str = "pulled";
 
-/// How an Agent is set up (Go's agent.Config, the part of 16a).
+/// How an Agent is set up.
 #[derive(Clone)]
 pub struct Config {
     pub node_id: String,
@@ -95,7 +94,8 @@ pub struct Config {
     /// Where the proxy sends requests for apps with no replica up (ADR
     /// 0021), in a directory only root reaches; empty disables it.
     pub wake_socket: String,
-    /// The platform reported (default: the agent's own, as Go names it).
+    /// The platform reported (default: this machine's, such as linux and
+    /// amd64).
     pub os: String,
     pub arch: String,
     /// The control plane addresses; on_servers receives a new list.
@@ -108,7 +108,7 @@ pub struct Config {
     /// The agent's version in Hello.
     pub version: String,
     pub clock: Arc<dyn Clock>,
-    /// The sessions and loops beside the reconcile pass (16c).
+    /// The sessions and loops beside the reconcile pass.
     pub side: crate::side::SideConfig,
 }
 
@@ -164,7 +164,7 @@ pub(crate) struct HeldPull {
     pub platforms: Vec<String>,
 }
 
-/// What the agent knows, under one lock (Go's `a.mu`).
+/// What the agent knows, under one lock.
 #[derive(Default)]
 pub(crate) struct State {
     pub network_key: String,
@@ -220,7 +220,7 @@ pub(crate) struct Inner<R: Runtime> {
     pub check: CheckFn,
     /// The session's certificate source.
     pub cert_source: Mutex<Option<Arc<dyn CertificateSource>>>,
-    /// Counts proxy configurations applied (Go's proxyChanged).
+    /// Counts proxy configurations applied.
     pub proxy_changed: watch::Sender<u64>,
     /// One key rotation at a time.
     pub key_mu: tokio::sync::Mutex<()>,
@@ -228,7 +228,7 @@ pub(crate) struct Inner<R: Runtime> {
     pub volume_ops: AtomicI32,
     /// Requests held for apps scaled to zero (ADR 0021).
     pub wakes: crate::wake::Waker,
-    /// What the sessions and loops beside the pass keep (16c).
+    /// What the sessions and loops beside the pass keep.
     pub side: crate::side::Side,
 }
 
@@ -271,7 +271,7 @@ pub(crate) fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|p| p.into_inner())
 }
 
-/// Go's runtime.GOOS and GOARCH for this program.
+/// This program's OS and architecture, named linux, amd64, arm64, and so on.
 pub fn go_platform() -> (&'static str, &'static str) {
     let arch = match std::env::consts::ARCH {
         "x86_64" => "amd64",
@@ -340,8 +340,7 @@ impl<R: Runtime> Agent<R> {
     }
 
     /// Takes an assignment: the network, the replicas and the proxy, the
-    /// servers, and the plan for the node's move. Log settings and queue
-    /// sandboxes come with a later part of ADR 0055 item 16.
+    /// servers, the log settings, and the queue sandboxes.
     pub fn set_assignment(&self, a: &pb::Assignment) {
         self.inner.assign(a);
     }
@@ -411,7 +410,8 @@ impl<R: Runtime> Inner<R> {
         }
     }
 
-    /// One assignment from the server, in Go's order.
+    /// One assignment from the server: network, replicas and proxy, servers,
+    /// log settings, then sandboxes.
     pub(crate) fn assign(&self, a: &pb::Assignment) {
         self.set_network(a.network.as_ref());
         self.set_desired(&a.replicas, a.proxy.as_ref());
@@ -724,7 +724,7 @@ impl<R: Runtime> Inner<R> {
         Ok(Some(report))
     }
 
-    /// The report of every replica (startPending's build).
+    /// The report of every replica (built for `start_pending`).
     fn build(
         self: &Arc<Self>,
         settled: &[pb::ReplicaState],
@@ -1106,7 +1106,7 @@ impl<R: Runtime> Inner<R> {
     }
 }
 
-/// Go's net.JoinHostPort.
+/// host:port, with an IPv6 host in brackets.
 pub(crate) fn join_host_port(host: &str, port: i64) -> String {
     if host.contains(':') {
         format!("[{host}]:{port}")
@@ -1116,7 +1116,7 @@ pub(crate) fn join_host_port(host: &str, port: i64) -> String {
 }
 
 /// Pulls each image once for the replicas starting together, sharing the
-/// registry's answer or failure, as Go's singleflight does: a pull in
+/// registry's answer or failure: a pull in
 /// flight is joined, a finished one forgotten. Other credentials pull for
 /// themselves.
 #[derive(Default)]

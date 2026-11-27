@@ -1,12 +1,11 @@
-//! Netlink messages, built as the Go agent's libraries build them
-//! (vishvananda/netlink for routing, mdlayher/netlink for generic netlink:
-//! both pad every attribute to four bytes and give a nested attribute the
-//! length of its padded children), and a socket that sends one request at a
+//! Netlink messages (every attribute padded to four bytes, a nested
+//! attribute given the length of its padded children), and a socket that
+//! sends one request at a
 //! time and reads its answer: the messages that answer it, then the
 //! acknowledgement, the end of a dump, or an error.
 //!
 //! Messages are built with sequence number and port ID 0, so tests compare
-//! them with what Go's libraries send; the socket numbers them.
+//! them with recorded messages; the socket numbers them.
 
 use std::fmt;
 use std::io;
@@ -29,7 +28,7 @@ const NLMSG_ERROR: u16 = 2;
 const NLMSG_DONE: u16 = 3;
 const HEADER: usize = 16;
 
-/// An error number, printed as Go prints a syscall.Errno.
+/// An error number, printed as its lower-case text ("file exists").
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Errno(pub i32);
 
@@ -360,7 +359,7 @@ mod tests {
     }
 
     #[test]
-    fn errors_read_as_go_prints_them() {
+    fn errors_read_as_their_texts() {
         assert_eq!(Errno(libc::EEXIST).to_string(), "file exists");
         assert_eq!(Errno(libc::ENODEV).to_string(), "no such device");
         assert_eq!(

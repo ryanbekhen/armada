@@ -1,6 +1,6 @@
-//! The port of internal/proxy/haproxy/render.go. Lines are written with
-//! render.go's own format strings (`%s`, `%d`, `%%`) through `Out::line`, so
-//! the two read side by side; keep them that way when either changes.
+//! The HAProxy configuration renderer. Lines are written with format
+//! strings (`%s`, `%d`, `%%`) through `Out::line`, so each reads as the
+//! line it writes.
 
 use super::{Backend, Config, Cors, Layout, Options, Rule, Server, TcpRoute, backend_space};
 use crate::names::{DEFAULT_SPACE, INTERNAL_SUFFIX};
@@ -51,13 +51,13 @@ const FORWARDED_URL_HEADERS: [&str; 4] = [
 /// proxy.ClientIPHeader.
 const CLIENT_IP_HEADER: &str = "X-Real-IP";
 
-/// A configuration being written, line by line, with Go's verbs.
+/// A configuration being written, line by line, with format verbs.
 #[derive(Default)]
 struct Out(String);
 
 impl Out {
-    /// fmt.Fprintf(format + "\n") for the verbs render.go uses: %s and %d
-    /// print an argument, %% a percent sign.
+    /// The line format with its arguments and a new line: %s and %d print
+    /// an argument, %% a percent sign.
     fn line(&mut self, format: &str, args: &[&dyn Display]) {
         let mut args = args.iter();
         let mut chars = format.chars();
@@ -111,7 +111,7 @@ impl Options {
     }
 }
 
-/// netip.ParsePrefix: an address and a length within its family.
+/// A prefix: an address and a length within its family.
 fn parse_prefix(s: &str) -> Option<(IpAddr, u8)> {
     let (ip, bits) = s.split_once('/')?;
     let ip: IpAddr = ip.parse().ok()?;
@@ -160,7 +160,7 @@ impl Node {
     }
 }
 
-/// backendName: the HAProxy backend of an app.
+/// The HAProxy backend of an app.
 pub fn backend_name(app: &str) -> String {
     format!("be_{app}")
 }
@@ -169,7 +169,7 @@ fn wake_backend_name(app: &str) -> String {
     format!("wk_{app}")
 }
 
-/// slotName: the server of slot i.
+/// The server of slot i.
 pub fn slot_name(i: usize) -> String {
     format!("s{}", i + 1)
 }
@@ -270,7 +270,7 @@ pub fn pools(cfg: &Config, n: &Node) -> Vec<(String, Vec<Server>)> {
         .collect()
 }
 
-/// slotCount: the slots a backend of n servers gets (the agent's driver).
+/// The slots a backend of n servers gets (the agent's driver).
 #[allow(dead_code)]
 pub fn slot_count(n: usize) -> usize {
     if n <= 10 { 10 } else { n.div_ceil(10) * 10 }
@@ -773,8 +773,8 @@ fn split_rules(cfg: &Config) -> (Vec<&Rule>, Vec<&Rule>) {
     cfg.rules.iter().partition(|r| !r.internal)
 }
 
-/// Longest path first, then by host and path. A stable sort: Go's is not,
-/// but validated rules never tie on all three.
+/// Longest path first, then by host and path (validated rules never tie
+/// on all three).
 fn sort_rules<'a>(rules: &[&'a Rule]) -> Vec<&'a Rule> {
     let mut r = rules.to_vec();
     r.sort_by(|a, b| {
@@ -791,7 +791,7 @@ fn mapped(r: &Rule, be: Option<&&Backend>) -> bool {
     r.path_prefix == "/" && !r.strip_prefix && r.allow.is_empty() && !be.is_some_and(|b| b.wake)
 }
 
-/// routeMap: the file name and content, or None without mapped rules.
+/// The file name and content, or None without mapped rules.
 fn route_map(
     prefix: &str,
     rules: &[&Rule],
@@ -978,7 +978,7 @@ fn write_public_routes(
     w!(o, "    default_backend be_armada_notfound");
 }
 
-/// safeConfig: every value render interpolates is one token.
+/// Every value render interpolates is one token.
 fn safe_config(cfg: &Config, opts: &Options) -> bool {
     let mut vals: Vec<&str> = vec![
         &cfg.acme_address,
@@ -1019,8 +1019,7 @@ fn safe_config(cfg: &Config, opts: &Options) -> bool {
     vals.iter().all(|v| safe_token(v))
 }
 
-/// safeToken: no space or control character (unicode.IsSpace and
-/// unicode.IsControl are White_Space and Cc, as in Rust).
+/// No space or control character (Unicode White_Space or Cc).
 fn safe_token(s: &str) -> bool {
     !s.chars()
         .any(|r| r <= ' ' || r == '\x7f' || r.is_whitespace() || r.is_control())

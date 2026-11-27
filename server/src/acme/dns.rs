@@ -1,5 +1,5 @@
-//! The DNS lookups of certmagic's DNS-01 solver (dnsutil.go): the zone
-//! of a name from its SOA (FindZoneByFQDN, with the SOA cache), and the
+//! The DNS lookups of the DNS-01 solver: the zone of a name from its SOA
+//! (with an SOA cache), and the
 //! propagation check that asks the zone's authoritative nameservers (or,
 //! when resolvers are given, those resolvers) for the TXT record. Queries
 //! carry EDNS0 with a 1232-byte buffer, go over UDP and again over TCP for
@@ -12,7 +12,6 @@ use std::time::{Duration, Instant};
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-/// dnsTimeout.
 const TIMEOUT: Duration = Duration::from_secs(10);
 
 pub const TYPE_TXT: u16 = 16;
@@ -44,7 +43,6 @@ pub struct Msg {
     pub answer: Vec<Record>,
 }
 
-/// dns.RcodeToString.
 pub fn rcode_string(rc: u16) -> String {
     match rc {
         0 => "NOERROR",
@@ -246,7 +244,7 @@ async fn tcp(server: &str, q: &[u8], id: u16) -> Result<Msg, String> {
     parse(&buf, id)
 }
 
-/// sendDNSQuery: UDP, then TCP when the answer is cut short or the UDP
+/// UDP, then TCP when the answer is cut short or the UDP
 /// exchange timed out.
 async fn send_query(name: &str, typ: u16, recursive: bool, ns: &str) -> Result<Msg, String> {
     let id = random_id();
@@ -268,7 +266,7 @@ async fn send_query(name: &str, typ: u16, recursive: bool, ns: &str) -> Result<M
     }
 }
 
-/// dnsQuery: each nameserver in turn until one answers with records; the
+/// Each nameserver in turn until one answers with records; the
 /// last answer and error.
 async fn dns_query(
     name: &str,
@@ -318,8 +316,7 @@ pub fn recursive_nameservers(custom: &[String]) -> Vec<String> {
     servers.into_iter().map(|s| with_port(&s)).collect()
 }
 
-/// populateNameserverPorts: net.JoinHostPort(s, "53") for a server with
-/// no port.
+/// s with port 53 added when it has none (an IPv6 address in brackets).
 fn with_port(s: &str) -> String {
     let has_port = if let Some(rest) = s.strip_prefix('[') {
         rest.contains("]:")
@@ -340,7 +337,6 @@ struct SoaEntry {
     expires: Instant,
 }
 
-/// fqdnSOACache.
 static SOA_CACHE: LazyLock<Mutex<HashMap<String, SoaEntry>>> = LazyLock::new(Default::default);
 
 /// FindZoneByFQDN.
@@ -375,7 +371,7 @@ pub async fn find_zone(fqdn: &str, nameservers: &[String]) -> Result<String, Str
     Ok(zone)
 }
 
-/// dns.Split: where each label of an absolute name starts.
+/// Where each label of an absolute name starts.
 fn label_starts(fqdn: &str) -> Vec<usize> {
     if fqdn == "." {
         return Vec::new();
@@ -390,7 +386,6 @@ fn label_starts(fqdn: &str) -> Vec<usize> {
     out
 }
 
-/// fetchSoaByFqdn.
 async fn fetch_soa(fqdn: &str, nameservers: &[String]) -> Result<(String, u32), String> {
     let mut last: (Option<Msg>, Option<String>) = (None, None);
     for start in label_starts(fqdn) {
@@ -438,7 +433,7 @@ async fn fetch_soa(fqdn: &str, nameservers: &[String]) -> Result<(String, u32), 
     ))
 }
 
-/// checkDNSPropagation for a TXT record.
+/// Whether a TXT record has propagated.
 pub async fn check_propagation(
     fqdn: &str,
     expected: &str,
@@ -500,7 +495,7 @@ pub async fn check_propagation(
     Ok(false)
 }
 
-/// lookupNameservers: the zone's NS names, lowercased.
+/// The zone's NS names, lowercased.
 async fn lookup_nameservers(fqdn: &str, resolvers: &[String]) -> Result<Vec<String>, String> {
     let zone = find_zone(fqdn, resolvers)
         .await

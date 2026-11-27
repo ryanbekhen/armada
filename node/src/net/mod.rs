@@ -1,10 +1,8 @@
-//! The cluster network (ADR 0054 step 3): internal/clusternet in Rust,
-//! which stays the reference. The pure logic (plan, policy, rules, peer
-//! changes) is compared by a Go test on the package's test cases and random
-//! configurations; the firewall and the kernel side (apply.rs: interfaces,
-//! addresses, routes, neighbour and forwarding entries, kernel WireGuard)
-//! by the netlink messages Go's libraries send and, as root, by the
-//! integration tests in network namespaces.
+//! The cluster network: the pure logic (plan, policy, rules, peer
+//! changes), the firewall, and the kernel side (apply.rs: interfaces,
+//! addresses, routes, neighbour and forwarding entries, kernel WireGuard),
+//! the last checked by its netlink messages and, as root, by integration
+//! tests in network namespaces.
 //!
 //!   armada-node net plan             stdin: a request (below); stdout: the plan
 //!   armada-node net key PATH         network.key: load or create; prints the public key
@@ -13,22 +11,22 @@
 //!   armada-node net cache load PATH  prints the kept NetworkConfig, or null
 //!   armada-node net firewall ...     the nftables isolation tables and the
 //!                                    iptables chains (firewall.rs)
-//!   armada-node net apply|up|remove  Net.Apply, Net.Up, and Remove (apply.rs)
+//!   armada-node net apply|up|remove  a pass, the tunnels up, and removal (apply.rs)
 //!   armada-node net probe            a switch's probe, beside the agent (probe.rs)
-//!   armada-node net unreachable      UnreachablePeers (apply.rs)
+//!   armada-node net unreachable      peers with no recent handshake (apply.rs)
 //!   armada-node net diagnose         armadad doctor's checks (diagnose.rs)
 //!   armada-node net netlink ...      the netlink messages and readings the
-//!                                    parity tests compare (nlcheck.rs)
+//!                                    tests compare (nlcheck.rs)
 //!
-//! A plan request is one JSON object as Go's encoding/json writes it:
+//! A plan request is one JSON object:
 //! Config (a NetworkConfig in protojson), Node and PrivateIP (this node),
 //! Key (its private key, "" for none), Local (its own containers'
 //! addresses, null when they are not in its subnet), Locals (the machine's
 //! interface networks), UplinkMTU, LineMTU, and RemoteMTU (what the kernel
 //! says of the uplinks), Now (Unix seconds), Devices (the WireGuard devices
 //! by name, as the kernel reports them), and Stale (peers to check for
-//! handshakes). The answer is one JSON object: {"error"} with the text Go
-//! returns, or the plan, its isolation policy, the firewall rules per chain,
+//! handshakes). The answer is one JSON object: {"error"} with the error's
+//! text, or the plan, its isolation policy, the firewall rules per chain,
 //! and what each transport (interface) carries.
 
 pub mod addr;

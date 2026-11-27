@@ -1,16 +1,14 @@
-//! What armadad doctor checks of the cluster network (clusternet_linux.go's
-//! Diagnose, with wireguard_linux.go's diagnoseWireGuard): the uplink's MTU,
-//! a switch under way, the tunnel and its peers, peers of other sites whose
+//! What armadad doctor checks of the cluster network: the uplink's MTU, a
+//! switch under way, the tunnel and its peers, peers of other sites whose
 //! address the machine's own networks hide, relays, and the isolation
-//! tables. Names, levels, and details are Go's, for the same machine.
+//! tables, each with its name, level, and detail.
 //!
 //!   armada-node net diagnose   stdin: {Mode, PrivateIP, Endpoint, Cache, Node}
 //!                              stdout: {checks: [{name, level, detail}],
 //!                              needsUserspace}
 //!
-//! The userspace WireGuard device belongs to the Go agent: when the kernel
-//! has no device of a name but that device's control socket exists, this
-//! answers needsUserspace and Go diagnoses it.
+//! When the kernel has no device of a name but a userspace device's control
+//! socket exists, the program answers needsUserspace.
 
 use super::addr::{Addr, Prefix};
 use super::apply::Net;
@@ -74,12 +72,11 @@ struct Answer {
     needs_userspace: bool,
 }
 
-/// The device belongs to the Go agent's userspace WireGuard.
+/// The device belongs to a userspace WireGuard.
 pub struct Userspace;
 
-/// Who would run a WireGuard device the kernel cannot: the Go agent's
-/// userspace device, or nobody (the Rust agent, which has none: its text
-/// says so).
+/// Who would run a WireGuard device the kernel cannot: a userspace
+/// device, or nobody (the agent has none: its text says so).
 #[derive(Clone, Copy)]
 // KernelOnly is the library's (armadad doctor), not the program's.
 #[allow(dead_code)]
@@ -88,7 +85,7 @@ enum Wg<'a> {
     KernelOnly(&'a str),
 }
 
-/// kernelHas: whether the kernel has a module loaded, built in, or
+/// Whether the kernel has a module loaded, built in, or
 /// available to load. ARMADA_NODE_TEST_KERNEL_MODULES (test-hooks builds
 /// only) names the modules the kernel has, comma-separated, so the
 /// daemon's replays give the machine they were recorded on.
@@ -126,8 +123,8 @@ pub fn diagnose(
     diagnose_as(Wg::GoAgent, mode, ip, endpoint, cache, node)
 }
 
-/// Diagnose for an agent with no userspace WireGuard (the Rust agent's
-/// armadad doctor, ADR 0055): where the kernel has no WireGuard the
+/// Diagnose for an agent with no userspace WireGuard (armadad doctor):
+/// where the kernel has no WireGuard the
 /// wireguard check fails with no_kernel, and a device only a userspace
 /// control socket holds is one not set up yet.
 // The library's (armadad doctor), not the program's.
@@ -162,7 +159,7 @@ fn diagnose_as(
     Ok(out)
 }
 
-/// The Go agent's address as netip.Addr prints it, for an invalid one too.
+/// An address's text, "invalid IP" for a missing one.
 fn addr_text(ip: &Option<Addr>) -> String {
     ip.as_ref()
         .map_or_else(|| "invalid IP".to_string(), Addr::to_string)
@@ -345,8 +342,8 @@ fn diagnose_wireguard(
             ));
             return Ok(out);
         }
-        // The kernel has no WireGuard family: wgctrl reads only
-        // userspace devices then.
+        // The kernel has no WireGuard family: only userspace devices
+        // could be read then.
         Err(e) => Err(e),
     };
     let d = match device {
@@ -474,7 +471,7 @@ fn diagnose_relay(cache: &str, node: &str, ip: &Option<Addr>) -> Option<Check> {
     plan::relay_check(&p).map(|(level, detail)| check("relay", level, detail))
 }
 
-/// localPrefixes: the IPv4 networks on the machine's interfaces, leaving
+/// The IPv4 networks on the machine's interfaces, leaving
 /// out loopback and Armada's own.
 fn local_prefixes() -> Result<Vec<LocalPrefix>, String> {
     let mut rt = rtnl::Handle::open().map_err(|e| e.to_string())?;
@@ -500,8 +497,7 @@ fn local_prefixes() -> Result<Vec<LocalPrefix>, String> {
     Ok(out)
 }
 
-/// hasIsolation: whether both isolation tables exist; the error as Go's
-/// netlink library words it.
+/// Whether both isolation tables exist, or the netlink error.
 fn has_isolation() -> Result<bool, String> {
     let sock = NftSocket::open()?;
     for fam in nft::FAMILIES.iter() {
@@ -581,7 +577,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn endpoints_print_as_go_prints_their_address() {
+    fn endpoints_print_their_address() {
         assert_eq!(endpoint_ip("203.0.113.2:51820"), "203.0.113.2");
         assert_eq!(endpoint_ip("[2001:db8::1]:51820"), "2001:db8::1");
     }

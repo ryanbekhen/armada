@@ -1,10 +1,9 @@
-//! The proxy pass as the agent sees it (Go's applyProxy, certs.go, and the
-//! load part of usage.go): the node's ingress configuration handed to a
-//! [`Proxy`], its certificates fetched by reference, the names the node's
-//! resolver answers, and the requests in progress per replica. The HAProxy
-//! driver behind the trait is [`crate::haproxy::Driver`] and the resolver
-//! [`crate::dnsprocess::DnsProcess`] (ADR 0055, item 16d); the parity
-//! tests implement them with fakes.
+//! The proxy pass as the agent sees it: the node's ingress configuration
+//! handed to a [`Proxy`], its certificates fetched by reference, the names
+//! the node's resolver answers, and the requests in progress per replica.
+//! The HAProxy driver behind the trait is [`crate::haproxy::Driver`] and
+//! the resolver [`crate::dnsprocess::DnsProcess`]; the replays implement
+//! them with fakes.
 
 use std::collections::{BTreeMap, HashMap};
 use std::future::Future;
@@ -27,8 +26,7 @@ pub type Clients = BTreeMap<IpAddr, String>;
 /// How many certificates one GetCertificates call asks for.
 pub const CERT_BATCH: usize = 256;
 
-/// The busy replicas one usage report carries at most (Go's
-/// proxy.MaxLoadEntries).
+/// The busy replicas one usage report carries at most.
 pub const MAX_LOAD_ENTRIES: usize = 20_000;
 
 /// Requests in progress at a server and sent to it so far.
@@ -39,21 +37,21 @@ pub struct ServerLoad {
     pub total: i64,
 }
 
-/// The node's proxy (Go's proxy.Driver with its optional ClientSetter and
-/// LoadReader). The configuration it gets carries every certificate's PEM.
+/// The node's proxy, which may also take the node's callers and report its
+/// load. The configuration it gets carries every certificate's PEM.
 pub trait Proxy: Send + Sync + 'static {
     /// Makes the proxy serve cfg; on failure the previous one stays.
     fn apply<'a>(&'a self, cfg: &'a pb::ProxyConfig) -> BoxFut<'a, Result<(), String>>;
     /// Whether the proxy runs and answers.
     fn health(&self) -> BoxFut<'_, Result<(), String>>;
-    /// Whether its internal frontend checks who calls (ClientSetter).
+    /// Whether its internal frontend checks who calls.
     fn sets_clients(&self) -> bool {
         false
     }
     fn set_clients<'a>(&'a self, _clients: &'a Clients) -> BoxFut<'a, Result<(), String>> {
         Box::pin(async { Ok(()) })
     }
-    /// Whether it counts requests per server (LoadReader).
+    /// Whether it counts requests per server.
     fn reads_load(&self) -> bool {
         false
     }
@@ -85,7 +83,7 @@ pub trait CertificateSource: Send + Sync + 'static {
     ) -> BoxFut<'_, Result<Vec<pb::ProxyCertificate>, String>>;
 }
 
-/// The node's resolver for `<app>.internal` (Go's InternalDNS).
+/// The node's resolver for `<app>.internal`.
 pub trait InternalDns: Send + Sync + 'static {
     /// The nameserver containers are given.
     fn address(&self) -> String;

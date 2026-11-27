@@ -1,7 +1,6 @@
-//! The node's connection tracking table (ADR 0025; Go's usage.go
-//! sampleConntrack and internal/conntrack): raised to its target with
+//! The node's connection tracking table (ADR 0025): raised to its target with
 //! every sample, its use reported. [`NodeConntrack`] runs armada-node's
-//! `conntrack read|raise`, as Go's Table.WithProgram does.
+//! `conntrack read|raise`.
 
 use std::time::Duration;
 
@@ -75,7 +74,7 @@ impl Conntrack for NodeConntrack {
     }
 }
 
-/// The table through armada-node's code in process (ADR 0055, item 16e).
+/// The table through armada-node's code in process.
 pub struct LibConntrack {
     pub dir: String,
     /// The machine's memory the target follows; None: read from sysinfo.
@@ -108,8 +107,8 @@ impl Conntrack for LibConntrack {
 }
 
 impl<R: Runtime> Inner<R> {
-    /// Keeps the limit raised and adds the table's use to report
-    /// (sampleConntrack); a failure to raise is a warning once.
+    /// Keeps the limit raised and adds the table's use to report; a
+    /// failure to raise is a warning once.
     pub(crate) async fn sample_conntrack(
         &self,
         report: &mut armada_proto::armada::v1::UsageReport,

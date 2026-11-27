@@ -1,44 +1,36 @@
-//! The control plane (ADR 0055): a port of Go's `internal/server` and of
-//! the server side of `armadad server`, checked against Go by the
-//! scenario parity tests (`internal/server`, `ARMADA_SERVER_BIN`).
+//! The control plane (ADR 0055): the server side of `armadad server`.
 //!
-//! This is the core (pull request 8 of ADR 0055): one leadership term's
-//! server ([`Server`]: the API with access control and stream checks,
-//! joins, sessions with agents, and the assignments of the replicas the
-//! store holds), the terms themselves ([`lifecycle`]), and the renewal of
-//! the server's own certificates ([`renew`]); with placement and rollouts
-//! (pull request 9): the reconcile pass's scheduling, placement, rollouts,
-//! drains, evacuation, self-healing, rebalancing, removal of apps, and
-//! traffic splits (`reconcile`, `schedule`), and the AdminService methods
-//! of apps and secrets (`apps`, `secret_api`); with jobs (pull request
-//! 10): cron schedules, retries, tasks, queue triggers with the usage
-//! reports' sandboxes that feed them, and the AdminService methods of jobs
-//! (`jobs`, `triggers`, `usage`); with scaling (pull request 11): the
-//! autoscaler's evaluations of http, cpu, memory, queue, and schedule
-//! rules, scale to zero and wakes, and the usage samples they read
-//! (`autoscale`, `usage`); with volumes (pull request 12): apps with
-//! local volumes recreated on their node with held replicas, the volume
-//! methods through agents' volume sessions, the volume sizes of usage
-//! reports, scheduled backups and their methods, the checks of backup
-//! buckets, and failover (`volumes`, `backups`, `failover`); with the
-//! network and the runtime move (pull request 13): the cluster network in
+//! One leadership term's server ([`Server`]: the API with access control
+//! and stream checks, joins, sessions with agents, and the assignments of
+//! the replicas the store holds), the terms themselves ([`lifecycle`]),
+//! and the renewal of the server's own certificates ([`renew`]). The
+//! reconcile pass's scheduling, placement, rollouts, drains, evacuation,
+//! self-healing, rebalancing, removal of apps, and traffic splits
+//! (`reconcile`, `schedule`), and the AdminService methods of apps and
+//! secrets (`apps`, `secret_api`). Jobs: cron schedules, retries, tasks,
+//! queue triggers with the usage reports' sandboxes that feed them, and
+//! their methods (`jobs`, `triggers`, `usage`). Scaling: the autoscaler's
+//! evaluations of http, cpu, memory, queue, and schedule rules, scale to
+//! zero and wakes, and the usage samples they read (`autoscale`, `usage`).
+//! Volumes: apps with local volumes recreated on their node with held
+//! replicas, the volume methods through agents' volume sessions, the
+//! volume sizes of usage reports, scheduled backups and their methods, the
+//! checks of backup buckets, and failover (`volumes`, `backups`,
+//! `failover`). The network and the runtime move: the cluster network in
 //! every assignment with its peers, sites, relays, and the endpoints the
 //! firewalls keep apart, switches of its mode, the peer lists of joins
 //! over the leader's public address, and the move of containerd nodes to
-//! the supervisor runtime (`network`, `runtimemove`); with ingress (pull
-//! request 14): the proxy configuration of every pass with certificates in
-//! full or by reference, the ports of internal TCP apps in the network,
-//! custom domains and their TXT proof, certmagic's storage in etcd
-//! (`ingress`, [`certs`]), and obtaining and renewing certificates with
-//! ACME, HTTP-01 answered on the ACME responder and DNS-01 through
-//! Cloudflare ([`acme`]); with the first part of watching (pull request
-//! 15): ClusterStatus, Top with the usage counted per space, alert
-//! channels and their notices ([`alert`], `alerts`), the metrics endpoint
-//! and the metrics credentials ([`metrics`]), and the control plane
-//! backups' status; and with its second part: log search and live logs
-//! with the pruning of placement records and the log settings (`logs`),
-//! exec (`exec`), and the control plane backups' loop and settings
-//! ([`cpbackup`]). Every method of both services is ported.
+//! the supervisor runtime (`network`, `runtimemove`). Ingress: the proxy
+//! configuration of every pass with certificates in full or by reference,
+//! the ports of internal TCP apps in the network, custom domains and their
+//! TXT proof, certmagic's storage in etcd (`ingress`, [`certs`]), and
+//! obtaining and renewing certificates with ACME, HTTP-01 answered on the
+//! ACME responder and DNS-01 through Cloudflare ([`acme`]). Watching:
+//! ClusterStatus, Top with the usage counted per space, alert channels and
+//! their notices ([`alert`], `alerts`), the metrics endpoint and the
+//! metrics credentials ([`metrics`]), log search and live logs with the
+//! pruning of placement records and the log settings (`logs`), exec
+//! (`exec`), and the control plane backups ([`cpbackup`]).
 
 pub mod access;
 pub mod acme;
@@ -105,21 +97,20 @@ pub use settings::{
     check_node_lost_timeout, load_settings, save_settings,
 };
 
-/// The clock the server reads where Go's reads `s.now()` (tests replace
-/// it); where Go reads `time.Now()` the wall clock is read too.
+/// The server's clock, which tests replace; some reads take the wall
+/// clock instead.
 pub type Clock = armada_store::Clock;
 
-/// Go's defaultResync.
+/// How often the reconcile pass runs without a reason to.
 pub const DEFAULT_RESYNC: Duration = Duration::from_secs(5);
-/// Go's streamRecheckEvery.
+/// How often an open stream's access is checked again.
 pub const STREAM_RECHECK_EVERY: Duration = Duration::from_secs(5);
-/// Go's DefaultNodeLostTimeout.
+/// How long a node may be away before it is lost, by default.
 pub const DEFAULT_NODE_LOST_TIMEOUT: Duration = Duration::from_secs(5 * 60);
-/// Go's shutdownGrace: how long in-flight calls get when the server stops.
+/// How long in-flight calls get when the server stops.
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(3);
 
-/// How one term's server is set up (Go's server.Config, the parts this
-/// pull request ports).
+/// How one term's server is set up.
 pub struct Config {
     /// The store, fenced on the term's election key.
     pub store: Etcd,
@@ -195,7 +186,7 @@ pub struct Config {
     pub backup_interval: Duration,
     /// Passes run only when [`Server::reconcile`] is called, and the
     /// autoscaler evaluates only when [`Server::autoscale`] is (the
-    /// scenario parity tests, which drive both, and the backups with
+    /// scenario replays, which drive both, and the backups with
     /// [`Server::schedule_backups`]): the loop only promotes learners.
     pub manual_passes: bool,
     /// Makes the random part of new replica IDs (tests make them
@@ -213,7 +204,7 @@ pub struct Config {
 }
 
 impl Config {
-    /// A config with the defaults Go's New fills in.
+    /// A config with the defaults.
     pub fn new(store: Etcd, cert: Arc<tls::ServerCert>) -> Config {
         Config {
             store,
@@ -297,10 +288,9 @@ pub(crate) struct Inner {
     pub resolver: Arc<dyn certs::TxtResolver>,
     pub verify_interval: Duration,
     /// Certificates read from the manager, kept until it obtains them
-    /// again (Go's pems).
+    /// again.
     pub pems: Mutex<HashMap<String, Vec<u8>>>,
-    /// The names and credentials the manager was last given (Go's
-    /// lastCertNames, under certMu).
+    /// The names and credentials the manager was last given.
     pub cert_names: tokio::sync::Mutex<Vec<String>>,
     /// The certificate names of the last proxy configuration
     /// (GetCertificates hands out only these).
@@ -368,7 +358,7 @@ pub(crate) struct Inner {
 }
 
 impl Server {
-    /// Builds a server (Go's New).
+    /// Builds a server.
     pub fn new(cfg: Config) -> Result<Server, String> {
         if !cfg.join_addr.is_empty() {
             if cfg.ca.is_none() || cfg.api_addr.is_empty() {
@@ -526,7 +516,7 @@ impl Server {
     }
 
     /// Accepts connections on `lis` and runs the term's loops until
-    /// `shutdown` turns true (Go's Serve).
+    /// `shutdown` turns true.
     pub async fn serve(
         &self,
         lis: TcpListener,
@@ -680,7 +670,7 @@ fn nonzero(d: Duration, def: Duration) -> Duration {
 
 const ID_ALPHABET: &[u8] = b"abcdefghijklmnopqrstuvwxyz0123456789";
 
-/// randomID: n random characters from [a-z0-9].
+/// n random characters from [a-z0-9].
 pub fn random_id(n: usize) -> String {
     use ring::rand::SecureRandom;
     let mut b = vec![0u8; n];
@@ -692,7 +682,7 @@ pub fn random_id(n: usize) -> String {
         .collect()
 }
 
-/// Go's storeErr: the gRPC status of a store error.
+/// The gRPC status of a store error.
 pub(crate) fn store_err(e: &armada_store::Error) -> Status {
     match e.kind {
         Kind::NotFound => Status::new(Code::NotFound, e.msg.clone()),
@@ -703,7 +693,7 @@ pub(crate) fn store_err(e: &armada_store::Error) -> Status {
     }
 }
 
-/// Go's sentence: a store error's message without the sentinel at its end.
+/// A store error's message without the sentinel at its end.
 fn sentence(e: &armada_store::Error) -> String {
     let suffix = format!(": {}", e.kind.text());
     e.msg.strip_suffix(&suffix).unwrap_or(&e.msg).to_string()

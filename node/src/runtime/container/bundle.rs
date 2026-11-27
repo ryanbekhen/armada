@@ -1,9 +1,8 @@
-//! Containers' OCI bundles as internal/runtime/supervisor's Bundles keeps
-//! them, under DIR/<id>: config.json, the root filesystem mounted at
-//! rootfs, and record.json, written last, so a bundle without a record is
-//! one that was never finished. The files are the bytes Go writes, so a
-//! node can switch between Go's runtime and this one and adopt the
-//! containers either made.
+//! Containers' OCI bundles under DIR/<id>: config.json, the root
+//! filesystem mounted at rootfs, and record.json, written last, so a
+//! bundle without a record is one that was never finished. The files keep
+//! their recorded format, so containers made by an earlier release are
+//! adopted.
 
 use super::errno_text;
 use super::mount::{Mount, mount_all, unmount_all};
@@ -24,7 +23,7 @@ const ROOTFS: &str = "rootfs";
 /// The annotation naming the shim a container shares (GroupAnnotation).
 pub const GROUP_ANNOTATION: &str = "io.containerd.runc.v2.group";
 
-/// supervisor.Record, written as Go writes it.
+/// A bundle's record (record.json).
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Record {
     pub id: String,
@@ -73,7 +72,7 @@ fn write_file(path: &Path, data: &[u8]) -> Result<(), String> {
     })
 }
 
-/// os.ReadFile: the error names the step that failed (open or read).
+/// A whole file: the error names the step that failed (open or read).
 fn read_file(p: &Path) -> Result<Vec<u8>, (io::Error, &'static str)> {
     let mut f = fs::File::open(p).map_err(|e| (e, "open"))?;
     let mut b = Vec::new();
@@ -116,8 +115,8 @@ struct Annotations {
     annotations: BTreeMap<String, String>,
 }
 
-/// The spec as Bundles.Create writes it: Go's json.Marshal of a
-/// specs.Spec, its root replaced by {"path": "rootfs"} (keeping
+/// The spec as a bundle's config.json holds it: the compact JSON of the
+/// spec, its root replaced by {"path": "rootfs"} (keeping
 /// readonly), in the place the struct gives root (after process).
 pub fn bundle_spec(spec: &RawValue) -> Result<(Vec<u8>, String), String> {
     let Members(mut members) =
@@ -200,7 +199,7 @@ pub fn create(r: &CreateRequest) -> Result<Record, String> {
 }
 
 /// A mount of a bundle's root filesystem: mount_all, or a stand-in in the
-/// tests of a caller that runs without root (the Rust agent's).
+/// tests of a caller that runs without root (the agent's).
 pub type MountFn<'a> = &'a dyn Fn(&[Mount], &Path) -> Result<(), String>;
 
 /// create, the root filesystem mounted by mount.
@@ -260,7 +259,7 @@ pub fn remove_with(dir: &str, id: &str, unmount: UnmountFn) -> Result<(), String
     }
 }
 
-/// time.Time's UnmarshalJSON: RFC 3339 strictly, with Z or a numeric
+/// Whether s is a time: RFC 3339 strictly, with Z or a numeric
 /// offset, every field in its range.
 fn rfc3339(s: &str) -> bool {
     let b = s.as_bytes();
@@ -328,11 +327,10 @@ pub struct Skipped {
     pub error: String,
 }
 
-/// Bundles.Records: every finished bundle's record, by directory name. A
-/// record that cannot be read, does not parse, or names another ID is
-/// left out and named in the second list, so one bad bundle never hides
-/// every container (Go's code fails the whole listing when a record
-/// cannot be read).
+/// Every finished bundle's record, by directory name. A record that
+/// cannot be read, does not parse, or names another ID is left out and
+/// named in the second list, so one bad bundle never hides every
+/// container.
 pub fn records(dir: &str) -> Result<(Vec<Record>, Vec<Skipped>), String> {
     let dir = Path::new(dir);
     let mut names: Vec<String> = match fs::read_dir(dir) {
@@ -425,7 +423,7 @@ mod tests {
     }
 
     #[test]
-    fn times_as_go() {
+    fn rfc3339_times() {
         assert!(rfc3339("2026-11-23T08:00:00Z"));
         assert!(rfc3339("2026-11-23T08:00:00.123456789Z"));
         assert!(rfc3339("2026-11-23T08:00:00.5+07:00"));

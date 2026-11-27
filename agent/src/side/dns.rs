@@ -1,5 +1,4 @@
-//! Resolving a broker's name from a network namespace (Go's resolveIn, a
-//! net.Resolver whose Dial dials from the namespace): A and AAAA queries
+//! Resolving a broker's name from a network namespace: A and AAAA queries
 //! to the nameserver containers use over a socket the runtime connects
 //! from the namespace, UDP first and TCP when the answer was truncated.
 //! The name is asked as given (absolute); addresses come IPv4 first.

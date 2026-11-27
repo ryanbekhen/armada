@@ -1,6 +1,5 @@
-//! `armada-node` is Armada's node agent moving to Rust in steps (ADR 0054).
-//! It runs as subcommands the Go agent hands work to, each one checked
-//! against the Go code it replaces:
+//! `armada-node` does the node's work the agent hands it, as subcommands
+//! (most of it also as a library the agent calls in process):
 //!
 //!   armada-node proxy render   HAProxy's configuration (src/proxy)
 //!   armada-node net ...        the cluster network's plan, key, peer list, firewall, tunnels,

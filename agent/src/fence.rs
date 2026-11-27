@@ -1,4 +1,4 @@
-//! Fencing (ADR 0041, Go's fence.go): a replica whose volumes fail over to
+//! Fencing (ADR 0041): a replica whose volumes fail over to
 //! another node stops once its agent has been cut off from the control
 //! plane for the time the server set, before the server restores the
 //! volumes elsewhere.

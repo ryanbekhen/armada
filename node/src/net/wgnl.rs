@@ -1,9 +1,8 @@
-//! Kernel WireGuard over generic netlink, as wgctrl's Linux client talks to
-//! it: the family looked up by name, a device read with
-//! WG_CMD_GET_DEVICE (its peers merged across the dump's messages), and
-//! changes sent with WG_CMD_SET_DEVICE, split into batches as wgctrl splits
-//! a large configuration. A Go test compares the messages with what wgctrl
-//! sends, and the parsing with what wgctrl makes of the same answer.
+//! Kernel WireGuard over generic netlink: the family looked up by name, a
+//! device read with WG_CMD_GET_DEVICE (its peers merged across the dump's
+//! messages), and changes sent with WG_CMD_SET_DEVICE, a large
+//! configuration split into batches. Tests compare the messages and the
+//! parsing with recorded ones.
 
 use super::addr::Addr;
 use super::key::Key;
@@ -41,7 +40,7 @@ const WGPEER_F_REPLACE_ALLOWEDIPS: u32 = 2;
 const AF_INET: u16 = 2;
 const AF_INET6: u16 = 10;
 
-/// ipBatchChunk and peerBatchChunk of wgctrl.
+/// The most allowed IPs and peers one batch carries.
 const IP_BATCH: usize = 256;
 const PEER_BATCH: usize = 32;
 
@@ -171,7 +170,7 @@ pub fn set_device(family: u16, name: &str, cfg: &DeviceSet) -> Msg {
     genl(family, WG_CMD_SET_DEVICE, NLM_F_REQUEST | NLM_F_ACK, a)
 }
 
-/// buildBatches: a large configuration split as wgctrl splits it, every
+/// A large configuration split into batches, every
 /// batch with the device's settings and one peer's (part of its) allowed
 /// IPs.
 pub fn batches(cfg: &DeviceSet) -> Vec<DeviceSet> {
@@ -328,7 +327,7 @@ fn parse_peer(b: &[u8]) -> DevicePeer {
     p
 }
 
-/// parseDevice: the device of the dump's first message with the peers of
+/// The device of the dump's first message with the peers of
 /// every message, a peer split across messages merged into one.
 pub fn parse_device(msgs: &[Vec<u8>]) -> Device {
     let mut d = Device::default();
@@ -369,7 +368,7 @@ fn parse_family(msgs: &[(u16, Vec<u8>)]) -> Option<u16> {
 #[derive(Debug)]
 pub enum WgError {
     /// No such device, not a WireGuard one, or no WireGuard in the kernel
-    /// (os.ErrNotExist in Go).
+    /// (not found).
     NotExist,
     Errno(Errno),
 }

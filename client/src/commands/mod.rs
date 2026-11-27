@@ -1,4 +1,4 @@
-//! The armada command tree (Go's NewRootCommand) and what its commands
+//! The armada command tree and what its commands
 //! share: the space they work in, output formats, and the texts tables use.
 
 pub mod access;
@@ -116,7 +116,7 @@ pub fn pre_run(ctx: &mut Ctx<'_>) -> Result {
     resolve_space(ctx).map_err(Error::Msg)
 }
 
-/// resolveSpace: the client config's space when neither --space nor
+/// The client config's space when neither --space nor
 /// ARMADA_SPACE named one.
 pub fn resolve_space(ctx: &mut Ctx<'_>) -> std::result::Result<(), String> {
     if ctx.g.space.is_empty()
@@ -133,7 +133,7 @@ pub fn resolve_space(ctx: &mut Ctx<'_>) -> std::result::Result<(), String> {
     Ok(())
 }
 
-/// verbHints: what to type for verbs Armada has not got.
+/// What to type for verbs Armada has not got.
 pub fn verb_hint(key: &str) -> Option<&'static str> {
     Some(match key {
         "app scale" => "The replica count is part of the spec: armada app deploy APP --min N",
@@ -262,7 +262,7 @@ pub fn check_output(f: &str) -> Result {
     Ok(())
 }
 
-/// printJSON: protojson, indented by two spaces.
+/// Protojson, indented by two spaces.
 pub fn print_json<T: Serialize>(ctx: &mut Ctx<'_>, m: &T) -> Result {
     let s = serde_json::to_string_pretty(m).map_err(|e| Error::Msg(e.to_string()))?;
     ctx.print(&s);
@@ -300,7 +300,7 @@ fn ts_nanos(t: &armada_proto::google::protobuf::Timestamp) -> i128 {
     i128::from(t.seconds) * 1_000_000_000 + i128::from(t.nanos)
 }
 
-/// The nanoseconds from t to now, as Go's Sub saturates them.
+/// The nanoseconds from t to now, saturating at i64's bounds.
 pub fn since(t: &armada_proto::google::protobuf::Timestamp, now: i128) -> i64 {
     clamp(now - ts_nanos(t))
 }
@@ -314,7 +314,7 @@ fn clamp(d: i128) -> i64 {
     d.clamp(i128::from(i64::MIN), i128::from(i64::MAX)) as i64
 }
 
-/// humanDuration: 42s, 5m, 3h, 2d.
+/// 42s, 5m, 3h, 2d.
 pub fn human_duration(d: i64) -> String {
     let d = d.max(0);
     if d < go::MINUTE {
@@ -391,7 +391,7 @@ pub fn day_clock(t: &armada_proto::google::protobuf::Timestamp) -> String {
     )
 }
 
-/// choiceList: names for an error, at most 20.
+/// Names for an error, at most 20.
 pub fn choice_list(names: &[String]) -> String {
     let mut names = names.to_vec();
     names.sort();
@@ -407,8 +407,8 @@ pub fn dash_printable(s: &str) -> String {
     dash(&printable(s))
 }
 
-/// A protobuf timestamp as a time.Time, in the local zone or UTC
-/// (AsTime().Local() or AsTime()); none reads as the Unix epoch.
+/// A protobuf timestamp as a time, in the local zone or UTC; none reads
+/// as the Unix epoch.
 pub fn go_time(
     t: Option<&armada_proto::google::protobuf::Timestamp>,
     local: bool,
@@ -497,7 +497,7 @@ pub fn clock(t: &spec::gotime::Time) -> String {
     format!("{:02}:{:02}:{:02}", c.hour, c.minute, c.second)
 }
 
-/// humanBytes: 512Mi, 1.5Gi, or "-" for none.
+/// 512Mi, 1.5Gi, or "-" for none.
 pub fn human_bytes(b: i64) -> String {
     if b <= 0 {
         return "-".to_string();
@@ -508,7 +508,7 @@ pub fn human_bytes(b: i64) -> String {
     format!("{}Mi", b >> 20)
 }
 
-/// usedBytes: memory in use, where 0 is a value rather than unknown.
+/// Memory in use, where 0 is a value rather than unknown.
 pub fn used_bytes(b: i64) -> String {
     if b <= 0 {
         return "0Mi".to_string();
@@ -516,7 +516,7 @@ pub fn used_bytes(b: i64) -> String {
     human_bytes(b)
 }
 
-/// diskBytes: 512B, 4.0Ki, 1.2Gi.
+/// 512B, 4.0Ki, 1.2Gi.
 pub fn disk_bytes(b: i64) -> String {
     const UNIT: f64 = 1024.0;
     if b < 1024 {
@@ -531,8 +531,7 @@ pub fn disk_bytes(b: i64) -> String {
     format!("{v:.1}{}i", ["K", "M", "G", "T", "P"][i])
 }
 
-/// The text of an error reading or writing a file, as Go's os package
-/// words it.
+/// The text of an error reading or writing a file: "OP PATH: ERRNO TEXT".
 pub fn path_error(op: &str, path: &str, e: &std::io::Error) -> String {
     format!("{op} {path}: {}", armada_fsutil::errno_text(e))
 }

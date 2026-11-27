@@ -7,7 +7,8 @@ use std::ffi::CString;
 use std::io::Read;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 
-/// An error as Go prints it, and whether errors.Is(err, fs.ErrNotExist).
+/// An error's text ("OP PATH: ERRNO TEXT"), and whether it means the file
+/// does not exist.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FsError {
     pub text: String,
@@ -30,7 +31,7 @@ impl FsError {
     }
 }
 
-/// syscall.Errno.Error(): Go's table of Linux errno texts (the same for
+/// The text of a Linux errno (the same for
 /// amd64 and arm64 but for 133, which only arm64's names).
 pub fn errno_text(e: i32) -> String {
     let text = match e {
@@ -238,7 +239,7 @@ impl Rootfs {
         Ok(unsafe { OwnedFd::from_raw_fd(fd as i32) })
     }
 
-    /// fs.ReadLinkFS.Lstat on an os.Root: the entry itself; its error as
+    /// The entry itself, not following a link, beneath the root; its error as
     /// "statat NAME: ...".
     fn lstat(&self, name: &str) -> Result<(libc::stat, Option<OwnedFd>), FsError> {
         let fd = self
@@ -320,7 +321,7 @@ impl Rootfs {
 
     /// openUserFile: name ("etc/passwd" or "etc/group") read whole, at
     /// most maxUserFileBytes, refused unless a regular file. A longer file
-    /// gives its first bytes and the error Go's reader returns past them,
+    /// gives its first bytes and the read error past them,
     /// which the parser reports unless a line was too long before it.
     pub fn read_user_file(&self, name: &str) -> Result<UserFile, FsError> {
         let resolved = self.resolve(name)?;
@@ -403,7 +404,7 @@ pub struct Group {
     pub list: Vec<Vec<u8>>,
 }
 
-/// strconv.Atoi on 64 bits: the value (clamped on overflow) and whether
+/// A signed decimal 64-bit integer: the value (clamped on overflow) and whether
 /// it parsed, and whether it overflowed.
 pub fn atoi(s: &[u8]) -> (i64, Result<(), AtoiError>) {
     let (neg, digits) = match s.first() {
@@ -580,7 +581,7 @@ mod tests {
     }
 
     #[test]
-    fn atoi_as_go() {
+    fn atoi_signs_and_bounds() {
         assert_eq!(atoi(b"1000"), (1000, Ok(())));
         assert_eq!(atoi(b"+7"), (7, Ok(())));
         assert_eq!(atoi(b"-7"), (-7, Ok(())));

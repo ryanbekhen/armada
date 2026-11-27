@@ -1,15 +1,15 @@
-//! armadad doctor (Go's doctor.go and doctor_certs.go): the pre-flight
-//! checks of this host with Go's names, order, levels, details, and exit
-//! code. The cluster network's checks are armada-node's Diagnose, called
+//! armadad doctor: the pre-flight checks of this host, each with its name,
+//! level, and detail, in a fixed order, and the exit code they make. The
+//! cluster network's checks are armada-node's Diagnose, called
 //! as a library, for an agent with no userspace WireGuard (ADR 0055).
 //!
-//! Where the Rust armadad does not do what Go's did, the check says what
-//! it does (ADR 0055): a node on containerd fails the runtime check (this
+//! Where armadad no longer does what releases before ADR 0055 did, the
+//! check says so: a node on containerd fails the runtime check (this
 //! armadad does not run containerd, so it has no containerd to ask), and
 //! agent.json's "runtimeAgent": "go" is ignored, armada-node running the
 //! containers.
 //!
-//! The parity tests' hooks (test-hooks builds only): HOST_ROOT prefixes
+//! The replays' hooks (test-hooks builds only): HOST_ROOT prefixes
 //! the host files read here (/proc, /sys, /etc, /lib), PACK_ID is the
 //! runtime pack this armadad carries, and EUID, NEEDRESTART_DIR, and
 //! VERSION stand for being root, needrestart's directory, and the version.
@@ -45,7 +45,6 @@ const FAIL: &str = "FAIL";
 /// (defaultPort, defaultPort+1, haproxy.MetricsPort).
 const CLUSTER_PORTS: [u16; 3] = [7443, 7444, 8404];
 const JOIN_PORT: u16 = 7444;
-/// embedded.BridgeName.
 const BRIDGE: &str = "armada0";
 const FILE_ETCD_KEY: &str = "etcd/member.key";
 /// Where needrestart reads extra settings, and Armada's file there.
@@ -64,13 +63,12 @@ const CLUSTER_FLAGS: [&str; 7] = [
     "metrics-listen",
     "node-lost-timeout",
 ];
-/// conntrack.WarnPercent.
 const CONNTRACK_WARN_PERCENT: i64 = 80;
 /// How long before a user certificate expires doctor starts warning.
 const USER_WARN_BEFORE: i128 = 30 * 24 * 3600 * 1_000_000_000;
 const PING_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// One result (checkResult).
+/// One result.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Check {
     pub name: String,
@@ -86,17 +84,17 @@ fn check(name: &str, status: &'static str, detail: impl Into<String>) -> Check {
     }
 }
 
-/// A host file under the parity tests' root (the machine's own without).
+/// A host file under the replays' root (the machine's own without).
 fn host_file(p: &str) -> String {
     format!("{}{p}", hooks::get("HOST_ROOT").unwrap_or_default())
 }
 
-/// os.Open's and os.ReadFile's error text.
+/// The error text of a file that cannot be opened.
 fn open_text(path: &str, e: &std::io::Error) -> String {
     format!("open {path}: {}", armada_fsutil::errno_text(e))
 }
 
-/// The Go agent's runtimeHint.
+/// What to do about a runtime that does not answer.
 fn runtime_hint(rt: &str) -> &'static str {
     if rt == RUNTIME_SUPERVISOR {
         "the runtime pack is installed by armada-server or armada-agent; check sudo armadad doctor"
@@ -105,7 +103,7 @@ fn runtime_hint(rt: &str) -> &'static str {
     }
 }
 
-/// What doctor reads of the machine (doctorEnv).
+/// What doctor reads of the machine.
 struct Env {
     euid: u32,
     data_dir: String,
@@ -137,7 +135,7 @@ pub fn run(ctx: &mut Ctx<'_>, _: &[String]) -> Result {
     if ac.container_subnet.is_empty() {
         ac.container_subnet = DEFAULT_CONTAINER_SUBNET.to_string();
     }
-    let subnet = machine::parse_prefix_go(&ac.container_subnet).ok();
+    let subnet = machine::parse_prefix_checked(&ac.container_subnet).ok();
     let driver = open_driver(&data_dir, &ac);
     let endpoint = join_endpoint(&ac);
     let now_ns = crate::hooks::now()
@@ -174,7 +172,7 @@ pub fn run(ctx: &mut Ctx<'_>, _: &[String]) -> Result {
     Ok(())
 }
 
-/// joinEndpoint: the endpoint the node announces (announcedEndpoint), where
+/// The endpoint the node announces, where
 /// the leader's join listener faces the public while a token for it is
 /// open.
 fn join_endpoint(ac: &AgentConfig) -> Option<IpAddr> {
@@ -187,14 +185,14 @@ fn join_endpoint(ac: &AgentConfig) -> Option<IpAddr> {
     netutil::detect_endpoint().ok().map(IpAddr::V4)
 }
 
-/// newDriver: the node's runtime as the agent opens it; the runtime pack
+/// The node's runtime as the agent opens it; the runtime pack
 /// installed first on the supervisor runtime, as the agent does.
 fn open_driver(
     data_dir: &str,
     ac: &AgentConfig,
 ) -> std::result::Result<Option<Supervisor>, String> {
     ac.check_runtime()?;
-    let subnet = machine::parse_prefix_go(&ac.container_subnet)
+    let subnet = machine::parse_prefix_checked(&ac.container_subnet)
         .map_err(|e| format!("{FILE_AGENT}: container subnet: {e}"))?;
     let mut mtu = 0;
     if !ac.network.is_empty() {
@@ -282,7 +280,7 @@ async fn run_doctor(env: &Env) -> Vec<Check> {
     out
 }
 
-/// checkRuntime: the host's kernel features, the cluster network, the
+/// The host's kernel features, the cluster network, the
 /// runtime, whose code runs containers, and the bridge.
 async fn check_runtime(env: &Env) -> Vec<Check> {
     let mut out = host_checks(env.subnet.as_ref());
@@ -380,7 +378,7 @@ pub fn runc_check(st: &AgentStatus) -> Vec<Check> {
     )]
 }
 
-/// bridgeCheck: the container bridge's gateway must be private.
+/// The container bridge's gateway must be private.
 fn bridge_check(gateway: Ipv4Addr, subnet: &str) -> Check {
     if !netutil::is_private(&IpAddr::V4(gateway)) {
         return check(
@@ -392,7 +390,7 @@ fn bridge_check(gateway: Ipv4Addr, subnet: &str) -> Check {
     check("bridge", OK, format!("gateway {gateway}, subnet {subnet}"))
 }
 
-/// clusterNetChecks: armada-node's Diagnose for an agent with no
+/// armada-node's Diagnose for an agent with no
 /// userspace WireGuard.
 fn cluster_net_checks(env: &Env, ip: IpAddr) -> Vec<Check> {
     let ep = machine::uplink_endpoint(&env.ac);
@@ -422,7 +420,7 @@ fn cluster_net_checks(env: &Env, ip: IpAddr) -> Vec<Check> {
     .collect()
 }
 
-/// embeddedHostChecks: the kernel features the runtime uses, and a free
+/// The kernel features the runtime uses, and a free
 /// container subnet.
 fn host_checks(subnet: Option<&Prefix>) -> Vec<Check> {
     let mut out = Vec::new();
@@ -523,7 +521,7 @@ fn contains(b: &[u8], needle: &[u8]) -> bool {
     b.windows(needle.len()).any(|w| w == needle)
 }
 
-/// exec.LookPath for a name without a slash.
+/// The first executable file named name in PATH.
 fn look_path(name: &str) -> Option<PathBuf> {
     use std::os::unix::fs::PermissionsExt;
     let path = std::env::var_os("PATH")?;
@@ -540,7 +538,7 @@ fn look_path(name: &str) -> Option<PathBuf> {
     })
 }
 
-/// conntrackCheck: past the table's limit the kernel drops new
+/// Past the table's limit the kernel drops new
 /// connections (ADR 0025).
 pub fn conntrack_check(entries: i64, limit: i64, ok: bool) -> Check {
     if !ok {
@@ -583,7 +581,7 @@ fn overlaps(a: &Prefix, b: &Prefix) -> bool {
     x.addr.bytes == y.addr.bytes
 }
 
-/// parseRoutes: the IPv4 routing table in /proc/net/route's format, as
+/// The IPv4 routing table in /proc/net/route's format, as
 /// (interface, destination) pairs.
 pub fn parse_routes(b: &[u8]) -> Vec<(String, Prefix)> {
     let text = String::from_utf8_lossy(b);
@@ -612,7 +610,7 @@ pub fn parse_routes(b: &[u8]) -> Vec<(String, Prefix)> {
     out
 }
 
-/// procHexAddr: a little-endian hex IPv4 address from /proc.
+/// A little-endian hex IPv4 address from /proc.
 fn proc_hex_addr(s: &str) -> Option<[u8; 4]> {
     let b = hex_decode(s)?;
     let b: [u8; 4] = b.try_into().ok()?;
@@ -629,7 +627,6 @@ fn hex_decode(s: &str) -> Option<Vec<u8>> {
         .collect()
 }
 
-/// doctorPrivateIP.
 fn doctor_private_ip(env: &Env) -> std::result::Result<IpAddr, String> {
     if !env.private_ip.is_empty() {
         return netutil::check_node_ip(&env.private_ip);
@@ -638,7 +635,7 @@ fn doctor_private_ip(env: &Env) -> std::result::Result<IpAddr, String> {
     netutil::check_node_ip(&ip.to_string())
 }
 
-/// checkListeners: Armada's ports listening on a wildcard or public
+/// Armada's ports listening on a wildcard or public
 /// address.
 fn check_listeners(env: &Env) -> Check {
     let ls = match proc_listeners() {
@@ -678,7 +675,7 @@ fn check_listeners(env: &Env) -> Check {
     )
 }
 
-/// procListeners: listening TCP sockets from /proc/net/tcp{,6}.
+/// Listening TCP sockets from /proc/net/tcp{,6}.
 fn proc_listeners() -> std::result::Result<Vec<SocketAddr>, String> {
     let mut out = Vec::new();
     for (f, v6) in [
@@ -695,7 +692,7 @@ fn proc_listeners() -> std::result::Result<Vec<SocketAddr>, String> {
     Ok(out)
 }
 
-/// parseProcNetTCP: the local addresses of listening sockets.
+/// The local addresses of listening sockets.
 pub fn parse_proc_net_tcp(b: &[u8]) -> std::result::Result<Vec<SocketAddr>, String> {
     let text = String::from_utf8_lossy(b);
     let mut out = Vec::new();
@@ -709,7 +706,7 @@ pub fn parse_proc_net_tcp(b: &[u8]) -> std::result::Result<Vec<SocketAddr>, Stri
     Ok(out)
 }
 
-/// parseProcAddr: "0100007F:1F90", the address in host byte order per
+/// "0100007F:1F90", the address in host byte order per
 /// 32-bit word.
 fn parse_proc_addr(s: &str) -> std::result::Result<SocketAddr, String> {
     let quoted = armada_spec::go::quote(s);
@@ -737,7 +734,7 @@ fn parse_proc_addr(s: &str) -> std::result::Result<SocketAddr, String> {
     Ok(SocketAddr::new(ip, port))
 }
 
-/// checkDataDir: the permissions of the key material.
+/// The permissions of the key material.
 fn check_data_dir(env: &Env) -> Check {
     use std::os::unix::fs::PermissionsExt;
     let dir = &env.data_dir;
@@ -789,7 +786,7 @@ fn day(unix: i64) -> String {
     format!("{y:04}-{m:02}-{d:02}")
 }
 
-/// checkCertificates: the certificates Armada renews itself must not be
+/// The certificates Armada renews itself must not be
 /// past their renewal point by much, and the user certificate in the
 /// client config must not be close to expiring.
 fn check_certificates(env: &Env) -> Vec<Check> {
@@ -902,7 +899,7 @@ pub struct MemberStatus {
     pub errors: Vec<String>,
 }
 
-/// The etcd check (ADR 0055, the Rust armadad's own): on a server whose
+/// The etcd check (ADR 0055): on a server whose
 /// member armada-etcd.service runs (etcd/etcd.yaml, which `armadad etcd`
 /// writes), the unit, the member's health, and its version against the
 /// pack's. The member's certificate is the certificates check's.
@@ -1002,7 +999,7 @@ pub fn etcd_check(
     }
 }
 
-/// existingAncestor: dir or its nearest parent that exists.
+/// dir or its nearest parent that exists.
 fn existing_ancestor(dir: &str) -> String {
     let mut dir = dir.to_string();
     loop {
@@ -1040,8 +1037,8 @@ fn check_secrets_tmpfs(secrets: &str) -> Check {
     }
 }
 
-/// A program's standard output as exec.Cmd.Output gives it, with Go's
-/// error texts.
+/// A program's standard output, or why it failed to start or what it
+/// exited with.
 fn output(program: &str, args: &[&str]) -> std::result::Result<String, String> {
     let o = Command::new(program)
         .args(args)
@@ -1106,7 +1103,7 @@ fn check_firewall() -> Option<Check> {
     ))
 }
 
-/// ufwColumns: the columns of a line of `ufw status`, split at runs of
+/// The columns of a line of `ufw status`, split at runs of
 /// two or more white space characters (`\s{2,}`).
 fn ufw_columns(line: &str) -> Vec<&str> {
     let ws = |c: char| matches!(c, ' ' | '\t' | '\n' | '\r' | '\x0c');
@@ -1137,7 +1134,7 @@ fn ufw_columns(line: &str) -> Vec<&str> {
     out
 }
 
-/// ufwAllowsBridge: whether `ufw status` has IPv4 rules allowing traffic
+/// Whether `ufw status` has IPv4 rules allowing traffic
 /// in on the bridge to DNS (port 53, both protocols) and to the internal
 /// frontend (80/tcp). A rule for the whole interface allows both.
 pub fn ufw_allows_bridge(out: &str, bridge: &str) -> (bool, bool) {
@@ -1235,7 +1232,7 @@ fn check_runtime_pack(env: &Env) -> Option<Check> {
     })
 }
 
-/// clusterFlagsIn: the cluster settings a server.env still sets.
+/// The cluster settings a server.env still sets.
 fn cluster_flags_in(env: &str) -> Vec<String> {
     CLUSTER_FLAGS
         .iter()
@@ -1335,7 +1332,7 @@ mod tests {
     }
 
     #[test]
-    fn ufw_rules_as_go_reads_them() {
+    fn ufw_rules_read() {
         let status = "Status: active\n\nTo                         Action      From\n--                         ------      ----\n53 on armada0              ALLOW IN    Anywhere\n80/tcp on armada0          ALLOW IN    Anywhere\n53 (v6) on armada0         ALLOW IN    Anywhere (v6)\n";
         assert_eq!(ufw_allows_bridge(status, BRIDGE), (true, true));
         let udp = "Status: active\n53/udp on armada0          ALLOW IN    Anywhere\n";
@@ -1346,7 +1343,7 @@ mod tests {
     }
 
     #[test]
-    fn proc_files_as_go_parses_them() {
+    fn proc_files_parsed() {
         let tcp = b"  sl  local_address rem_address   st\n   0: 00000000:1D13 00000000:0000 0A\n   1: 0100007F:1D14 00000000:0000 0A\n   2: 0500000A:1D13 00000000:0000 01\n";
         let ls = parse_proc_net_tcp(tcp).unwrap();
         assert_eq!(
@@ -1370,7 +1367,7 @@ mod tests {
     }
 
     #[test]
-    fn cluster_flags_found_as_go_finds_them() {
+    fn cluster_flags_found() {
         assert_eq!(
             cluster_flags_in(
                 "ARMADA_SERVER_FLAGS=\"--tls=false --acme-email a@b.c --metrics-listen\""

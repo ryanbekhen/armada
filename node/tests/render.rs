@@ -1,11 +1,10 @@
-//! The render cases recorded from Go (ADR 0055, item 20): before the Go
-//! code was removed, Go's TestArmadaNodeRenderMatchesGo rendered every configuration that test compares (the
-//! named ones on every node's options, one with a value that is not a
-//! single token, and the valid ones of 400 random configurations) with the
-//! Go renderer and wrote testdata/render.jsonl.gz: each request as
-//! `armada-node proxy render` reads it, and Go's haproxy.cfg, route maps,
-//! and local.map, or that it rendered nothing. armada-node's renderer must
-//! write the same bytes.
+//! The recorded render cases: testdata/render.jsonl.gz holds every
+//! recorded configuration (the named ones on every node's options, one
+//! with a value that is not a single token, and the valid ones of 400
+//! random configurations): each request as `armada-node proxy render`
+//! reads it, and the recorded haproxy.cfg, route maps, and local.map, or
+//! that nothing was rendered. armada-node's renderer must write the same
+//! bytes.
 
 use std::collections::{BTreeMap, HashMap};
 use std::io::Read;
@@ -19,7 +18,7 @@ const FIXTURE: &str = concat!(
 );
 
 #[test]
-fn renders_what_go_rendered() {
+fn renders_what_was_recorded() {
     let mut text = String::new();
     flate2::read::GzDecoder::new(std::fs::File::open(FIXTURE).expect("the recording"))
         .read_to_string(&mut text)
@@ -37,7 +36,7 @@ fn renders_what_go_rendered() {
         let got = render::render(&cfg, &layout, &opts);
         if case["unsafe"].as_bool().unwrap() {
             if got.is_some() {
-                failed.push(format!("{name}: rendered what Go refused"));
+                failed.push(format!("{name}: rendered what the recording refused"));
             }
             continue;
         }
@@ -47,7 +46,7 @@ fn renders_what_go_rendered() {
         };
         if got != case["config"].as_str().unwrap() {
             failed.push(format!(
-                "{name}: haproxy.cfg differs:\n armada-node:\n{got}\n Go:\n{}",
+                "{name}: haproxy.cfg differs:\n armada-node:\n{got}\n recorded:\n{}",
                 case["config"].as_str().unwrap()
             ));
             continue;
@@ -60,13 +59,13 @@ fn renders_what_go_rendered() {
             serde_json::from_value(case["routes"].clone()).unwrap();
         if routes != want {
             failed.push(format!(
-                "{name}: route maps differ: {routes:?}, Go {want:?}"
+                "{name}: route maps differ: {routes:?}, recorded {want:?}"
             ));
         }
         let local = render::local_map(&cfg, &layout, &opts.node());
         if local != case["local"].as_str().unwrap().as_bytes() {
             failed.push(format!(
-                "{name}: local.map differs:\n{}\n Go:\n{}",
+                "{name}: local.map differs:\n{}\n recorded:\n{}",
                 String::from_utf8_lossy(&local),
                 case["local"].as_str().unwrap()
             ));

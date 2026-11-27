@@ -1,13 +1,10 @@
-//! queuelen.RabbitMQQueueLength: the messages ready in a queue, read with
-//! a passive Queue.Declare over AMQP 0-9-1 as amqp091-go (v1.17.0) opens a
-//! connection for it: ParseURI's reading of the URL, the SASL mechanisms
-//! it offers, the handshake's frames and negotiation, and which failure
-//! amqp091-go reports as which error, which queuelen turns into its own
-//! texts. Only the frames this needs are encoded; every frame read is
-//! checked as amqp091-go's reader checks it.
+//! A RabbitMQ queue's length: the messages ready in a queue, read with a
+//! passive Queue.Declare over AMQP 0-9-1: the URL read, the SASL
+//! mechanisms offered, the handshake's frames and negotiation, and each
+//! failure turned into one of the fixed reading texts. Only the frames
+//! this needs are encoded; every frame read is checked.
 //!
-//! Where amqp091-go reads a URL or a failure wrongly, queuelen and this
-//! port read it as the URL and the broker say: a URL with no host is not
+//! URLs and failures are read as the URL and the broker say: a URL with no host is not
 //! valid (never localhost), a user without a password logs in with an
 //! empty password (never "guest"), an auth_mechanism neither knows is the
 //! URL's mistake, a broker offering none of the mechanisms says so, and
@@ -48,11 +45,9 @@ struct Uri {
     channel_max: u16,
 }
 
-/// amqp091.ParseURI, with what queuelen reads differently: a URL with
-/// no host is refused (ParseURI dials localhost), and a URL with a user
-/// but no password logs in with an empty password (ParseURI keeps the
-/// default "guest", logging in with a password the URL never named).
-/// None for every URL it refuses.
+/// An amqp:// or amqps:// URL: a URL with no host is refused (never
+/// localhost), and a URL with a user but no password logs in with an empty
+/// password (never the default "guest"). None for every URL it refuses.
 fn parse_uri(raw: &str) -> Option<Uri> {
     if raw.contains(' ') {
         return None;
@@ -126,7 +121,7 @@ struct Auth {
     response: Vec<u8>,
 }
 
-/// setSASL: the mechanisms the client offers, in order; None for a name
+/// The mechanisms the client offers, in order; None for a name
 /// it does not know (refused as the URL's mistake before dialling).
 fn sasl(uri: &Uri) -> Option<Vec<Auth>> {
     let plain = || {
@@ -222,7 +217,7 @@ impl Args<'_> {
         }
         Ok(self.take(n as usize)?.to_vec())
     }
-    /// readTable: a table whose every field amqp091-go can read.
+    /// A table whose every field has a known type.
     fn table(&mut self, depth: usize) -> Result<(), Fail> {
         if depth > MAX_FIELD_DEPTH {
             return Err(Fail::Local);
@@ -316,8 +311,7 @@ fn longstr(out: &mut Vec<u8>, s: &[u8]) {
     out.extend_from_slice(s);
 }
 
-/// The client properties queuelen sets, with the capabilities amqp091-go
-/// adds.
+/// The client properties sent, with their capabilities.
 fn client_properties() -> Vec<u8> {
     let mut caps = Vec::new();
     for k in [
@@ -349,7 +343,7 @@ impl Conn<'_> {
         self.s.write_all(frame).map_err(|_| Fail::Local)
     }
 
-    /// The next method frame, as amqp091-go's reader and dispatch see it:
+    /// The next method frame:
     /// heartbeats and Connection.Blocked/Unblocked skipped, a broker's
     /// Connection.Close answered and reported with its code, a channel's
     /// Close (on channel) reported with its code.
@@ -420,7 +414,7 @@ impl Conn<'_> {
     }
 }
 
-/// pick and pickUInt16 of amqp091-go.
+/// A negotiated limit: the smaller of both, where 0 means no limit.
 fn pick(client: u32, server: u32) -> u32 {
     if client == 0 || server == 0 {
         client.max(server)
@@ -429,7 +423,8 @@ fn pick(client: u32, server: u32) -> u32 {
     }
 }
 
-/// connection.open's steps, each failure as queuelen reports it.
+/// Opening the connection, step by step, each failure with its reading
+/// text.
 fn open(c: &mut Conn, uri: &Uri, auths: &[Auth]) -> Result<(), &'static str> {
     // Before Connection.Tune, a broker's Close counts by its code and any
     // other failure is a dial error (ErrClosed, ErrFrame, ErrSyntax).
@@ -536,7 +531,7 @@ pub fn queue_length(d: &mut Dialer, raw: &str, queue: &str) -> Answer {
         return Answer::Error(ERR_URL);
     };
     let answer = |d: &Dialer, e: &'static str| {
-        // queuelen answers "timed out" once its context ends.
+        // "timed out" once the reading's deadline passed.
         Answer::Error(if d.timed_out() { ERR_TIMEOUT } else { e })
     };
     let Some(auths) = sasl(&uri) else {
@@ -675,7 +670,7 @@ mod tests {
     }
 
     #[test]
-    fn uris_as_go() {
+    fn uris_parse() {
         let u = parse_uri("amqps://bob@mq.local:5673/%2Fprod?heartbeat=5&channel_max=9").unwrap();
         assert!(u.tls);
         assert_eq!(u.host, b"mq.local");

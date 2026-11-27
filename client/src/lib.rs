@@ -1,12 +1,9 @@
-//! The armada client (ADR 0027, ADR 0055): commands that only talk to the
-//! control plane's API, ported from Go's internal/cli and
-//! internal/clientconfig with the same names, flags, help, output, exit
-//! codes, completion, and configuration files. It never links what a
-//! machine runs.
+//! The armada client (ADR 0027): commands that only talk to the control
+//! plane's API, with their flags, help, output, exit codes, completion,
+//! and configuration files. It never links what a machine runs.
 //!
-//! Every command of Go's client is here (ADR 0055, pull requests 17a and
-//! 17b); `cli::clidoc` writes the command line reference (docs/cli) from these
-//! commands as Go's internal/clidoc does.
+//! `cli::clidoc` writes the command line reference (docs/cli) from these
+//! commands.
 
 pub mod cli;
 pub mod commands;
@@ -22,8 +19,8 @@ use std::time::Duration;
 /// How far the client's clock is moved from the machine's: always zero,
 /// except in builds with the test-hooks feature (never released), where
 /// ARMADA_CLIENT_TEST_NOW (Unix nanoseconds) is the time the program
-/// starts at, so the parity cases recorded from Go (tests/parity.rs) see
-/// the answers' times as Go saw them.
+/// starts at, so the recorded parity cases (tests/parity.rs) see the
+/// answers' times as recorded.
 pub(crate) fn clock_offset() -> i128 {
     #[cfg(feature = "test-hooks")]
     {
@@ -73,7 +70,7 @@ impl Write for Unbuffered {
     }
 }
 
-/// startNotice: only when a person reads stderr, and not for commands that
+/// Only when a person reads stderr, and not for commands that
 /// need no cluster.
 fn start_notice(args: &[String]) -> Box<dyn FnOnce(Duration) -> String> {
     let none: Box<dyn FnOnce(Duration) -> String> = Box::new(|_| String::new());

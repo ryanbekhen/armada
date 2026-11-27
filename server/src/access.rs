@@ -1,4 +1,4 @@
-//! What a caller may reach (ADR 0033): Go's access.go.
+//! What a caller may reach (ADR 0033).
 
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
@@ -27,7 +27,7 @@ pub enum Need {
 
 pub const ADMIN_SERVICE: &str = "/armada.v1.AdminService/";
 
-/// methodNeeds: every method a role other than cluster-admin may call.
+/// Every method a role other than cluster-admin may call.
 pub fn method_needs() -> &'static BTreeMap<String, Need> {
     static M: OnceLock<BTreeMap<String, Need>> = OnceLock::new();
     M.get_or_init(|| {
@@ -75,7 +75,7 @@ pub fn method_needs() -> &'static BTreeMap<String, Need> {
     })
 }
 
-/// roleLevel: the space level a role gives.
+/// The space level a role gives.
 pub fn role_level(role: &str) -> Option<Need> {
     match role {
         ROLE_VIEWER => Some(Need::View),
@@ -234,8 +234,8 @@ impl Access {
         let Some(p) = &self.p else {
             return Err(Status::new(Code::PermissionDenied, "permission denied"));
         };
-        // Go ranges over a map: the first refusal it meets may be any; the
-        // sorted order makes it the first key.
+        // The labels are checked in sorted order, so the refusal names
+        // the first key that fails.
         for (k, vs) in &pl.require {
             if k.starts_with(RESERVED_LABEL_PREFIX) {
                 continue;

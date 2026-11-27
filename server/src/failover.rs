@@ -1,4 +1,4 @@
-//! Failover (Go's failover.go, ADR 0041): when the node holding an app's
+//! Failover (ADR 0041): when the node holding an app's
 //! volumes is lost and every volume of the app says failover: restore, the
 //! leader restores each volume's latest backup on another node and binds
 //! the volumes there; the app then starts on that node. The lost node's
@@ -19,10 +19,10 @@ use crate::backups::{BACKUP_RETRY, BACKUP_TIMEOUT};
 use crate::reconcile::{APP, Run, app_event};
 use crate::schedule::{eligible, pick_node, reservation};
 
-/// failoverActor: who the audit log names for automatic rebinding.
+/// Who the audit log names for automatic rebinding.
 pub(crate) const FAILOVER_ACTOR: &str = "armada:failover";
 
-/// failoverRuns: failovers in progress and when a failed one may be tried
+/// Failovers in progress and when a failed one may be tried
 /// again. Memory only: a new leader starts over.
 #[derive(Default)]
 pub struct FailoverRuns {
@@ -78,7 +78,7 @@ impl Server {
         );
     }
 
-    /// failOver starts restoring app's volumes on another node, unless
+    /// Starts restoring app's volumes on another node, unless
     /// one is running or a failed one waits for its retry.
     pub(crate) async fn fail_over(
         &self,

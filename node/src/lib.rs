@@ -1,10 +1,10 @@
-//! The parts of armada-node other crates of the workspace reuse (ADR
-//! 0055): the control plane (armada-server) reads volume backup URLs with
-//! the same ParseTarget the node uses, so their checks and texts agree.
+//! The parts of armada-node other crates of the workspace reuse: the
+//! control plane (armada-server) reads volume backup URLs with the same
+//! parser the node uses, so their checks and texts agree.
 //! The control plane's ACME client and DNS provider send their requests
 //! through the same guarded HTTPS client image pulls use (`http`), and
 //! back the control plane up to a bucket with the repository volume
-//! backups use (`volbackup`). The Rust agent (armada-agent) runs the
+//! backups use (`volbackup`). The agent (armada-agent) runs the
 //! cluster network (`net`) and renders HAProxy's configuration (`proxy`)
 //! in process, and the supervisor runtime's pulls, bundles, specs,
 //! shims, and statistics (`runtime`). The program (main.rs) compiles
@@ -23,7 +23,8 @@ pub mod proxy;
 mod names;
 
 pub mod queue {
-    // Go's url.Parse fails with no detail: the callers word the error.
+    // A URL that does not parse fails with no detail: the callers word
+    // the error.
     #[allow(clippy::result_unit_err)]
     pub mod url;
 }
@@ -42,17 +43,17 @@ pub mod hooks;
 #[path = "volume/mod.rs"]
 pub mod volume;
 
-// The connection tracking table's numbers, which the Rust agent reads
+// The connection tracking table's numbers, which the agent reads
 // and raises in process.
 #[allow(dead_code)]
 pub mod conntrack;
 
-// SELinux's state (selinux_enabled), which the Rust agent reads too.
+// SELinux's state (selinux_enabled), which the agent reads too.
 #[allow(dead_code)]
 pub mod nfs;
 
-// What the program alone names lints there, not here. The Rust agent
-// runs the supervisor runtime (ADR 0055, item 16e) on the same code:
+// What the program alone names lints there, not here. The agent runs
+// the supervisor runtime on the same code:
 // pulls, root filesystems, bundles, shims, specs, and statistics in
 // process.
 #[allow(dead_code, clippy::should_implement_trait)]

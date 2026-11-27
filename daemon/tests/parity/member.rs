@@ -1,7 +1,7 @@
-//! A server's running member for a case (Go's stateRun): the pinned etcd
+//! A server's running member for a case: the pinned etcd
 //! started for the case's data directory on loopback ports, as
-//! etcdmember::prepare_start describes it (Go's etcd.Start runs the same
-//! prepare), its state seeded as seedState does, and what it holds of
+//! etcdmember::prepare_start describes it, its state seeded as the
+//! recording says, and what it holds of
 //! users written into the case directory afterwards.
 
 use std::net::{IpAddr, Ipv4Addr};
@@ -83,7 +83,7 @@ impl Member {
             }
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
-        // seedState: server s1 and the master key's ID, as init records
+        // Server s1 and the master key's ID, as init records
         // them.
         let st = Etcd::new(m.client.clone(), PREFIX)
             .await
@@ -106,7 +106,7 @@ impl Member {
         Ok(m)
     }
 
-    /// The users the member holds, written as Go's record writes them.
+    /// The users the member holds, written in the recording's form.
     pub async fn record(&self, dir: &Path) -> Result<(), String> {
         let st = Etcd::new(self.client.clone(), PREFIX)
             .await

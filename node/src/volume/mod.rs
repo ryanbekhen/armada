@@ -1,41 +1,38 @@
-//! Volume archives (ADR 0023) as the Go agent writes, restores, and
-//! measures them (internal/agent/volume.go, internal/volbackup/walk.go;
-//! ADR 0054 step 5, second part). The agent keeps the volume session, the
-//! pause and resume of the app, and the 64 KiB messages; it runs these with
-//! the archive's bytes on standard streams, and does a call itself when
-//! armada-node fails before the stream is touched.
+//! Volume archives (ADR 0023): written, restored, and measured. The agent
+//! keeps the volume session, the pause and resume of the app, and the
+//! 64 KiB messages; it runs these with the archive's bytes on standard
+//! streams.
 //!
 //!   armada-node volume archive DIR
-//!       stdout: DIR as a gzipped tar (writeArchive: "." first, then every
-//!       entry depth first in byte order, links stored, sockets, devices,
-//!       and pipes left out, the tar headers Go's archive/tar writes);
+//!       stdout: DIR as a gzipped tar ("." first, then every entry depth
+//!       first in byte order, links stored, sockets, devices, and pipes
+//!       left out; USTAR headers, PAX records where they do not fit);
 //!       descriptor 3, once the archive ends: {} or {"error": TEXT,
-//!       "changed": BOOL} (changed: volbackup.ErrChanged). A failure to
+//!       "changed": BOOL} (changed: an entry changed while read). A failure to
 //!       write stdout ends the program with no answer.
 //!   armada-node volume restore DIR
 //!       descriptor 3: "ready" and a newline before stdin is read, then {}
-//!       or {"error": TEXT}; stdin: a gzipped tar (restoreArchive: into a
+//!       or {"error": TEXT}; stdin: a gzipped tar (into a
 //!       new directory next to DIR, swapped in only when every entry was
 //!       restored); descriptor 4, read when stdin ends: empty for the
 //!       archive's end, or the agent's error reading the session as a JSON
-//!       string, which the restore fails with where Go's reader would.
+//!       string, which the restore fails with where it would have read on.
 //!   armada-node volume size DIR...
 //!       stdout: {"sizes": [N]}, the regular files of each DIR added up
-//!       (volumeSize; 0 for a DIR that cannot be opened)
+//!       (0 for a DIR that cannot be opened)
 //!
 //! Every lookup in a volume is made beneath the volume's directory
-//! (openat2 RESOLVE_BENEATH), as Go's os.Root makes it, and every entry is
+//! (openat2 RESOLVE_BENEATH), and every entry is
 //! opened without blocking and refused unless it is the entry just looked
-//! up. A kernel without openat2 fails the call before any output, so the
-//! agent does it.
+//! up. A kernel without openat2 fails the call before any output.
 //!
-//! Two variables are test hooks, set only by Go's parity tests and read only
-//! by builds with test hooks (src/hooks.rs; nativevolume_test.go):
+//! Two variables are test hooks, set only by tests and read only by builds
+//! with test hooks (src/hooks.rs):
 //! ARMADA_NODE_TEST_VOLUME_HOOK=ENTRY:fifo|truncate
 //! replaces or empties the regular file ENTRY of the volume being archived
-//! between its lookup and its open (archiveHook), and
+//! between its lookup and its open, and
 //! ARMADA_NODE_TEST_VOLUME_SPACE=BYTES,TOTAL,INODES,TOTAL|unknown is the
-//! free space a restore sees (restoreSpace).
+//! free space a restore sees.
 
 pub mod archive;
 pub(crate) mod errno;
@@ -95,9 +92,9 @@ pub(crate) fn send_answer(f: &mut Option<File>, v: &serde_json::Value) -> Result
     }
 }
 
-/// Go's strconv.Quote of bytes, which `%q` writes: ASCII as Go escapes it,
-/// bytes that are not UTF-8 as \x, and other characters kept unless they
-/// are not printable.
+/// Bytes double-quoted: `"` and `\` escaped, \a \b \f \n \r \t \v, other
+/// ASCII control bytes and bytes that are not UTF-8 as \xHH, other
+/// characters kept unless they are not printable (\uXXXX, \UXXXXXXXX).
 pub(crate) fn quote(b: &[u8]) -> String {
     let mut out = String::with_capacity(b.len() + 2);
     out.push('"');
@@ -147,10 +144,9 @@ fn printable(c: char) -> bool {
         || u >= 0xf0000)
 }
 
-/// A path in an os.PathError's text: as it is when it is UTF-8, else
-/// quoted as `%q` quotes it. Go prints the bytes as they are, which makes
-/// a text the agent cannot send (protobuf strings are UTF-8); this keeps
-/// every byte readable instead.
+/// A path in a file error's text: as it is when it is UTF-8, else quoted
+/// (`quote`), since protobuf strings are UTF-8 and every byte stays
+/// readable that way.
 pub(crate) fn show(p: &[u8]) -> String {
     match std::str::from_utf8(p) {
         Ok(s) => s.to_string(),
@@ -158,7 +154,7 @@ pub(crate) fn show(p: &[u8]) -> String {
     }
 }
 
-/// An os.PathError's text.
+/// A failed file operation's text: "OP PATH: ERRNO TEXT".
 pub(crate) fn path_err(op: &str, p: &[u8], e: i32) -> String {
     format!("{op} {}: {}", show(p), errno::text(e))
 }
@@ -178,7 +174,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn quotes_as_go() {
+    fn quotes_bytes() {
         assert_eq!(quote(b"a b"), "\"a b\"");
         assert_eq!(quote(b"f\x1b]0;t\x07"), "\"f\\x1b]0;t\\a\"");
         assert_eq!(quote(b"\xff\"\\"), "\"\\xff\\\"\\\\\"");
@@ -187,7 +183,7 @@ mod tests {
     }
 
     #[test]
-    fn words_errors_as_go() {
+    fn words_errors() {
         assert_eq!(
             errno::text(libc::ELOOP),
             "too many levels of symbolic links"

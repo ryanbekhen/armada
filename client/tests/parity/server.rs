@@ -1,5 +1,5 @@
-//! The stand-in AdminService: Go's scriptedAdmin (internal/cli/
-//! parity_test.go) over mTLS with certificates issued for the run. Every
+//! The stand-in AdminService: scripted answers over mTLS with
+//! certificates issued for the run. Every
 //! call is served as a stream of raw messages; requests are kept as their
 //! protobuf JSON and answers encoded from theirs, by method.
 
@@ -119,7 +119,7 @@ methods! {
     "RemoveApp" => RemoveAppRequest, RemoveAppResponse;
 }
 
-/// One scripted reply (Go's answer): msg, or a stream of messages (None
+/// One scripted reply: msg, or a stream of messages (None
 /// waits for the end of an Exec's input), then code and text.
 #[derive(Clone, Debug)]
 pub struct Answer {
@@ -252,8 +252,8 @@ impl Decoder for Raw {
 type Out = mpsc::Sender<Result<Vec<u8>, Status>>;
 type Reply = Result<tonic::Response<ReceiverStream<Result<Vec<u8>, Status>>>, Status>;
 
-/// Serves one call of method: Go's unary interceptor, or its streamed
-/// one for Logs, Events, BackupVolume, RestoreVolume, and Exec. An answer
+/// Serves one call of method: unary, or streamed for Logs, Events,
+/// BackupVolume, RestoreVolume, and Exec. An answer
 /// that ends in an error before any message is a status alone, as
 /// grpc-go sends it.
 async fn serve(fake: Fake, method: String, mut input: Streaming<Vec<u8>>) -> Reply {
@@ -499,7 +499,7 @@ impl AsyncWrite for Conn {
     }
 }
 
-/// The certificates of a run: Go's harness issues the same kinds.
+/// The certificates of a run: the same kinds the recorded run used.
 pub struct Certs {
     pub ca: String,
     pub cert: String,

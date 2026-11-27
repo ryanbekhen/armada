@@ -1,6 +1,5 @@
 //! Every app container's own /etc/resolv.conf, /etc/hosts, and
-//! /etc/hostname, bind-mounted read-only from <data dir>/containers/<id>/
-//! (internal/runtime/containerd files.go).
+//! /etc/hostname, bind-mounted read-only from <data dir>/containers/<id>/.
 
 use std::fs;
 use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
@@ -23,7 +22,7 @@ pub struct ContainerFiles {
     pub hostname: String,
 }
 
-/// bufio.Scanner's lines: split at \n, a trailing \r dropped, the last
+/// The lines of b: split at \n, a trailing \r dropped, the last
 /// line kept when it has no newline.
 fn lines(b: &[u8]) -> impl Iterator<Item = &[u8]> {
     let mut rest = b;
@@ -40,7 +39,8 @@ fn lines(b: &[u8]) -> impl Iterator<Item = &[u8]> {
     })
 }
 
-/// strings.Fields of a line read as UTF-8 (invalid bytes are no space).
+/// The whitespace-separated fields of a line read as UTF-8 (invalid bytes
+/// are no space).
 fn fields(line: &[u8]) -> Vec<String> {
     String::from_utf8_lossy(line)
         .split(char::is_whitespace)
@@ -188,7 +188,7 @@ mod tests {
     }
 
     #[test]
-    fn resolv_conf_as_go() {
+    fn resolv_conf_from_the_host_file() {
         let host = b"nameserver 127.0.0.53\r\nsearch a.example b.example\noptions edns0 trust-ad\nsearch c.example .\n";
         assert_eq!(
             String::from_utf8(resolv_conf(host, &[], &s(&["internal"]))).unwrap(),

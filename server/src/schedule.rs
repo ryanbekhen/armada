@@ -1,5 +1,4 @@
-//! Scheduling (Go's capacity.go, replicaview.go, placement.go, and the
-//! placement half of reconciler.go): what each node holds and can take,
+//! Scheduling: what each node holds and can take,
 //! which nodes an app's revision may use (ADR 0014), where a new replica
 //! goes, which replica goes first, and the messages that explain why an
 //! app waits for a node.
@@ -17,7 +16,7 @@ const SYSTEM_CPU_MILLIS: i64 = 100;
 const SYSTEM_MEMORY_BYTES: i64 = 128 << 20;
 const SERVER_CPU_MILLIS: i64 = 100;
 
-/// maxSubnetReplicas: how many replicas a node with its own container
+/// How many replicas a node with its own container
 /// subnet takes.
 pub(crate) const MAX_SUBNET_REPLICAS: i64 = 250;
 
@@ -87,7 +86,7 @@ pub(crate) fn allocatable(nodes: &[Node], servers: &[armada_store::Server]) -> V
         .collect()
 }
 
-/// replicasFull: n's container subnet has no address for another replica.
+/// n's container subnet has no address for another replica.
 pub(crate) fn replicas_full(n: &Node, replicas: &[Replica]) -> bool {
     if n.subnet.is_empty() {
         return false;
@@ -121,7 +120,6 @@ pub(crate) fn reserved_of(r: &Replica, res: &Reserved) -> Res {
     res.get(&r.revision).copied().unwrap_or_default()
 }
 
-/// usageOf.
 pub(crate) fn usage_of(replicas: &[Replica], res: &Reserved) -> Use {
     let mut use_: Use = HashMap::new();
     for r in replicas {
@@ -141,7 +139,7 @@ fn labels(n: &Node) -> HashMap<String, String> {
     n.all_labels().into_iter().collect()
 }
 
-/// placementAllows: replicas of rev may run on n.
+/// Replicas of rev may run on n.
 pub(crate) fn placement_allows(n: &Node, rev: &Revision) -> bool {
     let sp = rev.spec();
     if sp.has_local_volumes() && !n.volumes {
@@ -176,7 +174,7 @@ pub(crate) fn eligible(nodes: &[Node], rev: &Revision) -> Vec<Node> {
         .collect()
 }
 
-/// spreadGroups: the nodes that have label key, mapped to its value; none
+/// The nodes that have label key, mapped to its value; none
 /// when key is empty.
 pub(crate) fn spread_groups(nodes: &[Node], key: &str) -> Option<HashMap<String, String>> {
     if key.is_empty() {
@@ -191,7 +189,7 @@ pub(crate) fn spread_groups(nodes: &[Node], key: &str) -> Option<HashMap<String,
     Some(out)
 }
 
-/// slices.MinFunc: the first of the smallest.
+/// The first of the smallest.
 pub(crate) fn min_first<T>(xs: &[T], cmp: impl Fn(&T, &T) -> Ordering) -> Option<&T> {
     let mut best: Option<&T> = None;
     for x in xs {
@@ -203,7 +201,7 @@ pub(crate) fn min_first<T>(xs: &[T], cmp: impl Fn(&T, &T) -> Ordering) -> Option
     best
 }
 
-/// slices.MaxFunc: the first of the largest.
+/// The first of the largest.
 pub(crate) fn max_first<T>(xs: &[T], cmp: impl Fn(&T, &T) -> Ordering) -> Option<&T> {
     let mut best: Option<&T> = None;
     for x in xs {
@@ -219,7 +217,6 @@ fn group<'a>(g: &'a Option<HashMap<String, String>>, node: &str) -> Option<&'a S
     g.as_ref().and_then(|m| m.get(node))
 }
 
-/// pickNode.
 pub(crate) fn pick_node(
     nodes: &[Node],
     replicas: &[Replica],
@@ -231,7 +228,6 @@ pub(crate) fn pick_node(
     pick_node_by(nodes, &usage_of(replicas, res), spread, spread_by, want)
 }
 
-/// pickNodeBy.
 pub(crate) fn pick_node_by(
     nodes: &[Node],
     use_: &Use,
@@ -296,7 +292,7 @@ pub(crate) fn pick_node_by(
     .map(|c| c.node.clone())
 }
 
-/// pickVictim: the replica to remove when scaling down.
+/// The replica to remove when scaling down.
 pub(crate) fn pick_victim(rs: &[Replica], group_of: &Option<HashMap<String, String>>) -> Replica {
     let mut per_node: HashMap<&str, i64> = HashMap::new();
     let mut per_group: HashMap<&str, i64> = HashMap::new();
@@ -330,7 +326,7 @@ pub(crate) fn pick_victim(rs: &[Replica], group_of: &Option<HashMap<String, Stri
     .expect("pick_victim of no replicas")
 }
 
-/// mostLoaded: the replica of rs on the node with the most of them (the
+/// The replica of rs on the node with the most of them (the
 /// highest ID among those). rs is not empty.
 pub(crate) fn most_loaded(rs: &[Replica]) -> Replica {
     let mut per_node: HashMap<&str, i64> = HashMap::new();
@@ -343,7 +339,6 @@ pub(crate) fn most_loaded(rs: &[Replica]) -> Replica {
         .expect("most_loaded of no replicas")
 }
 
-/// nodeVictim.
 pub(crate) fn node_victim(
     nodes: &[Node],
     use_: &Use,
@@ -367,7 +362,6 @@ pub(crate) fn node_victim(
     Some((victim, to.id))
 }
 
-/// rebalanceVictim.
 pub(crate) fn rebalance_victim(
     nodes: &[Node],
     use_: &Use,
@@ -427,7 +421,7 @@ pub(crate) fn rebalance_victim(
     None
 }
 
-/// targetPlacement: the nodes that may run target, how many replicas of
+/// The nodes that may run target, how many replicas of
 /// app's target revision are not draining, and how many of those are on
 /// nodes outside that set.
 pub(crate) fn target_placement(
@@ -450,7 +444,6 @@ pub(crate) fn target_placement(
     (fit, live, stuck)
 }
 
-/// placementNeedsCluster.
 pub(crate) fn placement_needs_cluster(
     target: Option<&Revision>,
     nodes: &[Node],
@@ -469,7 +462,7 @@ pub(crate) fn placement_needs_cluster(
         || !Placement::spread_key(target.spec().placement.as_ref()).is_empty()
 }
 
-/// placementMessage: why app waits for a node, or "".
+/// Why app waits for a node, or "".
 pub(crate) fn placement_message(
     target: Option<&Revision>,
     nodes: &[Node],
@@ -543,7 +536,6 @@ pub(crate) fn placement_message(
     format!("{stuck} replica(s) stay on nodes the app may no longer use until one is free: {why}")
 }
 
-/// spreadMessage.
 fn spread_message(
     fit: &[Node],
     all: &[Replica],
@@ -556,8 +548,8 @@ fn spread_message(
         return String::new();
     }
     let gm = spread_groups(fit, &key).unwrap_or_default();
-    // Go indexes groupOf with every fit node: one without the label is in
-    // the group "".
+    // Every fit node has a group: one without the label is in the group
+    // "".
     let mut groups: BTreeMap<String, Vec<Node>> = BTreeMap::new();
     for n in fit {
         groups
@@ -598,7 +590,7 @@ fn spread_message(
     )
 }
 
-/// noNodeReason: why no node is eligible for rev.
+/// Why no node is eligible for rev.
 fn no_node_reason(nodes: &[Node], rev: &Revision) -> String {
     let bare = Revision {
         platforms: Vec::new(),
@@ -654,7 +646,7 @@ mod tests {
         n.map(|n| n.id)
     }
 
-    // Go's TestPickNode.
+    // Picking a node.
     #[test]
     fn picks_nodes() {
         let nodes = [
@@ -708,7 +700,7 @@ mod tests {
         );
     }
 
-    // Go's TestPickNodeReservesCPU.
+    // Picking a node reserves CPU.
     #[test]
     fn reserves_cpu() {
         let nodes = [
@@ -729,7 +721,7 @@ mod tests {
         assert_eq!(id(n).as_deref(), Some("a"));
     }
 
-    // Go's TestPickNodeSkipsFullSubnet.
+    // Picking a node skips a full subnet.
     #[test]
     fn skips_full_subnets() {
         let mut a = node("a", true, 0, 0);
@@ -759,7 +751,7 @@ mod tests {
         assert!(!replicas_full(&nodes[0], &all));
     }
 
-    // Go's TestPickVictim.
+    // Picking the replica that goes first.
     #[test]
     fn picks_victims() {
         let r = |id: &str, n: &str, state: &str| Replica {

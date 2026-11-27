@@ -1,5 +1,5 @@
-//! The name rules of internal/spec the node applies (the same port as
-//! dns/src/names.rs; Go's parity tests check both).
+//! The name rules of specs the node applies (the same rules as
+//! dns/src/names.rs).
 
 /// The space of apps whose ID carries no space (spec.DefaultSpace).
 pub const DEFAULT_SPACE: &str = "default";

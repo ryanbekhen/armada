@@ -1,4 +1,4 @@
-//! The cluster's server settings (ADR 0031; Go's settings.go) and the
+//! The cluster's server settings (ADR 0031) and the
 //! cluster configuration RPCs. SetClusterConfig sets the root domain and
 //! the server settings here, and calls on the others: the trusted proxies
 //! and PROXY protocol sources (`ingress`), the log settings (`logs`), the
@@ -35,7 +35,7 @@ const MAX_NODE_LOST_TIMEOUT: Duration = Duration::from_secs(24 * 3600);
 const MAX_EMAIL_LEN: usize = 254;
 const MAX_TOKEN_LEN: usize = 4096;
 
-/// secrets.Sealed as Go's encoding/json writes it.
+/// A sealed secret as JSON.
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct SealedJson {
     #[serde(rename = "KeyID", default)]
@@ -570,7 +570,7 @@ impl Server {
     }
 }
 
-/// The log settings every assignment carries (Go's logSettingsProto),
+/// The log settings every assignment carries,
 /// the export token opened with the master key.
 pub(crate) fn log_settings_proto(
     ls: Option<&Json>,
@@ -649,7 +649,7 @@ mod tests {
     }
 
     #[test]
-    fn settings_json_as_go() {
+    fn settings_json() {
         let s = Settings {
             tls: Some(false),
             metrics_port: Some(0),

@@ -2,7 +2,7 @@
 //! bundle feature, the pack `make runtime-bundle` built for the target
 //! (build/pack/linux_ARCH.pack, armada-pack), or the file
 //! ARMADA_RUNTIME_PACK names, compiled in with include_bytes!; without
-//! either, none, as Go's build without the bundle tag.
+//! either, none.
 
 fn main() {
     println!("cargo::rustc-check-cfg=cfg(armada_bundle)");

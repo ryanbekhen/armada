@@ -1,18 +1,13 @@
-//! The sessions and loops beside the reconcile pass (ADR 0055 item 16,
-//! third part; Go's exec.go, agent.go's serveLogs, loghistory.go,
-//! logexport.go, volume.go, backup.go, nativevolume.go, nativesnapshot.go,
-//! queue.go, sandbox.go, nfs.go, and usage.go's volumes and connection
-//! tracking): exec, log, and volume sessions the control plane opens on
-//! the Connect stream, the log history's prune, the log export, queue
-//! readings, network sandboxes for job queues, NFS volumes, and what usage
-//! reports say of them.
+//! The sessions and loops beside the reconcile pass: exec, log, and volume
+//! sessions the control plane opens on the Connect stream, the log
+//! history's prune, the log export, queue readings, network sandboxes for
+//! job queues, NFS volumes, and what usage reports say of them.
 //!
 //! Volume archives, restores, sizes, and backups ([`volume::Volumes`]),
 //! NFS mounts ([`nfs::Nfs`]), and the connection tracking table
-//! ([`conntrack::Conntrack`]) are seams; their implementations here run
-//! the runtime pack's armada-node as Go's agent does (nativevolume.go,
-//! nativesnapshot.go, nfs.go, conntrack.Table.WithProgram), with no Go
-//! fallback: there is one implementation.
+//! ([`conntrack::Conntrack`]) are seams: `Node*` implementations run the
+//! runtime pack's armada-node as a program, `Lib*` ones call its library in
+//! process.
 
 pub mod conntrack;
 pub mod dns;
@@ -53,7 +48,7 @@ pub struct TermSize {
 /// Output of a command: stdout (true) or stderr, as written.
 pub type Output = (bool, Vec<u8>);
 
-/// What an exec runs and its streams (runtime.ExecOptions).
+/// What an exec runs and its streams.
 #[derive(Default)]
 pub struct ExecOptions {
     pub cmd: Vec<String>,
@@ -66,7 +61,7 @@ pub struct ExecOptions {
     pub resize: Option<mpsc::Receiver<TermSize>>,
 }
 
-/// How a container's output is read (runtime.LogOptions).
+/// How a container's output is read.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct LogOptions {
     pub follow: bool,
@@ -76,7 +71,7 @@ pub struct LogOptions {
     pub grep: String,
 }
 
-/// One write of a container (runtime.LogFrame).
+/// One write of a container.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct LogFrame {
     pub stderr: bool,
@@ -102,7 +97,7 @@ pub struct LogQuery {
     pub max_bytes: i64,
 }
 
-/// One entry of the log history or of a tail (runtime.LogRecord).
+/// One entry of the log history or of a tail.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LogRecord {
     pub time: SystemTime,
@@ -115,8 +110,8 @@ pub struct LogRecord {
     pub revision: String,
 }
 
-/// How an encoding runtime renders a tail (runtime.LogEncoding; the split
-/// of app IDs is armada-spec's).
+/// How an encoding runtime renders a tail (app IDs split as armada-spec
+/// splits them).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LogEncoding {
     pub format: String,
@@ -129,7 +124,7 @@ pub struct LogEncoding {
 pub type CommitFn =
     Box<dyn FnOnce() -> BoxFut<'static, crate::runtime::Result<()>> + Send + 'static>;
 
-/// Output a tail read (runtime.LogTail).
+/// Output a tail read.
 #[derive(Default)]
 pub struct LogTail {
     pub records: Vec<LogRecord>,
@@ -140,7 +135,7 @@ pub struct LogTail {
     pub commit: Option<CommitFn>,
 }
 
-/// One reading of a queue's length (runtime.QueueRead). The URL holds the
+/// One reading of a queue's length. The URL holds the
 /// broker's credentials, so Debug leaves it out.
 #[derive(Clone, Default, PartialEq, Eq)]
 pub struct QueueRead {
@@ -159,14 +154,14 @@ impl fmt::Debug for QueueRead {
     }
 }
 
-/// A network sandbox (runtime.Sandbox).
+/// A network sandbox.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Sandbox {
     pub id: String,
     pub ip: String,
 }
 
-/// How the sessions and loops are set up (Go's agent.Config, their part).
+/// How the sessions and loops are set up.
 #[derive(Clone)]
 pub struct SideConfig {
     /// How often queue rules are read (ADR 0034).
@@ -215,7 +210,7 @@ impl Default for SideConfig {
 /// The server's side of a bidirectional session stream. The call is
 /// started at once and its answer awaited only when the agent reads: the
 /// server answers the stream's headers once it read the agent's first
-/// message, as grpc-go's streams allow.
+/// message, as gRPC servers may.
 pub(crate) struct Inbound<T> {
     call: Option<
         tokio::task::JoinHandle<Result<tonic::Response<tonic::Streaming<T>>, tonic::Status>>,
@@ -263,7 +258,7 @@ impl<T: Send + 'static> Inbound<T> {
 
 use std::future::Future;
 
-/// One lock per key (Go's keyedMutex).
+/// One lock per key.
 #[derive(Default)]
 pub struct KeyedMutex {
     locks: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
@@ -279,7 +274,7 @@ impl KeyedMutex {
     }
 }
 
-/// What the sessions and loops keep (Go's Agent fields of their part).
+/// What the sessions and loops keep.
 pub struct Side {
     /// The connection the session opens streams on.
     pub conn: Mutex<Option<Arc<ServerConn>>>,
@@ -325,14 +320,15 @@ impl Default for Side {
     }
 }
 
-/// Go's strconv.Quote for the texts that name things.
+/// Quotes the names texts carry: `"` and `\` escaped, non-printable runes
+/// as `\x`, `\u`, or `\U` escapes.
 pub(crate) fn quote(s: &str) -> String {
     armada_spec::go::quote(s)
 }
 
 type Timestamp = armada_proto::google::protobuf::Timestamp;
 
-/// timestamppb.New.
+/// A protobuf Timestamp of t.
 pub(crate) fn ts(t: SystemTime) -> Timestamp {
     let n = crate::clock::unix_nanos(t);
     Timestamp {
@@ -343,7 +339,7 @@ pub(crate) fn ts(t: SystemTime) -> Timestamp {
 
 impl<R: Runtime> Inner<R> {
     /// The usage report's volumes, connection tracking, queues, sandboxes,
-    /// and log export (usageLoop's part).
+    /// and log export.
     pub(crate) async fn side_usage(&self, report: &mut pb::UsageReport) {
         if self.mounts_volumes() {
             let due = lock(&self.side.measured)
@@ -426,7 +422,7 @@ impl<R: Runtime> Agent<R> {
     }
 }
 
-/// Timestamp.AsTime: the Unix epoch for none.
+/// The time of a protobuf Timestamp: the Unix epoch for none.
 pub(crate) fn from_ts(t: Option<&Timestamp>) -> SystemTime {
     let t = t.cloned().unwrap_or_default();
     crate::clock::from_unix_nanos(i128::from(t.seconds) * 1_000_000_000 + i128::from(t.nanos))

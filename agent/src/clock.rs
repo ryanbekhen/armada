@@ -1,10 +1,10 @@
-//! The agent's clock, Go's durations, and times as Go prints them.
+//! The agent's clock, and how durations and times are printed.
 
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// Where the agent reads the time: the system's, or a test clock in the
-/// parity tests (Go's `Agent.now`).
+/// replays.
 pub trait Clock: Send + Sync + 'static {
     fn now(&self) -> SystemTime;
 }
@@ -56,13 +56,14 @@ pub fn from_unix_nanos(n: i128) -> SystemTime {
     }
 }
 
-/// a − b in nanoseconds, as Go's Time.Sub (saturating to a Duration).
+/// a − b in nanoseconds, saturating to the range of an i64.
 pub fn sub(a: SystemTime, b: SystemTime) -> i64 {
     let d = unix_nanos(a) - unix_nanos(b);
     d.clamp(i64::MIN as i128, i64::MAX as i128) as i64
 }
 
-/// Go's `Duration.Round(m)`: halfway values away from zero.
+/// d rounded to a multiple of m (nanoseconds): halfway values away from
+/// zero, saturating; d itself when m is not positive.
 pub fn round(d: i64, m: i64) -> i64 {
     if m <= 0 {
         return d;
@@ -81,7 +82,8 @@ pub fn round(d: i64, m: i64) -> i64 {
     d.saturating_add(m).saturating_sub(r)
 }
 
-/// Go's `Duration.String`.
+/// A duration in nanoseconds as text: "0s", "1.5s", "1m4s", "1h0m0s",
+/// "1.5ms", "1µs", "999ns", with a leading - when negative.
 pub fn duration_string(d: i64) -> String {
     if d == 0 {
         return "0s".to_string();
@@ -174,7 +176,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn durations_as_go_prints_them() {
+    fn durations_as_text() {
         let s = 1_000_000_000;
         for (d, want) in [
             (0, "0s"),
@@ -194,7 +196,7 @@ mod tests {
     }
 
     #[test]
-    fn rounding_as_go_does() {
+    fn rounding_halfway_away_from_zero() {
         let s = 1_000_000_000;
         assert_eq!(round(1_499_999_999, s), s);
         assert_eq!(round(1_500_000_000, s), 2 * s);

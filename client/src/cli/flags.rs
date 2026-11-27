@@ -1,5 +1,5 @@
-//! Flags as spf13/pflag v1.1.0 parses and lists them, for the commands
-//! Go's client builds with it: the same syntax (`--name value`,
+//! Flags as spf13/pflag v1.1.0 parses and lists them: the same syntax
+//! (`--name value`,
 //! `--name=value`, `-n value`, `-nvalue`, `-n=value`, grouped shorthands,
 //! `--` ending the flags, flags between arguments), the same error texts,
 //! and the same usage lines (FlagUsages).
@@ -74,7 +74,7 @@ fn write_as_csv(v: &[String]) -> String {
     out
 }
 
-/// readAsCSV: the first record encoding/csv reads from s (a comma between
+/// The first record encoding/csv reads from s (a comma between
 /// fields, double quotes around a field that holds one), with the texts of
 /// its errors.
 fn read_as_csv(s: &str) -> Result<Vec<String>, String> {
@@ -288,7 +288,7 @@ impl Flag {
     }
 }
 
-/// strconv.ParseBool.
+/// A boolean: 1, t, T, TRUE, true, True, 0, f, F, FALSE, false, or False.
 pub fn parse_bool(s: &str) -> Option<bool> {
     match s {
         "1" | "t" | "T" | "TRUE" | "true" | "True" => Some(true),
@@ -297,7 +297,7 @@ pub fn parse_bool(s: &str) -> Option<bool> {
     }
 }
 
-/// strconv.ParseInt(s, 0, 64): a sign, then decimal, 0x, 0o, 0b, or a
+/// A 64-bit integer: a sign, then decimal, 0x, 0o, 0b, or a
 /// leading 0 for octal, with underscores between digits.
 pub fn parse_int(s: &str) -> Option<i64> {
     let (neg, u) = match s.as_bytes().first() {
@@ -620,7 +620,7 @@ impl FlagSet {
     }
 }
 
-/// stripUnknownFlagValue: the value after an unknown flag, unless it is
+/// The value after an unknown flag, unless it is
 /// another flag. `args` holds what is left, last first.
 fn strip_unknown_flag_value(args: &mut Vec<String>) {
     if let Some(next) = args.last()
@@ -754,8 +754,8 @@ mod tests {
     }
 
     #[test]
-    fn csv_like_go() {
-        // The answers of Go's encoding/csv for one record.
+    fn csv_record() {
+        // One CSV record: quotes, doubled quotes, and line ends.
         let ok = |s: &str, want: &[&str]| assert_eq!(read_as_csv(s).unwrap(), want, "{s:?}");
         ok("", &[]);
         ok("a,b\nc", &["a", "b"]);

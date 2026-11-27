@@ -1,7 +1,6 @@
-//! agent.json: what a node's agent needs besides its certificate (Go's
-//! agentConfig in internal/daemon/datadir.go), read and written as Go's
-//! encoding/json does: the fields in Go's order, omitempty, two spaces of
-//! indent, a new line at the end, mode 0600.
+//! agent.json: what a node's agent needs besides its certificate, read and
+//! written in a fixed form: the fields in a fixed order, empty ones left
+//! out, two spaces of indent, a new line at the end, mode 0600.
 
 use std::path::Path;
 use std::sync::Mutex;
@@ -26,10 +25,9 @@ pub const RUNTIME_SUPERVISOR: &str = "supervisor";
 /// only.
 pub const CONTAINERD_NODE: &str = "this node runs containers on containerd, which this release does not run: upgrade it through v0.1.0-alpha.44 first";
 
-/// Network modes (store.NetworkMesh).
+/// Network modes.
 pub const NETWORK_MESH: &str = "mesh";
 
-/// agentConfig.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct AgentConfig {
     pub node_id: String,
@@ -46,7 +44,7 @@ pub struct AgentConfig {
     pub mtu: i64,
 }
 
-/// The fields by their JSON keys, in Go's order.
+/// The fields by their JSON keys, in the order they are written.
 const KEYS: [&str; 11] = [
     "nodeId",
     "privateIp",
@@ -62,7 +60,7 @@ const KEYS: [&str; 11] = [
 ];
 
 impl AgentConfig {
-    /// json.MarshalIndent(c, "", "  ") and a new line.
+    /// The JSON indented by two spaces, and a new line.
     pub fn encode(&self) -> Vec<u8> {
         let mut fields: Vec<String> = Vec::new();
         let mut s = |k: &str, v: &str, omit: bool| {
@@ -104,13 +102,13 @@ impl AgentConfig {
         format!("{{\n{}\n}}\n", fields.join(",\n")).into_bytes()
     }
 
-    /// json.Unmarshal into agentConfig: keys matched exactly, else without
+    /// agent.json decoded: keys matched exactly, else without
     /// regard to case; unknown keys ignored; null leaves a field as it is.
     pub fn decode(b: &[u8]) -> Result<AgentConfig, String> {
         let v: Value = serde_json::from_slice(b).map_err(|e| syntax_text(&e))?;
         let Value::Object(map) = v else {
             return Err(format!(
-                "json: cannot unmarshal {} into Go value of type daemon.agentConfig",
+                "json: cannot unmarshal {} into value of type daemon.agentConfig",
                 kind(&v)
             ));
         };
@@ -128,7 +126,7 @@ impl AgentConfig {
             }
             let mismatch = |want: &str| {
                 format!(
-                    "json: cannot unmarshal {} into Go struct field agentConfig.{key} of type {want}",
+                    "json: cannot unmarshal {} into struct field agentConfig.{key} of type {want}",
                     kind(v)
                 )
             };
@@ -144,7 +142,7 @@ impl AgentConfig {
                             Value::Null => out.push(String::new()),
                             _ => {
                                 return Err(format!(
-                                    "json: cannot unmarshal {} into Go struct field agentConfig.servers of type string",
+                                    "json: cannot unmarshal {} into struct field agentConfig.servers of type string",
                                     kind(item)
                                 ));
                             }
@@ -160,7 +158,7 @@ impl AgentConfig {
                     Some(n) if n == n as isize as i64 => c.mtu = n,
                     _ if v.is_number() => {
                         return Err(format!(
-                            "json: cannot unmarshal number {v} into Go struct field agentConfig.mtu of type int"
+                            "json: cannot unmarshal number {v} into struct field agentConfig.mtu of type int"
                         ));
                     }
                     _ => return Err(mismatch("int")),
@@ -187,7 +185,7 @@ impl AgentConfig {
         Ok(c)
     }
 
-    /// checkRuntime: an agent.json naming a runtime this Armada does not
+    /// An agent.json naming a runtime this Armada does not
     /// know is refused.
     pub fn check_runtime(&self) -> Result<(), String> {
         match self.runtime.as_str() {
@@ -200,7 +198,7 @@ impl AgentConfig {
     }
 }
 
-/// The kind of a JSON value, as encoding/json's UnmarshalTypeError names it.
+/// The kind of a JSON value, as a type error names it.
 fn kind(v: &Value) -> &'static str {
     match v {
         Value::Null => "null",
@@ -212,8 +210,7 @@ fn kind(v: &Value) -> &'static str {
     }
 }
 
-/// A syntax error. encoding/json words them by the character it met; this
-/// says the same where it can (known difference: other texts).
+/// A syntax error, worded by the character met where it can be.
 fn syntax_text(e: &serde_json::Error) -> String {
     if e.is_eof() {
         return "unexpected end of JSON input".to_string();
@@ -221,8 +218,7 @@ fn syntax_text(e: &serde_json::Error) -> String {
     format!("invalid JSON: {e}")
 }
 
-/// An error loading agent.json: whether the file is missing (Go's
-/// errors.Is(err, fs.ErrNotExist)), and its text.
+/// An error loading agent.json: whether the file is missing, and its text.
 #[derive(Debug)]
 pub struct LoadError {
     pub not_found: bool,
@@ -241,7 +237,6 @@ impl From<LoadError> for armada_client::cli::Error {
     }
 }
 
-/// loadAgentConfig.
 pub fn load(data_dir: &str) -> Result<AgentConfig, LoadError> {
     let path = Path::new(data_dir).join(FILE_AGENT);
     let b = armada_fsutil::read_private_file(&path).map_err(|e| LoadError {
@@ -261,16 +256,14 @@ pub fn load(data_dir: &str) -> Result<AgentConfig, LoadError> {
     Ok(c)
 }
 
-/// saveAgentConfig.
 pub fn save(data_dir: &str, c: &AgentConfig) -> Result<(), String> {
     armada_fsutil::write_file_atomic(&Path::new(data_dir).join(FILE_AGENT), &c.encode(), 0o600)
         .map_err(|e| e.to_string())
 }
 
-/// agentConfigMu.
 static AGENT_CONFIG_MU: Mutex<()> = Mutex::new(());
 
-/// updateAgentConfig: agent.json as it is on disk now, with the fields
+/// agent.json as it is on disk now, with the fields
 /// change owns set, written back.
 pub fn update(
     data_dir: &str,
@@ -308,7 +301,7 @@ mod tests {
         assert_eq!(folded.node_id, "x");
         assert_eq!(
             AgentConfig::decode(br#"{"mtu": "x"}"#).unwrap_err(),
-            "json: cannot unmarshal string into Go struct field agentConfig.mtu of type int"
+            "json: cannot unmarshal string into struct field agentConfig.mtu of type int"
         );
     }
 }

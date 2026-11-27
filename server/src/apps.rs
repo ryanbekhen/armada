@@ -1,12 +1,9 @@
-//! Apps through the API (Go's admin.go, apps.go, remove.go, nfs.go, and
-//! the URL helpers of ingress.go): deploys, traffic, revisions,
+//! Apps through the API: deploys, traffic, revisions,
 //! rollbacks, restarts, removal, and what `armada app list|show` and
 //! `armada node list` read.
 //!
 //! Deploys, rollbacks, and restarts check volume backup buckets
-//! (`backups`, Go's checkBackupTargets, ADR 0041). Node status leaves out the usage samples
-//! (the last sample's time and runtime) until watching (15); an
-//! autoscaled app shows the autoscaler's last evaluation, or its bounds
+//! (`backups`, ADR 0041). An autoscaled app shows the autoscaler's last evaluation, or its bounds
 //! until the first.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -36,7 +33,7 @@ pub(crate) const APP_PROGRESS: &str = "progressing";
 pub(crate) const APP_FAILING: &str = "failing";
 pub(crate) const APP_IDLE: &str = "idle";
 const JOB: &str = "job";
-/// nodeStateLost is shown for nodes whose replicas are being rescheduled.
+/// Shown for nodes whose replicas are being rescheduled.
 const NODE_STATE_LOST: &str = "lost";
 
 fn spec_of(a: &App) -> &Spec {
@@ -67,7 +64,7 @@ fn ip_rules(rules: &[armada_spec::IPRule]) -> Vec<IpRule> {
         .collect()
 }
 
-/// trafficMessage: "web--r3 90%, web--r4 10%".
+/// "web--r3 90%, web--r4 10%".
 fn traffic_message(t: &[armada_spec::TrafficTarget]) -> String {
     t.iter()
         .map(|t| format!("{} {}%", t.revision, t.weight))
@@ -75,7 +72,7 @@ fn traffic_message(t: &[armada_spec::TrafficTarget]) -> String {
         .join(", ")
 }
 
-/// The routes an app serves (Go's appRoutes).
+/// The routes an app serves.
 fn app_routes(sp: &Spec) -> Vec<String> {
     match &sp.ingress {
         Some(i) if !i.routes.is_empty() => i.routes.iter().map(|r| r.path.clone()).collect(),
@@ -83,7 +80,7 @@ fn app_routes(sp: &Spec) -> Vec<String> {
     }
 }
 
-/// rootHost: the host Armada gives a name under the root domain, or "".
+/// The host Armada gives a name under the root domain, or "".
 fn root_host(name: &str, root: &str) -> String {
     if root.is_empty() {
         return String::new();
@@ -95,7 +92,7 @@ fn root_host(name: &str, root: &str) -> String {
     h
 }
 
-/// What app URLs are made of (Go's urlSources).
+/// What app URLs are made of.
 #[derive(Default)]
 pub(crate) struct UrlSources {
     root: String,
@@ -103,7 +100,6 @@ pub(crate) struct UrlSources {
     scheme: String,
 }
 
-/// appURLsFrom.
 fn app_urls(app: &App, src: &UrlSources) -> Vec<String> {
     let sp = spec_of(app);
     let Some(ing) = &sp.ingress else {
@@ -145,7 +141,7 @@ fn app_urls(app: &App, src: &UrlSources) -> Vec<String> {
     urls
 }
 
-/// specContainers: "app" and its sidecars, then its init containers.
+/// "app" and its sidecars, then its init containers.
 pub(crate) fn spec_containers(sp: &Spec) -> (Vec<String>, Vec<String>) {
     let mut running = vec![MAIN_CONTAINER.to_string()];
     running.extend(sp.sidecars.iter().map(|c| c.name.clone()));
@@ -158,7 +154,7 @@ impl Server {
         if self.0.plain_http { "http" } else { "https" }
     }
 
-    /// urlSource: the root domain and the verified domains.
+    /// The root domain and the verified domains.
     async fn url_source(&self) -> UrlSources {
         let mut src = UrlSources {
             root: self.root_domain().await,
@@ -173,7 +169,7 @@ impl Server {
         src
     }
 
-    /// appURLSource: urlSource reading only the domains app names.
+    /// The URL sources, reading only the domains app names.
     async fn app_url_source(&self, app: &App) -> UrlSources {
         let sp = spec_of(app);
         let Some(ing) = sp.ingress.as_ref().filter(|i| i.typ == INGRESS_EXTERNAL) else {
@@ -192,7 +188,7 @@ impl Server {
         src
     }
 
-    /// labelURLs: the URLs a revision label serves under (ADR 0022).
+    /// The URLs a revision label serves under (ADR 0022).
     async fn label_urls(&self, app: &App, label: &str) -> Vec<String> {
         let sp = spec_of(app);
         let Some(ing) = &sp.ingress else {
@@ -216,7 +212,7 @@ impl Server {
             .collect()
     }
 
-    /// checkNFSExports: only cluster-admins add an NFS export to an app,
+    /// Only cluster-admins add an NFS export to an app,
     /// or make one writable (ADR 0042).
     pub(crate) async fn check_nfs_exports(&self, a: &Auth, sp: &Spec) -> Result<(), Status> {
         if a.acc.admin() || !sp.has_nfs_volumes() {
@@ -265,7 +261,7 @@ impl Server {
         Ok(())
     }
 
-    /// checkStoredRevision: Deploy's placement and NFS checks on the
+    /// Deploy's placement and NFS checks on the
     /// stored spec of a revision a non-cluster-admin makes serve again.
     async fn check_stored_revision(&self, a: &Auth, app: &str, name: &str) -> Result<(), Status> {
         if a.acc.admin() {
@@ -284,7 +280,7 @@ impl Server {
         self.check_nfs_exports(a, sp).await
     }
 
-    /// checkTrafficRevisions: checkStoredRevision on every revision traffic
+    /// check_stored_revision on every revision traffic
     /// names other than latest and those already in the app's traffic.
     async fn check_traffic_revisions(
         &self,
@@ -692,7 +688,7 @@ impl Server {
         })
     }
 
-    /// appSummaries: a summary of each app (not job) the caller sees.
+    /// A summary of each app (not job) the caller sees.
     pub(crate) async fn app_summaries(
         &self,
         a: &Auth,
@@ -915,7 +911,7 @@ impl Server {
         Ok(resp)
     }
 
-    /// appStatus: Status for one app.
+    /// Status for one app.
     async fn app_status(&self, a: &Auth, name: &str) -> Result<StatusResponse, Status> {
         a.acc.app(name)?;
         let x = self
@@ -965,7 +961,7 @@ impl Server {
         })
     }
 
-    /// appStatusProto: app with its replicas.
+    /// app with its replicas.
     async fn app_status_proto(
         &self,
         x: &App,
@@ -1049,7 +1045,7 @@ impl Server {
         st
     }
 
-    /// siteRelays: each site's relay between nodes behind NAT (ADR 0050).
+    /// Each site's relay between nodes behind NAT (ADR 0050).
     pub(crate) fn site_relays(&self, nodes: &[Node]) -> BTreeMap<String, String> {
         if !nodes.iter().any(|n| n.behind_nat && !n.subnet.is_empty()) {
             return BTreeMap::new();

@@ -1,6 +1,5 @@
-//! armadad version: build information and the latest release (Go's
-//! cli.NewVersionCommand with nothing more: the client's server line is
-//! the client's own).
+//! armadad version: build information and the latest release (the
+//! client's version command without its servers line).
 
 use armada_client::cli::{Ctx, Error, Result};
 use armada_client::commands::version::get;

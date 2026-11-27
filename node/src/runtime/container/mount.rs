@@ -285,8 +285,8 @@ fn unmount(target: &Path) -> Result<(), i32> {
     Err(-libc::EBUSY)
 }
 
-/// UnmountAll: every mount stacked on target until none is left (EINVAL);
-/// nothing when target does not exist. The error is Go's text and errno.
+/// Unmounts every mount stacked on target until none is left (EINVAL);
+/// nothing when target does not exist. The error is its text and errno.
 pub fn unmount_all(target: &Path) -> Result<(), (String, i32)> {
     if std::fs::metadata(target).is_err_and(|e| e.kind() == io::ErrorKind::NotFound) {
         return Ok(());

@@ -1,10 +1,9 @@
-//! HAProxy's configuration (ADR 0054 step 2): `armada-node proxy render`
-//! renders what internal/proxy/haproxy's render, routeFiles, and localMap
-//! render, which stay the reference (compared by a Go test on the golden
-//! files and generated configurations).
+//! HAProxy's configuration: `armada-node proxy render` renders haproxy.cfg,
+//! the route maps, and local.map (checked against recorded cases,
+//! tests/render.rs).
 //!
 //! Standard input is one JSON object, {"Config", "Layout", "Options"}: a
-//! proxy.Config as Go's encoding/json writes it (certificates by name), the
+//! proxy configuration (certificates by name), the
 //! server slots per backend, and the node's options. The output is each
 //! file as `file NAME LENGTH` and LENGTH bytes (haproxy.cfg, the route maps,
 //! local.map), or `unsafe` when a value is not a single token, then `end`.
@@ -15,7 +14,7 @@ use serde::{Deserialize, Deserializer};
 use std::collections::HashMap;
 use std::io::{self, Read, Write};
 
-/// Go writes a nil slice or map as null.
+/// A missing slice or map may come as null.
 fn nullable<'de, D, T>(d: D) -> Result<T, D::Error>
 where
     D: Deserializer<'de>,
@@ -121,7 +120,7 @@ pub struct TcpRoute {
     pub allow: Vec<String>,
 }
 
-/// renderOptions: the node's parts of the configuration.
+/// The node's parts of the configuration.
 #[derive(Deserialize, Default)]
 #[serde(rename_all = "PascalCase", default)]
 pub struct Options {

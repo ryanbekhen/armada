@@ -1,22 +1,20 @@
-//! The client's parity cases recorded from Go (ADR 0055, item 20),
-//! replayed against this armada.
+//! The client's recorded parity cases, replayed against this armada.
 //!
-//! Go's TestClientParity, before the Go code was removed, ran
-//! every case of Go's client parity harness (the cases written for it,
-//! every example line of every command, and every command's help) against
-//! Go's armada alone and wrote testdata/parity.jsonl.gz: each case's
-//! arguments, environment, standard input, files, and starting client
-//! config, the time Go's run started, the scripted answers of the fake
-//! AdminService, and Go's outcome. Each case runs here against the armada
+//! testdata/parity.jsonl.gz holds every recorded case (the cases written
+//! for the harness, every example line of every command, and every
+//! command's help): each case's arguments, environment, standard input,
+//! files, and starting client config, the time the recorded run started,
+//! the scripted answers of the fake AdminService, and the recorded
+//! outcome. Each case runs here against the armada
 //! built with the test-hooks feature (its clock starts at the recorded
 //! time) and a stand-in AdminService of this test's (server.rs: mTLS with
 //! certificates issued for the run, the same answers), and its exit code,
 //! standard output and error, the requests the stand-in received, the
 //! client config left, and the files left with their modes are compared
-//! with Go's, normalized as Go's harness compares (norm.rs).
+//! with the recording, normalized (norm.rs).
 //!
 //! This test is its own harness (`harness = false`), since its binary is
-//! also the ssh(1) the cases reach the API through, as Go's sshtest is:
+//! also the ssh(1) the cases reach the API through:
 //! started as `ssh -o ExitOnForwardFailure=yes -W ADDR -- DEST`, it
 //! relays to ADDR when DEST is bastion.test. An argument, or
 //! ARMADA_PARITY_CASE, runs only the cases whose names contain it;
@@ -40,7 +38,7 @@ const FIXTURE: &str = concat!(
     "/tests/testdata/parity.jsonl.gz"
 );
 
-/// The host the ssh stand-in reaches (Go's sshtest.Host).
+/// The host the ssh stand-in reaches.
 const SSH_HOST: &str = "bastion.test";
 
 fn main() {
@@ -61,7 +59,7 @@ fn main() {
     std::process::exit(run(&filter));
 }
 
-/// The ssh stand-in (Go's sshtest.Main).
+/// The ssh stand-in.
 fn ssh(addr: &str, dest: &str) -> ! {
     if dest != SSH_HOST && dest != format!("ops@{SSH_HOST}") {
         eprintln!("ssh: Could not resolve hostname {dest}: Name or service not known");
@@ -114,7 +112,7 @@ pub fn base64_decode(s: &str) -> Option<Vec<u8>> {
     Some(out)
 }
 
-/// What differs between Go's recording and this run.
+/// What differs between the recording and this run.
 struct Places {
     pairs: Vec<(String, String)>,
 }
@@ -167,7 +165,7 @@ impl Places {
     }
 }
 
-/// A case's outcome, as the recording writes Go's.
+/// A case's outcome, as the recording writes it.
 #[derive(Debug)]
 struct Outcome {
     code: i32,
@@ -213,7 +211,7 @@ fn answers(v: &Value, places: &Places) -> HashMap<String, Vec<server::Answer>> {
     out
 }
 
-/// os.MkdirAll(p, 0o700): every directory it makes is 0700.
+/// Makes p and its missing parents: every directory it makes is 0700.
 fn mkdir(p: &Path) {
     use std::os::unix::fs::DirBuilderExt;
     std::fs::DirBuilder::new()
@@ -232,7 +230,7 @@ fn config_path(dir: &Path) -> PathBuf {
     dir.join("home").join(".armada").join("config")
 }
 
-/// Go's prepare: the case's files and config afresh.
+/// The case's files and config afresh.
 fn prepare(dir: &Path, case: &Value, places: &Places) {
     if dir.exists() {
         // Directories a case left read-only come back writable first.
@@ -271,7 +269,7 @@ fn prepare(dir: &Path, case: &Value, places: &Places) {
 }
 
 /// Every other file and directory the command left, with its mode, as
-/// Go's collect lists them (filepath.WalkDir's order).
+/// the recording lists them (depth first, names in lexical order).
 fn files(dir: &Path, case: &Value, places: &Places) -> Vec<String> {
     let given: Vec<String> = case
         .get("files")
@@ -495,19 +493,19 @@ fn recorded_call(c: &Value) -> server::Call {
     call
 }
 
-/// The differences between Go's outcome and this run's.
+/// The differences between the recorded outcome and this run's.
 fn compare(want: &Value, got: &Outcome) -> Vec<String> {
     let mut d = Vec::new();
     let code = want.get("code").and_then(Value::as_i64).unwrap_or(0) as i32;
     if code != got.code {
-        d.push(format!("exit code: Go {code}, Rust {}", got.code));
+        d.push(format!("exit code: recorded {code}, got {}", got.code));
     }
     for (name, w, g) in [
         ("stdout", s(want, "stdout"), &got.stdout),
         ("stderr", s(want, "stderr"), &got.stderr),
     ] {
         if norm::normalize(&w) != norm::normalize(g) {
-            d.push(format!("{name} differs:\n--- Go\n{w}--- Rust\n{g}"));
+            d.push(format!("{name} differs:\n--- recorded\n{w}--- got\n{g}"));
         }
     }
     let calls: Vec<server::Call> = want
@@ -530,13 +528,13 @@ fn compare(want: &Value, got: &Outcome) -> Vec<String> {
     );
     if wc != gc {
         d.push(format!(
-            "requests differ:\n--- Go\n{wc:?}\n--- Rust\n{gc:?}"
+            "requests differ:\n--- recorded\n{wc:?}\n--- got\n{gc:?}"
         ));
     }
     let config = s(want, "config");
     if config != got.config {
         d.push(format!(
-            "client config differs:\n--- Go\n{config}\n--- Rust\n{}",
+            "client config differs:\n--- recorded\n{config}\n--- got\n{}",
             got.config
         ));
     }
@@ -551,7 +549,7 @@ fn compare(want: &Value, got: &Outcome) -> Vec<String> {
         .unwrap_or_default();
     if files != got.files {
         d.push(format!(
-            "files written differ:\n--- Go\n{}\n--- Rust\n{}",
+            "files written differ:\n--- recorded\n{}\n--- got\n{}",
             files.join("\n"),
             got.files.join("\n")
         ));

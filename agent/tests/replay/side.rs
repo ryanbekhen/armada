@@ -1,8 +1,7 @@
-//! The sessions' harness of internal/agent/parity_side_test.go in Rust: a
-//! control plane's exec, log, and volume sessions over mTLS (sideServer),
-//! a log endpoint (exportServer), and the fake armada-node
-//! (src/bin/armada-agent-fake-node.rs, a port of fakeNode) with its script
-//! and log in the run's directory.
+//! The sessions' harness: a control plane's exec, log, and volume sessions
+//! over mTLS, a log endpoint, and the fake armada-node
+//! (src/bin/armada-agent-fake-node.rs) with its script and log in the run's
+//! directory.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
@@ -41,8 +40,8 @@ struct Server {
     log: Mutex<Vec<String>>,
     exec_in: Mutex<Vec<pb::ExecInput>>,
     vol_in: Mutex<Vec<pb::VolumeData>>,
-    /// The whole session of parity_session_test.go's sessionServer: the
-    /// assignment sent on every Connect, the Hellos and reports received.
+    /// The whole session: the assignment sent on every Connect, the Hellos and
+    /// reports received.
     session: Mutex<Session>,
 }
 
@@ -60,7 +59,7 @@ impl Server {
     }
 }
 
-/// Go's short: data by its length past 64 bytes.
+/// Data quoted, or by its length and first 16 bytes past 64 bytes.
 fn short(b: &[u8]) -> String {
     if b.len() > 64 {
         return format!("{} bytes {}...", b.len(), quote(&b[..16]));
@@ -79,7 +78,7 @@ fn exec_text(m: &pb::ExecSessionOutput) -> String {
     }
 }
 
-/// RFC 3339 with nanoseconds, trailing zeros dropped (Go's RFC3339Nano).
+/// RFC 3339 with nanoseconds, trailing zeros dropped.
 fn rfc3339_nano(secs: i64, nanos: i32) -> String {
     let days = secs.div_euclid(86_400);
     let rem = secs.rem_euclid(86_400);
@@ -405,7 +404,7 @@ impl Export {
             let mut body = "(not gzip)".to_string();
             let mut dec = flate2::read::GzDecoder::new(&raw[..]);
             let mut out = Vec::new();
-            // gzip.NewReader refuses an empty body.
+            // An empty body is no gzip stream.
             if !raw.is_empty() && dec.read_to_end(&mut out).is_ok() {
                 body = observed(&String::from_utf8_lossy(&out));
             }
@@ -594,7 +593,7 @@ impl Side {
         json!({"dataDir": self.creds.display().to_string(), "node": "n1", "servers": [self.addr]})
     }
 
-    /// Writes the fake armada-node's script as Go's nodeScript.
+    /// Writes the fake armada-node's script.
     pub fn script(&self, sc: &Value) {
         let mut m = json!({
             "archive": sc["archive"].as_str().unwrap_or(""),

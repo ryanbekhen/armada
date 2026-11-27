@@ -1,5 +1,5 @@
-//! The server's TLS: Go's pki.ServerCert (a server certificate replaced in
-//! place when it is renewed, picked on every handshake), the API's config
+//! The server's TLS: the server certificate (replaced in place when it is
+//! renewed, picked on every handshake), the API's config
 //! (TLS 1.3, client certificates of the CA required and verified), and the
 //! join listener's (TLS 1.3, no client certificates, the CA sent after the
 //! leaf so a joining machine can pin it).

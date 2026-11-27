@@ -1,10 +1,10 @@
-//! Go's strconv and strings functions whose results and error texts the
-//! node's readings depend on (ADR 0054 step 5): ParseInt, ParseUint,
-//! Atoi, Quote of arbitrary bytes, TrimSpace, and Fields.
+//! The string functions whose results and error texts the node's readings
+//! depend on: decimal integer parsing (signed, unsigned, and int), quoting
+//! of arbitrary bytes, trimming of white space, and splitting into fields.
 
-/// strconv.ParseUint(s, 10, bits) of the digits alone: the error's kind
-/// ("invalid syntax" or "value out of range") on failure. As Go does, the
-/// first character that is not a digit is a syntax error and the first
+/// The unsigned decimal value of the digits alone: the error's kind
+/// ("invalid syntax" or "value out of range") on failure. The first
+/// character that is not a digit is a syntax error and the first
 /// overflow a range error, whichever comes first.
 fn parse_digits(s: &[u8], max: u64) -> Result<u64, &'static str> {
     if s.is_empty() {
@@ -29,7 +29,7 @@ fn parse_digits(s: &[u8], max: u64) -> Result<u64, &'static str> {
     Ok(n)
 }
 
-/// strconv.ParseUint(s, 10, bits).
+/// An unsigned decimal integer of at most bits bits.
 pub fn parse_uint(s: &str, bits: u32) -> Result<u64, String> {
     let max = if bits >= 64 {
         u64::MAX
@@ -39,7 +39,7 @@ pub fn parse_uint(s: &str, bits: u32) -> Result<u64, String> {
     parse_digits(s.as_bytes(), max).map_err(|why| num_error("ParseUint", s.as_bytes(), why))
 }
 
-/// strconv.ParseInt(s, 10, bits).
+/// A signed decimal integer of at most bits bits.
 pub fn parse_int(s: &[u8], bits: u32) -> Result<i64, String> {
     let fail = |why| num_error("ParseInt", s, why);
     if s.is_empty() {
@@ -65,7 +65,7 @@ pub fn parse_int(s: &[u8], bits: u32) -> Result<i64, String> {
     })
 }
 
-/// strconv.Atoi on a 64-bit machine.
+/// A signed decimal 64-bit integer (errors name Atoi).
 pub fn atoi(s: &str) -> Result<i64, String> {
     parse_int(s.as_bytes(), 64).map_err(|e| e.replacen("ParseInt", "Atoi", 1))
 }
@@ -74,8 +74,8 @@ fn num_error(func: &str, s: &[u8], why: &str) -> String {
     format!("strconv.{func}: parsing {}: {why}", quote_bytes(s))
 }
 
-/// strconv.Quote of a byte string: valid UTF-8 as Quote writes it, each
-/// byte of invalid UTF-8 as \xNN.
+/// A byte string double-quoted: valid UTF-8 with `"`, `\`, and
+/// non-printable characters escaped, each byte of invalid UTF-8 as \xNN.
 pub fn quote_bytes(b: &[u8]) -> String {
     let mut out = String::from("\"");
     for chunk in b.utf8_chunks() {
@@ -166,7 +166,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_int_as_go() {
+    fn parse_int_texts() {
         assert_eq!(parse_int(b"42", 64), Ok(42));
         assert_eq!(parse_int(b"+7", 64), Ok(7));
         assert_eq!(parse_int(b"-9223372036854775808", 64), Ok(i64::MIN));

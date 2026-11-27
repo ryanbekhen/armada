@@ -1,7 +1,6 @@
-//! What the runtime keeps of a container's output (internal/runtime/
-//! embedded logs.go and history.go): armada-log writes <logs>/<id>.log
-//! (rotated to .1 and .2), the driver records whose container it is in
-//! <logs>/history/<id>.meta (ADR 0043), moves the files of a removed
+//! What the runtime keeps of a container's output: armada-log writes
+//! <logs>/<id>.log (rotated to .1 and .2), the driver records whose container
+//! it is in <logs>/history/<id>.meta (ADR 0043), moves the files of a removed
 //! container into history, and reads the last lines of one.
 
 use std::fs;
@@ -12,14 +11,15 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
-/// runtime.LogMaxFiles: the current file and the rotated ones.
+/// Log files per container: the current file and the rotated ones.
 pub const LOG_MAX_FILES: usize = 3;
 /// What a tail keeps of the newest entries, whatever their number.
 const MAX_TAIL_BYTES: usize = 4 << 20;
 const HISTORY: &str = "history";
 const META_SUFFIX: &str = ".meta";
 
-/// embedded's validID: ^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$.
+/// Whether id may name a container's log files:
+/// ^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$.
 pub fn valid_id(id: &str) -> bool {
     let b = id.as_bytes();
     !b.is_empty()
@@ -30,7 +30,7 @@ pub fn valid_id(id: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'.' | b'-'))
 }
 
-/// LogPath: the current log file of container id.
+/// The current log file of container id.
 pub fn log_path(dir: &Path, id: &str) -> Result<PathBuf, String> {
     if !valid_id(id) {
         return Err(format!("invalid container id {}", armada_pki::go_quote(id)));
@@ -38,7 +38,7 @@ pub fn log_path(dir: &Path, id: &str) -> Result<PathBuf, String> {
     Ok(dir.join(format!("{id}.log")))
 }
 
-/// LogMeta, as encoding/json writes it.
+/// A container's .meta file: compact JSON in the fields' order.
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
 pub struct LogMeta {
     pub app: String,
@@ -54,7 +54,7 @@ fn history(dir: &Path) -> PathBuf {
     dir.join(HISTORY)
 }
 
-/// WriteLogMeta: records whose container id is, so its output is kept in
+/// Records whose container id is, so its output is kept in
 /// history when it rotates out or the container is removed.
 pub fn write_log_meta(dir: &Path, id: &str, m: &LogMeta) -> Result<(), String> {
     if !valid_id(id) {
@@ -112,7 +112,7 @@ fn keep(dir: &Path, id: &str, path: &Path, seq: i128) -> Result<(), String> {
     }
 }
 
-/// RemoveLogs: a removed container's log files into history, oldest first,
+/// A removed container's log files into history, oldest first,
 /// or deleted when it keeps none.
 pub fn remove_logs(dir: &Path, id: &str) -> Result<(), String> {
     let path = log_path(dir, id)?;
@@ -140,8 +140,8 @@ struct Entry {
     log: String,
 }
 
-/// The output of the container's last `n` entries, joined (what Go's
-/// HAProxy engine reads through Driver.Logs with Tail: n); None when the
+/// The output of the container's last `n` entries, joined (what the
+/// HAProxy engine reads of its container); None when the
 /// container has no log file.
 pub fn tail(dir: &Path, id: &str, n: usize) -> Result<Option<String>, String> {
     let path = log_path(dir, id)?;

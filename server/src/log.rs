@@ -1,17 +1,17 @@
-//! A small structured logger in the shape of Go's log/slog text handler:
-//! `time=... level=INFO msg="..." key=value ...` on stderr. Values are
+//! A small structured logger: `time=... level=INFO msg="..." key=value
+//! ...` on stderr. Values are
 //! quoted when they hold spaces, quotes, `=`, or control characters, so a
 //! value from an agent cannot forge a line. Secrets are never passed to it.
 
 use std::io::Write;
 use std::sync::Arc;
 
-/// Where log lines go: stderr, or nowhere (Go's slog.DiscardHandler).
+/// Where log lines go: stderr, or nowhere.
 #[derive(Clone)]
 pub struct Logger {
     out: Option<Arc<std::sync::Mutex<()>>>,
     debug: bool,
-    /// Lines as Go's slog JSON handler writes them (--log-format json).
+    /// Lines as JSON objects (--log-format json).
     json: bool,
     attrs: Vec<(String, String)>,
 }
@@ -37,7 +37,7 @@ impl Logger {
         }
     }
 
-    /// A logger writing JSON lines to stderr (Go's slog.NewJSONHandler).
+    /// A logger writing JSON lines to stderr.
     pub fn stderr_json(debug: bool) -> Logger {
         Logger {
             json: true,
@@ -45,7 +45,7 @@ impl Logger {
         }
     }
 
-    /// Go's Logger.With.
+    /// A logger adding k=v to every line.
     pub fn with(&self, k: &str, v: &str) -> Logger {
         let mut l = self.clone();
         l.attrs.push((k.to_string(), v.to_string()));

@@ -1,4 +1,4 @@
-//! Usage reports (ADR 0016, Go's usage.go): what the node's replicas use,
+//! Usage reports (ADR 0016): what the node's replicas use,
 //! sampled every interval, a container whose network interface stayed
 //! gone over two samples recreated, how the node runs containers, the
 //! proxy's load, the network switch, and WireGuard peers. Volumes,
@@ -50,7 +50,7 @@ pub fn runtime_status(s: &AgentStatus) -> pb::RuntimeStatus {
 }
 
 impl<R: Runtime> Agent<R> {
-    /// One round of sampling (sampleUsage): the report, None when the
+    /// One round of sampling: the report, None when the
     /// containers could not be listed, and the samples for the next round.
     pub async fn sample_usage(&self, prev: Samples) -> (Option<pb::UsageReport>, Samples) {
         self.inner.sample_usage(prev).await

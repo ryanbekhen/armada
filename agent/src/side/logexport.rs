@@ -1,7 +1,6 @@
-//! Sending app output to the cluster's log endpoint (ADR 0044; Go's
-//! logexport.go and internal/logexport): a Loki push endpoint or an
-//! OTLP/HTTP logs endpoint, as JSON, gzipped, at least once: what was read
-//! is marked sent only after the endpoint took all of it.
+//! Sending app output to the cluster's log endpoint (ADR 0044): a Loki push
+//! endpoint or an OTLP/HTTP logs endpoint, as JSON, gzipped, at least once:
+//! what was read is marked sent only after the endpoint took all of it.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{IpAddr, SocketAddr, TcpStream, ToSocketAddrs};
@@ -34,7 +33,7 @@ const PUSH_TIMEOUT: Duration = Duration::from_secs(30);
 /// How much of an error reply is read and shown.
 const MAX_REPLY: usize = 256;
 
-/// Where logs go (logexport.Config). Debug leaves the token out.
+/// Where logs go. Debug leaves the token out.
 #[derive(Clone, Default, PartialEq, Eq)]
 pub struct ExportConfig {
     pub format: String,
@@ -130,7 +129,7 @@ fn check_name(what: &str, v: &str) -> Result<(), String> {
 }
 
 impl ExportConfig {
-    /// logexport.Config.Check.
+    /// Checks the format, endpoint, user, tenant, and token.
     pub fn check(&self) -> Result<(), String> {
         check_format(&self.format)?;
         if self.format.is_empty() {
@@ -150,7 +149,7 @@ impl ExportConfig {
 }
 
 /// Names where logs go: setting the export again starts over, a new token
-/// does not (exportTarget).
+/// does not.
 pub fn export_target(c: &ExportConfig, set_at: i64) -> String {
     let h = Sha256::digest(
         format!(
@@ -162,7 +161,7 @@ pub fn export_target(c: &ExportConfig, set_at: i64) -> String {
     h[..16].iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// One line of output with where it came from (logexport.Record).
+/// One line of output with where it came from.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Record {
     pub time: SystemTime,
@@ -195,7 +194,8 @@ impl Record {
     }
 }
 
-/// A string as Go's encoding/json writes it (HTML escaped).
+/// A JSON string: `"`, `\`, and control characters escaped, and `<`, `>`,
+/// `&`, U+2028, and U+2029 as `\u` escapes.
 pub(crate) fn json_string(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 2);
     out.push('"');
@@ -239,7 +239,7 @@ fn attr(k: &str, v: &str) -> String {
     )
 }
 
-/// Renders records in format's JSON (logexport.Encode).
+/// Renders records in format's JSON.
 pub fn encode(format: &str, recs: &[Record], now: SystemTime) -> Result<Vec<u8>, String> {
     match format {
         "loki" => Ok(encode_loki(recs).into_bytes()),
@@ -345,7 +345,7 @@ fn encode_otlp(recs: &[Record], now: SystemTime) -> String {
 }
 
 /// Splits records into requests of at most max_records records and about
-/// max_bytes of output each (logexport.Batches).
+/// max_bytes of output each.
 pub fn batches(recs: &[Record], max_records: usize, max_bytes: usize) -> Vec<&[Record]> {
     let mut out = Vec::new();
     let (mut start, mut size) = (0, 0);
@@ -390,13 +390,13 @@ pub fn clean(s: &str, token: &[u8]) -> String {
     s
 }
 
-/// Pushes requests to one endpoint (logexport.Client).
+/// Pushes requests to one endpoint.
 pub struct Client {
     cfg: ExportConfig,
     tls: Arc<rustls::ClientConfig>,
 }
 
-/// The machine's roots, as Go's default HTTP client trusts them.
+/// The machine's trusted roots.
 fn machine_tls() -> Arc<rustls::ClientConfig> {
     let mut roots = rustls::RootCertStore::empty();
     armada_node::http::system_roots(&mut roots);
@@ -410,7 +410,7 @@ fn machine_tls() -> Arc<rustls::ClientConfig> {
 }
 
 impl Client {
-    /// Checks cfg and returns a client for it (NewClient).
+    /// Checks cfg and returns a client for it.
     pub fn new(
         cfg: ExportConfig,
         tls: Option<Arc<rustls::ClientConfig>>,
@@ -485,7 +485,8 @@ fn left(deadline: Instant) -> Result<Duration, String> {
     Ok(d)
 }
 
-/// An io error as Go's syscall texts word the common ones.
+/// An io error in the system's words for the common ones ("connection
+/// refused", "i/o timeout", ...).
 fn io_text(e: &std::io::Error) -> String {
     match e.kind() {
         std::io::ErrorKind::ConnectionRefused => "connection refused".into(),
@@ -652,8 +653,8 @@ pub struct ExportState {
 }
 
 impl<R: Runtime> Inner<R> {
-    /// The cluster's log export from the latest assignment, and its target
-    /// (exportConfig).
+    /// The cluster's log export from the latest assignment, and its
+    /// target.
     fn export_config(&self) -> Option<(ExportConfig, String)> {
         let e = lock(&self.side.logs).as_ref()?.export.clone()?;
         if e.format.is_empty() {
@@ -670,7 +671,7 @@ impl<R: Runtime> Inner<R> {
         Some((c, t))
     }
 
-    /// Sends the node's app output every interval (logExportLoop).
+    /// Sends the node's app output every interval.
     pub(crate) async fn log_export_loop(self: Arc<Self>) {
         if !self.rt.tails_logs() {
             return;

@@ -1,15 +1,14 @@
-//! What the leader keeps of agents' usage reports (Go's usageStore in
-//! top.go), in memory only: each node's replica samples (CPU and memory,
-//! ADR 0016), its proxy's load per replica (ADR 0020), the queue lengths
-//! its queue rules read (ADR 0034), its network sandboxes with the latest
-//! length of each job's queue and the jobs whose sandboxes it dropped (ADR
-//! 0040); when a proxy last reported a request for each replica (ADR
-//! 0021); and which app and node each replica belongs to, from the latest
-//! pass, for the events of processes killed at the memory limit; and each
-//! node's volume sizes (ADR 0023); its connection tracking table, its side
-//! of a switch of the network's mode (ADR 0050), and how it runs
-//! containers (ADR 0054); and the requests and egress counted per space
-//! since the first pass (ADR 0026).
+//! What the leader keeps of agents' usage reports, in memory only: each
+//! node's replica samples (CPU and memory, ADR 0016), its proxy's load per
+//! replica (ADR 0020), the queue lengths its queue rules read (ADR 0034),
+//! its network sandboxes with the latest length of each job's queue and the
+//! jobs whose sandboxes it dropped (ADR 0040); when a proxy last reported a
+//! request for each replica (ADR 0021); and which app and node each replica
+//! belongs to, from the latest pass, for the events of processes killed at
+//! the memory limit; and each node's volume sizes (ADR 0023); its
+//! connection tracking table, its side of a switch of the network's mode
+//! (ADR 0050), and how it runs containers (ADR 0054); and the requests and
+//! egress counted per space since the first pass (ADR 0026).
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
@@ -35,41 +34,41 @@ pub(crate) fn clean_runtime_status(st: Option<&RuntimeStatus>) -> Option<Runtime
         runc_containers: st.runc_containers.clamp(0, MAX_RUNC_CONTAINERS),
     })
 }
-/// usageMaxAge: how long a node's sample counts.
+/// How long a node's sample counts.
 pub(crate) const USAGE_MAX_AGE: i64 = 35 * SECOND;
-/// maxUsageReplicas: a report with more replicas is dropped.
+/// A report with more replicas is dropped.
 const MAX_USAGE_REPLICAS: usize = 1024;
-/// maxQueueLength bounds a reported queue length.
+/// Bounds a reported queue length.
 const MAX_QUEUE_LENGTH: i64 = 1 << 40;
-/// maxReplicaIDLen bounds a replica ID in a report.
+/// Bounds a replica ID in a report.
 const MAX_REPLICA_ID_LEN: usize = 128;
-/// maxInFlight bounds one node's count of requests in progress for a
+/// Bounds one node's count of requests in progress for a
 /// replica.
 const MAX_IN_FLIGHT: i64 = 1_000_000;
-/// proxy.MaxLoadEntries: a report with more load entries leaves the load
+/// A report with more load entries leaves the load
 /// unmeasured.
 const MAX_LOAD_ENTRIES: usize = 20_000;
-/// maxActive bounds the last request times kept.
+/// Bounds the last request times kept.
 const MAX_ACTIVE: usize = 8192;
-/// maxNodeCPUMillis and maxNodeMemory bound a replica's sample.
+/// Bounds of a replica's sample.
 const MAX_NODE_CPU_MILLIS: i64 = 1024 * 1000;
 const MAX_NODE_MEMORY: i64 = 16 << 40;
-/// maxOOMEvents and maxOOMReport bound what a report says about processes
+/// Bounds of what a report says about processes
 /// killed at the memory limit.
 const MAX_OOM_EVENTS: usize = 8;
 const MAX_OOM_REPORT: i64 = 1 << 20;
-/// maxSandboxReports and maxSandboxAge bound what a report says about
+/// Bounds of what a report says about
 /// network sandboxes.
 const MAX_SANDBOX_REPORTS: usize = 256;
 const MAX_SANDBOX_AGE_MS: i64 = 3_600_000;
-/// volumeUsageMaxAge: how long a node's volume measurement counts, a few
+/// How long a node's volume measurement counts, a few
 /// of its agent's one-minute measurements.
 const VOLUME_USAGE_MAX_AGE: i64 = 210 * SECOND;
-/// maxVolumeReports bounds the volumes of one report: a node with more is
+/// Bounds the volumes of one report: a node with more is
 /// unmeasured.
 const MAX_VOLUME_REPORTS: usize = 1024;
 const MAX_VOLUME_BYTES: i64 = 1 << 50;
-/// maxConntrack bounds a node's reported connection tracking numbers.
+/// Bounds a node's reported connection tracking numbers.
 const MAX_CONNTRACK: i64 = 1 << 32;
 
 /// queuelen's fixed texts, in the order Reason tries them.
@@ -86,7 +85,7 @@ const QUEUE_REASONS: &[&str] = &[
 ];
 
 /// A job's network sandbox on a node and the length of its queue read
-/// from it, if measured (Go's sandboxReading).
+/// from it, if measured.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct SandboxReading {
     pub ip: String,
@@ -133,7 +132,7 @@ pub(crate) struct NodeUsage {
     pub runtime: Option<RuntimeStatus>,
 }
 
-/// Which space, app, and node a replica belongs to (Go's replicaOwner).
+/// Which space, app, and node a replica belongs to.
 #[derive(Clone, Debug)]
 struct Owner {
     space: String,
@@ -141,14 +140,14 @@ struct Owner {
     node: String,
 }
 
-/// A space's counters (Go's spaceTotals).
+/// A space's counters.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct SpaceTotals {
     pub requests: i64,
     pub egress: i64,
 }
 
-/// maxReportRequests and maxReportEgress bound what one report adds to a
+/// Bounds of what one report adds to a
 /// space's counters for one replica.
 const MAX_REPORT_REQUESTS: i64 = 1 << 30;
 const MAX_REPORT_EGRESS: i64 = 1 << 40;
@@ -175,8 +174,8 @@ pub(crate) struct Usage {
     st: Mutex<State>,
 }
 
-/// sandboxFailure: queuelen.Reason(queuelen.FromText(text)): a fixed text
-/// stays, any other becomes the generic one.
+/// A queue reading's failure as the leader keeps it: one of the fixed
+/// texts stays, any other becomes the generic one.
 pub(crate) fn sandbox_failure(text: &str) -> String {
     if text.is_empty() {
         return String::new();
@@ -187,7 +186,7 @@ pub(crate) fn sandbox_failure(text: &str) -> String {
     "the queue could not be read".to_string()
 }
 
-/// sandboxReadings: what a report says about the node's sandboxes,
+/// What a report says about the node's sandboxes,
 /// bounded. Which jobs the node may read is checked when a reading is used.
 fn sandbox_readings(list: &[SandboxQueue], at: &Time) -> HashMap<String, SandboxReading> {
     let mut out = HashMap::new();
@@ -364,7 +363,7 @@ impl Usage {
         fresh
     }
 
-    /// outOfMemory: an event for each replica of node whose processes the
+    /// An event for each replica of node whose processes the
     /// kernel killed at the memory limit since the previous report, at
     /// most eight. The container lives on when that was not its main
     /// process, so nothing else would show it.
@@ -395,7 +394,7 @@ impl Usage {
         out
     }
 
-    /// setOwners: replaces what reports are counted against, from a pass's
+    /// Replaces what reports are counted against, from a pass's
     /// replicas.
     /// Counting starts with the first call.
     pub(crate) fn set_owners(&self, reps: &[Replica], now: &Time) {
@@ -419,7 +418,7 @@ impl Usage {
         }
     }
 
-    /// spaceTotals: a space's counters and when counting began.
+    /// A space's counters and when counting began.
     pub(crate) fn space_totals(&self, space: &str) -> (SpaceTotals, Option<Time>) {
         let st = self.lock();
         (
@@ -428,7 +427,7 @@ impl Usage {
         )
     }
 
-    /// forgetSpace drops a removed space's counters.
+    /// Drops a removed space's counters.
     pub(crate) fn forget_space(&self, space: &str) {
         self.lock().totals.remove(space);
     }
@@ -440,7 +439,7 @@ impl Usage {
         st.volumes.remove(node);
     }
 
-    /// setVolumes keeps node's volume measurement. Like other usage it is
+    /// Keeps node's volume measurement. Like other usage it is
     /// untrusted: values are bounded, and names are checked.
     pub(crate) fn set_volumes(&self, node: &str, r: &UsageReport, at: Time) {
         let mut st = self.lock();
@@ -480,7 +479,7 @@ impl Usage {
         Some(n.clone())
     }
 
-    /// switchStatus: the latest side of a network switch node reported.
+    /// The latest side of a network switch node reported.
     pub(crate) fn switch_status(&self, node: &str) -> Option<NetworkSwitchStatus> {
         self.lock()
             .nodes
@@ -488,14 +487,14 @@ impl Usage {
             .and_then(|n| n.net_switch.clone())
     }
 
-    /// droppedSandbox: node's recent sample says it does not keep job's
+    /// node's recent sample says it does not keep job's
     /// sandbox.
     pub(crate) fn dropped_sandbox(&self, node: &str, job: &str, now: &Time) -> bool {
         self.node(node, now)
             .is_some_and(|n| n.dropped.contains(job))
     }
 
-    /// lastActive: when a proxy last reported a request for any of ids;
+    /// When a proxy last reported a request for any of ids;
     /// the zero time when none did.
     pub(crate) fn last_active<'a>(&self, ids: impl IntoIterator<Item = &'a str>) -> Time {
         let st = self.lock();
@@ -621,7 +620,6 @@ mod tests {
         }
     }
 
-    // Go's TestUsageLastActive.
     #[test]
     fn last_active_survives_quiet_reports() {
         let u = Usage::default();

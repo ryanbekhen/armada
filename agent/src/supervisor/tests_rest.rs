@@ -1,7 +1,6 @@
-//! The supervisor runtime's second part without root: SELinux labels,
-//! the move of Go's image store, and the calls of the agent's sessions
-//! (exec sessions, logs, dials, queues, sandboxes) against the stand-ins
-//! of [`super::tests`].
+//! More of the supervisor runtime without root: SELinux labels and the
+//! calls of the agent's sessions (exec sessions, logs, dials, queues,
+//! sandboxes) against the stand-ins of [`super::tests`].
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -658,7 +657,7 @@ esac"#,
         .map(|(h, _)| h)
         .filter(|h| h.contains("sandbox-worker.dev"))
         .collect();
-    // What an earlier try left is released first, as Go does.
+    // What an earlier try left is released first.
     let kinds: Vec<&str> = calls
         .iter()
         .map(|c| c.split(' ').take(2).last().unwrap())

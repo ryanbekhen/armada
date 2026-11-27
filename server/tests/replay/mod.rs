@@ -1,4 +1,4 @@
-//! The replay of the control plane's scenarios (ADR 0055, item 20).
+//! The replay of the control plane's recorded scenarios.
 
 pub mod etcd;
 pub mod gojson;

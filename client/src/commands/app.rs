@@ -1,4 +1,4 @@
-//! armada app and armada revision (Go's app.go, apps.go, rollout.go).
+//! armada app and armada revision.
 
 use std::time::Duration as StdDuration;
 
@@ -167,7 +167,7 @@ fn serving(a: &AppStatus) -> i64 {
     a.replicas.iter().filter(|r| r.ready && !r.draining).count() as i64
 }
 
-/// waitRollout: until revision serves, or fails, or another replaces it.
+/// Until revision serves, or fails, or another replaces it.
 pub fn wait_rollout(
     ctx: &mut Ctx<'_>,
     admin: &mut Admin,
@@ -258,7 +258,7 @@ pub fn wait_rollout(
     }
 }
 
-/// trafficSummary: "web--r3 90%, web--r4 10% (canary)".
+/// "web--r3 90%, web--r4 10% (canary)".
 pub fn traffic_summary(traffic: &[TrafficTarget]) -> String {
     traffic
         .iter()
@@ -273,7 +273,7 @@ pub fn traffic_summary(traffic: &[TrafficTarget]) -> String {
         .join(", ")
 }
 
-/// listApps: every page.
+/// Every page.
 pub fn list_apps(
     ctx: &mut Ctx<'_>,
     admin: &mut Admin,
@@ -375,7 +375,7 @@ fn show(ctx: &mut Ctx<'_>, args: &[String]) -> Result {
     Ok(())
 }
 
-/// printSpec: the spec an app or job runs, exactly as GetAppSpec returns
+/// The spec an app or job runs, exactly as GetAppSpec returns
 /// it.
 pub fn print_spec(ctx: &mut Ctx<'_>, admin: &mut Admin, id: &str, job: bool) -> Result {
     let req = GetAppSpecRequest {
@@ -404,7 +404,7 @@ fn restarts(r: &ReplicaStatus, now: i128) -> String {
     n
 }
 
-/// autoscaleNote: "2-10 replicas, http 34/50, cpu 61%/70%: steady".
+/// "2-10 replicas, http 34/50, cpu 61%/70%: steady".
 fn autoscale_note(a: &Autoscale) -> String {
     let mut parts = vec![format!("{}-{} replicas", a.min, a.max)];
     for r in &a.rules {
@@ -554,7 +554,7 @@ fn print_app(a: &AppStatus) -> String {
     tw.finish()
 }
 
-/// revisionName: r3 becomes APP--r3; full names pass.
+/// r3 becomes APP--r3; full names pass.
 fn revision_name(app: &str, rev: &str) -> String {
     if rev.starts_with('r') && !rev.contains("--") {
         return format!("{app}--{rev}");

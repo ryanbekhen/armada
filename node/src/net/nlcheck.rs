@@ -1,4 +1,4 @@
-//! What the Go parity tests ask of the netlink code without root:
+//! What tests ask of the netlink code without root:
 //!
 //!   armada-node net netlink encode   stdin: a list of calls (below); stdout: for each,
 //!                                    the hex of the messages it sends (seq and port 0)
@@ -9,7 +9,8 @@
 //!                                    messages (after the netlink header); stdout: the
 //!                                    device
 //!
-//! A call is {"Op": NAME, ...}, named after the Go call it stands for.
+//! A call is {"Op": NAME, ...}, named after the netlink operation it
+//! stands for.
 
 use super::addr::Addr;
 use super::key::Key;

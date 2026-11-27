@@ -1,11 +1,10 @@
-//! Queue triggers (ADR 0040; Go's triggers.go): one node reads each
+//! Queue triggers (ADR 0040): one node reads each
 //! queue-triggered job's queue from a network sandbox the leader puts in
 //! its assignment, and the leader starts runs for what waits in it.
 //!
 //! The sandbox's address is the job's for every node's firewall: the pass
 //! keeps it ([`Run::sandbox_addrs`](crate::reconcile::Run)) for the
-//! cluster network's endpoints, which come with pull request 13 of ADR
-//! 0055.
+//! cluster network's endpoints.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
@@ -25,8 +24,8 @@ use crate::usage::{SandboxReading, USAGE_MAX_AGE};
 const SECOND: i64 = 1_000_000_000;
 pub(crate) const JOB: &str = "job";
 
-/// What the leader keeps about jobs a queue starts, in memory only (Go's
-/// queueTriggers): a new leader picks the same nodes and has a reading
+/// What the leader keeps about jobs a queue starts, in memory only: a new
+/// leader picks the same nodes and has a reading
 /// again after one polling interval.
 #[derive(Default)]
 pub(crate) struct QueueTriggers {
@@ -70,7 +69,7 @@ fn fnv64a(b: &[u8]) -> u64 {
     h
 }
 
-/// probeNode picks the node that reads a job's queue: one the job may run
+/// Picks the node that reads a job's queue: one the job may run
 /// on, with a subnet, running jobs, not lost, whose agent keeps sandboxes,
 /// and with room (none: any). Of those, the one whose hash with the job is
 /// highest, so every leader picks the same.
@@ -103,7 +102,7 @@ pub(crate) fn probe_node(
 }
 
 impl Server {
-    /// sandboxNodes: the connected nodes whose agents read job queues from
+    /// The connected nodes whose agents read job queues from
     /// network sandboxes.
     pub(crate) fn sandbox_nodes(&self) -> HashSet<String> {
         self.sessions()
@@ -113,7 +112,7 @@ impl Server {
             .collect()
     }
 
-    /// placeQueues: the node that reads each queue-triggered job's queue
+    /// The node that reads each queue-triggered job's queue
     /// in this pass ("" for none), at most MaxNodeQueueSandboxes per node,
     /// jobs placed one space at a time.
     pub(crate) async fn place_queues(
@@ -156,7 +155,7 @@ impl Server {
         out
     }
 
-    /// queueReading: what node last reported of job's sandbox, if the
+    /// What node last reported of job's sandbox, if the
     /// node's sample is recent; fresh says the length was read within two
     /// polling intervals too.
     pub(crate) fn queue_reading(
@@ -179,7 +178,7 @@ impl Server {
         (r, fresh)
     }
 
-    /// triggerJob keeps the job's queue read from a sandbox on one node and
+    /// Keeps the job's queue read from a sandbox on one node and
     /// starts runs for what waits in it: ⌈length ÷ perRun⌉, at most the
     /// trigger's parallelism, less the active runs, once per reading.
     pub(crate) async fn trigger_job(
@@ -347,7 +346,7 @@ impl Server {
         runs
     }
 
-    /// jobTrigger: a job's queue trigger with what was last read.
+    /// A job's queue trigger with what was last read.
     pub(crate) fn job_trigger(&self, a: &App) -> Option<JobTrigger> {
         let sp = a.spec.as_deref()?;
         let q = sp.queue_trigger()?;
@@ -380,8 +379,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn fnv_matches_go() {
-        // hash/fnv New64a of "" and of "a".
+    fn fnv() {
+        // FNV-1a 64 of "" and of "a".
         assert_eq!(fnv64a(b""), 0xcbf2_9ce4_8422_2325);
         assert_eq!(fnv64a(b"a"), 0xaf63_dc4c_8601_ec8c);
     }

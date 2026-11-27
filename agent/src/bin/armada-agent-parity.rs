@@ -1,7 +1,7 @@
-//! The program Go's agent parity tests drive (internal/agent/parity_test.go,
-//! ARMADA_AGENT_BIN; ADR 0055): the Rust agent with a test clock and a
-//! runtime whose every call goes to the test, which answers it from the
-//! same fake runtime Go's agent uses. JSON lines both ways: the test's
+//! The program the agent's replays drive (tests/scenarios.rs): the agent
+//! with a test clock and a runtime whose every call goes to the test, which
+//! answers it from the recorded scenario's fake runtime. JSON lines both
+//! ways: the test's
 //! requests (`{"id", "op", ...}`, answered with `{"id", ...}`), and the
 //! program's runtime calls (`{"call", "method", ...}`, answered with
 //! `{"reply", "result"}` or `{"reply", "error"}`). Never part of a release.

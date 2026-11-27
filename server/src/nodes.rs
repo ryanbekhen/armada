@@ -1,4 +1,4 @@
-//! Node administration and node certificate renewal (Go's nodes.go).
+//! Node administration and node certificate renewal.
 
 use std::time::{Duration, Instant};
 

@@ -1,12 +1,10 @@
-//! What the agent's sessions read of containers' output (internal/
-//! runtime/embedded logs.go ReadLogs, history.go SearchLogs and
-//! PruneLogs, export.go TailLogs): a container's stored output with its
-//! tail and follow, searches of the log history (ADR 0043) through the
-//! pack's armada-log (`search`) or read here, the history bounded, and
-//! output read for an export (ADR 0044) through armada-log (`export`)
-//! with the cursors in <logs>/history/export.json, or read here as
-//! records. Files and formats are Go's, so either agent carries on from
-//! the other's history and cursors.
+//! What the agent's sessions read of containers' output: a container's stored
+//! output with its tail and follow, searches of the log history (ADR 0043)
+//! through the pack's armada-log (`search`) or read here, the history bounded,
+//! and output read for an export (ADR 0044) through armada-log (`export`) with
+//! the cursors in <logs>/history/export.json, or read here as records. Files
+//! and formats stay the same across releases, so an upgraded agent carries on
+//! from the history and cursors of the one before.
 
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
@@ -43,13 +41,13 @@ fn other(e: impl Into<String>) -> Error {
     Error::Other(e.into())
 }
 
-/// Go's zero time.Time (0001-01-01T00:00:00Z).
+/// The zero time, 0001-01-01T00:00:00Z.
 pub fn zero_time() -> SystemTime {
     UNIX_EPOCH - Duration::from_secs(62_135_596_800)
 }
 
-/// One line of a log file (logEntry); a time that is missing is Go's zero
-/// time, one that does not parse makes the line unreadable.
+/// One line of a log file; a time that is missing is the zero time, one that
+/// does not parse makes the line unreadable.
 #[derive(Clone, Debug)]
 pub struct Entry {
     pub log: String,
@@ -80,7 +78,7 @@ fn parse_entry(line: &[u8]) -> Option<Entry> {
     })
 }
 
-/// scanEntries: every whole line of r, read; the bytes of the whole lines
+/// Every whole line of r, read; the bytes of the whole lines
 /// (a line cut short at the end is left for later).
 fn scan_entries(r: impl Read, mut f: impl FnMut(Entry)) -> std::io::Result<u64> {
     let mut br = BufReader::with_capacity(64 << 10, r);
@@ -115,7 +113,7 @@ fn numbered(path: &Path, i: usize) -> PathBuf {
     }
 }
 
-/// ReadLogs: the container's stored output, its tail first, then (with
+/// The container's stored output, its tail first, then (with
 /// follow) what it writes from then on, until the receiver is dropped.
 pub fn read_logs(dir: &Path, id: &str, opts: &LogOptions) -> Result<LogFrames> {
     let path = log_path(dir, id).map_err(other)?;
@@ -201,7 +199,7 @@ fn history(dir: &Path) -> PathBuf {
     dir.join(HISTORY)
 }
 
-/// A container's file moved into history (historyFile).
+/// A container's file moved into history.
 #[derive(Clone, Debug)]
 struct HistoryFile {
     id: String,
@@ -211,7 +209,7 @@ struct HistoryFile {
     modified: SystemTime,
 }
 
-/// parseHistoryName: "<id>.<seq>.log".
+/// "<id>.<seq>.log".
 fn parse_history_name(name: &str) -> Option<(String, i64)> {
     let base = name.strip_suffix(".log")?;
     let i = base.rfind('.')?;
@@ -229,7 +227,7 @@ struct Meta {
     created: SystemTime,
 }
 
-/// readHistory: the history files, oldest first, and the meta files by
+/// The history files, oldest first, and the meta files by
 /// container.
 fn read_history(
     dir: &Path,
@@ -278,7 +276,7 @@ fn read_history(
     Ok((files, metas))
 }
 
-/// DefaultHistoryBytes: a tenth of the file system, within its bounds.
+/// A tenth of the file system, within its bounds.
 pub fn default_history_bytes(dir: &Path) -> i64 {
     use std::os::unix::ffi::OsStrExt;
     let Ok(c) = std::ffi::CString::new(dir.as_os_str().as_bytes()) else {
@@ -294,7 +292,7 @@ pub fn default_history_bytes(dir: &Path) -> i64 {
     (total / 10).clamp(MIN_DEFAULT_HISTORY, MAX_DEFAULT_HISTORY)
 }
 
-/// PruneLogs: history past retention goes, then the oldest past
+/// History past retention goes, then the oldest past
 /// max_bytes, then the meta files of removed containers with no history
 /// left.
 pub fn prune_logs(
@@ -420,7 +418,7 @@ fn sources(dir: &Path, q: &LogQuery) -> std::result::Result<Vec<Source>, String>
     Ok(out)
 }
 
-/// SearchLogsWith: the newest matching entries within the window, oldest
+/// The newest matching entries within the window, oldest
 /// first, and a notice when the search stopped early. armada-log scans
 /// the files when the pack has it and the text is ASCII; else, or when it
 /// fails, they are read here.
@@ -480,7 +478,7 @@ fn run_program(
     Ok((st, read))
 }
 
-/// searchState's scan of every source, here.
+/// A search's scan of every source, without armada-log.
 fn scan_search(
     srcs: &[Source],
     q: &LogQuery,
@@ -534,7 +532,7 @@ fn scan_search(
     (out, notice)
 }
 
-/// searchWith: armada-log search over the sources' paths.
+/// armada-log search over the sources' paths.
 fn search_with(
     bin: &Path,
     srcs: &[Source],
@@ -593,16 +591,16 @@ fn search_with(
     Ok((out, notice))
 }
 
-/// Where a container's export stands (tailCursor).
+/// Where a container's export stands.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 struct Cursor {
     ino: u64,
     off: i64,
-    /// None: Go's zero time.
+    /// None: the zero time.
     time: Option<SystemTime>,
 }
 
-/// export.json (exportState).
+/// export.json.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct ExportState {
     target: String,
@@ -673,8 +671,8 @@ fn go_time(t: SystemTime) -> String {
     crate::clock::rfc3339_nano(t)
 }
 
-/// encoding/json of exportState: keys in Go's order, cursors' zero fields
-/// left out.
+/// export.json's bytes: target, since, then files, with each cursor's
+/// zero fields left out.
 fn state_json(st: &ExportState) -> Vec<u8> {
     let mut files = serde_json::Map::new();
     for (k, c) in st.files.iter().flatten() {
@@ -695,8 +693,8 @@ fn state_json(st: &ExportState) -> Vec<u8> {
     } else {
         serde_json::Value::Null
     };
-    // Maps are sorted (Go sorts its map keys; a cursor's fields are in
-    // its order); the outer object is written in Go's field order.
+    // Map keys sorted; a cursor's fields as ino, off, time; the outer
+    // object as target, since, files.
     format!(
         "{{\"target\":{},\"since\":{},\"files\":{}}}",
         serde_json::to_string(&st.target).unwrap_or_default(),
@@ -735,7 +733,7 @@ fn save_state(dir: &Path, st: &ExportState) -> std::result::Result<(), String> {
     })
 }
 
-/// A file of a container's output (tailFile).
+/// A file of a container's output.
 #[derive(Clone, Debug)]
 struct TailFile {
     path: PathBuf,
@@ -752,7 +750,7 @@ fn stat_tail(p: &Path) -> Option<TailFile> {
     })
 }
 
-/// containerFiles: its history files, oldest first, then its rotated
+/// Its history files, oldest first, then its rotated
 /// files and its current one.
 fn container_files(dir: &Path, id: &str, hist: &[HistoryFile]) -> Vec<TailFile> {
     let mut out: Vec<TailFile> = hist.iter().filter_map(|h| stat_tail(&h.path)).collect();
@@ -765,7 +763,7 @@ fn container_files(dir: &Path, id: &str, hist: &[HistoryFile]) -> Vec<TailFile> 
     out
 }
 
-/// A container's part of a tail (tailJob).
+/// A container's part of a tail.
 #[derive(Clone, Debug)]
 struct Job {
     id: String,
@@ -777,7 +775,7 @@ struct Job {
     by_time: bool,
 }
 
-/// TailLogsWith: output written since the last committed tail for target,
+/// Output written since the last committed tail for target,
 /// at most about max_bytes, shared between containers; rendered by
 /// armada-log as enc's requests when both are given, else records. The
 /// commit writes the cursors (only when they moved).
@@ -908,7 +906,7 @@ fn plan_tail(
     Ok((prev, next, jobs, share))
 }
 
-/// readTails: each job's output from its cursor, within its share and
+/// Each job's output from its cursor, within its share and
 /// the budget, as records; the cursors moved.
 fn read_tails(
     jobs: &[Job],
@@ -966,7 +964,7 @@ fn tail_read(p: &Path, off: i64, limit: i64, f: impl FnMut(Entry)) -> std::io::R
     Ok(scan_entries(file.take(limit.max(0) as u64), f)? as i64)
 }
 
-/// planLine: fields joined by tabs; None when one holds a tab or a line
+/// Fields joined by tabs; None when one holds a tab or a line
 /// break.
 fn plan_line(b: &mut String, fields: &[&str]) -> bool {
     if fields.iter().any(|f| f.contains(['\t', '\n'])) {
@@ -988,7 +986,7 @@ fn unix_text(t: SystemTime) -> String {
 
 type Exported = (Vec<Vec<u8>>, i64, BTreeMap<String, Cursor>);
 
-/// exportWith: armada-log export renders the jobs' output as requests.
+/// armada-log export renders the jobs' output as requests.
 fn export_with(
     bin: &Path,
     jobs: &[Job],

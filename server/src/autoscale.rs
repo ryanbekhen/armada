@@ -1,4 +1,4 @@
-//! The autoscaler (Go's autoscale.go, ADR 0020, 0021, 0034): every 15
+//! The autoscaler (ADR 0020, 0021, 0034): every 15
 //! seconds the leader evaluates each autoscaled app from the usage store
 //! (requests in progress at the proxies, CPU and memory of a replica's
 //! reservation sampled on its own node, queue lengths read from its
@@ -32,21 +32,20 @@ use crate::usage::Usage;
 type Result<T> = std::result::Result<T, armada_store::Error>;
 
 const SECOND: i64 = 1_000_000_000;
-/// defaultAutoscaleInterval: how often the leader evaluates autoscaled
+/// How often the leader evaluates autoscaled
 /// apps.
 pub(crate) const DEFAULT_AUTOSCALE_INTERVAL: Duration = Duration::from_secs(15);
-/// scaleDownWindow: how long the highest recommendation holds before an
+/// How long the highest recommendation holds before an
 /// app scales down, so it does not flap.
 const SCALE_DOWN_WINDOW: i64 = 5 * 60 * SECOND;
-/// scaleTolerance ignores changes smaller than 10% of the target.
+/// Ignores changes smaller than 10% of the target.
 const SCALE_TOLERANCE: f64 = 0.1;
 pub(crate) const AUTOSCALE_ACTOR: &str = "armada:autoscaler";
 /// The wake limit per node: 20 at once, one more a second.
 pub(crate) const WAKE_BURST: u32 = 20;
 pub(crate) const WAKE_REFILL: Duration = Duration::from_secs(1);
 
-/// What the leader remembers of one app between evaluations (Go's
-/// appScaling).
+/// What the leader remembers of one app between evaluations.
 #[derive(Clone, Debug)]
 pub(crate) struct AppScaling {
     /// The first evaluation in this term.
@@ -68,7 +67,7 @@ impl AppScaling {
     }
 }
 
-/// The autoscaler's memory (Go's autoscaler).
+/// The autoscaler's memory.
 #[derive(Default)]
 pub(crate) struct Autoscaler {
     apps: Mutex<HashMap<String, AppScaling>>,
@@ -104,7 +103,7 @@ impl Autoscaler {
     }
 }
 
-/// The samples one evaluation reads (Go's scaleInputs).
+/// The samples one evaluation reads.
 pub(crate) struct Inputs<'a> {
     pub now: Time,
     pub usage: &'a Usage,
@@ -112,7 +111,7 @@ pub(crate) struct Inputs<'a> {
     pub load_measured: bool,
 }
 
-/// scheduleWake: the most replicas an open schedule window asks for and
+/// The most replicas an open schedule window asks for and
 /// when that window closes; 0 while none is open.
 fn schedule_wake(sp: &Spec, now: &Time) -> (i64, Time) {
     let mut n = 0;
@@ -133,14 +132,14 @@ fn schedule_wake(sp: &Spec, now: &Time) -> (i64, Time) {
     (n, until)
 }
 
-/// scheduleOpen: one of the app's schedule rules has its window open.
+/// One of the app's schedule rules has its window open.
 fn schedule_open(sp: &Spec, now: &Time) -> bool {
     sp.scale
         .as_ref()
         .is_some_and(|s| s.rules.iter().any(|r| r.window(now).0))
 }
 
-/// queueLength: the latest length of the app's queue for the rule of type
+/// The latest length of the app's queue for the rule of type
 /// typ: the largest read from its replicas, each only from the node it is
 /// assigned to. None while no replica's node reported one.
 fn queue_length(reps: &[Replica], typ: &str, inp: &Inputs<'_>) -> Option<i64> {
@@ -159,7 +158,7 @@ fn queue_length(reps: &[Replica], typ: &str, inp: &Inputs<'_>) -> Option<i64> {
     length
 }
 
-/// ruleValue: the current average per ready replica for one rule:
+/// The current average per ready replica for one rule:
 /// requests in progress for http, percent of the reservation for cpu and
 /// memory. None without enough samples: no proxy was read, or fewer than
 /// half the ready replicas were sampled on their own node.
@@ -412,7 +411,7 @@ impl Server {
         self.0.scaler.status(app)
     }
 
-    /// autoscaleLoop: an evaluation every interval for the term.
+    /// An evaluation every interval for the term.
     pub(crate) async fn autoscale_loop(&self, mut shutdown: watch::Receiver<bool>) {
         let every = self.0.autoscale_interval;
         loop {
@@ -430,8 +429,8 @@ impl Server {
         }
     }
 
-    /// autoscale: evaluates every autoscaled app once and applies its
-    /// decision (the scenario parity tests call it as they run passes).
+    /// Evaluates every autoscaled app once and applies its decision (the
+    /// scenario replays call it as they run passes).
     pub async fn autoscale(&self) -> Result<()> {
         let apps = self.store().list_apps().await?;
         let reps = self.store().list_replicas(&Default::default()).await?;
@@ -524,7 +523,7 @@ impl Server {
         self.trigger();
     }
 
-    /// wakeApp: starts an app scaled to zero for which a request waits at
+    /// Starts an app scaled to zero for which a request waits at
     /// node's proxy (ADR 0021). Wakes are untrusted: they are rate limited
     /// per node, and only raise an app that scales to zero from 0 to 1.
     pub(crate) async fn wake_app(&self, node: &str, app: &str) {
@@ -663,7 +662,7 @@ mod tests {
         decide(a, &sp, RES, reps, inp, st)
     }
 
-    // Go's TestDecideHTTP.
+    // HTTP rules.
     #[test]
     fn http() {
         let a = app(
@@ -702,7 +701,7 @@ mod tests {
         );
     }
 
-    // Go's TestDecideScaleToZero.
+    // Scaling to zero.
     #[test]
     fn scale_to_zero() {
         let a = app(ZERO, 1);
@@ -730,7 +729,7 @@ mod tests {
         assert!(s.message.contains("wakes"));
     }
 
-    // Go's TestDecideQueue.
+    // Queue rules.
     #[test]
     fn queue() {
         let a = app(
@@ -780,7 +779,7 @@ mod tests {
         assert_eq!(run(&a, &reps, &inp(&u), &mut AppScaling::new(&now)).0, 4);
     }
 
-    // Go's TestDecideHolds (CPU from the replica's own node).
+    // Holds (CPU from the replica's own node).
     #[test]
     fn cpu_from_own_node() {
         let a = app(
@@ -819,7 +818,7 @@ mod tests {
         assert!(s.message.contains("rollout"));
     }
 
-    // Go's TestDecideSchedule and TestDecideScheduleWakesZero.
+    // Schedules, and schedules waking an app from zero.
     #[test]
     fn schedules() {
         let only = app(

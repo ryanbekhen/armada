@@ -35,9 +35,8 @@ fn msg(s: impl Into<String>) -> Error {
     Error::Msg(s.into())
 }
 
-/// defaultACMEPort.
 const DEFAULT_ACME_PORT: u16 = 7480;
-/// acmePrefix: where certificates and the ACME account live in etcd.
+/// Where certificates and the ACME account live in etcd.
 const ACME_PREFIX: &str = "/armada-acme/";
 
 /// The loggers of --log-format and --verbose: the control plane's and the
@@ -68,7 +67,7 @@ pub fn runtime() -> std::result::Result<tokio::runtime::Runtime, Error> {
         .map_err(|e| msg(e.to_string()))
 }
 
-/// The certificate flags (Go's tlsFlags).
+/// The certificate flags.
 #[derive(Clone)]
 struct TlsFlags {
     enabled: bool,
@@ -79,7 +78,7 @@ struct TlsFlags {
     dns_token_file: String,
 }
 
-/// readTokenFile: --dns-token-file, a private file.
+/// --dns-token-file, a private file.
 fn read_token_file(path: &str) -> std::result::Result<String, String> {
     let b =
         armada_fsutil::read_private_file(Path::new(path)).map_err(|e| format!("DNS token: {e}"))?;
@@ -90,7 +89,7 @@ fn read_token_file(path: &str) -> std::result::Result<String, String> {
     Ok(t)
 }
 
-/// serverIdentity: the name of a server certificate.
+/// The name of a server certificate.
 fn server_identity(pem: &[u8]) -> std::result::Result<String, String> {
     let bad = || format!("{FILE_SERVER_CERT} is not a server certificate");
     let c = parse_cert_pem(pem).map_err(|e| e.to_string())?;
@@ -100,7 +99,7 @@ fn server_identity(pem: &[u8]) -> std::result::Result<String, String> {
     }
 }
 
-/// serverIP: the private IP a server certificate was issued for.
+/// The private IP a server certificate was issued for.
 pub fn server_ip(pem: &[u8]) -> std::result::Result<IpAddr, String> {
     let c = parse_cert_pem(pem).map_err(|e| e.to_string())?;
     c.ip_addresses
@@ -119,7 +118,6 @@ fn read_private(data_dir: &str, names: &[&str]) -> std::result::Result<Vec<Vec<u
         .collect()
 }
 
-/// resolveJoinListen.
 fn resolve_join_listen(flag: &str, api: &str) -> std::result::Result<String, String> {
     match flag {
         "off" => Ok(String::new()),
@@ -141,7 +139,7 @@ fn resolve_join_listen(flag: &str, api: &str) -> std::result::Result<String, Str
     }
 }
 
-/// acmeListen: --acme-listen, by default the server's IP and port 7480.
+/// --acme-listen, by default the server's IP and port 7480.
 fn acme_listen(flag: &str, server_listen: &str) -> std::result::Result<String, String> {
     let mut listen = flag.to_string();
     if listen.is_empty() {
@@ -164,7 +162,7 @@ fn acme_listen(flag: &str, server_listen: &str) -> std::result::Result<String, S
     Ok(listen)
 }
 
-/// loadMasterKey: the secrets master key, made for a cluster from before
+/// The secrets master key, made for a cluster from before
 /// secrets, else the key the state records.
 async fn load_master_key(
     st: &Etcd,
@@ -205,8 +203,7 @@ async fn load_master_key(
     Ok(keys)
 }
 
-/// The etcd membership of the control plane over this server's member
-/// (Go's etcd.Cluster).
+/// The etcd membership of the control plane over this server's member.
 struct EtcdCluster {
     c: Client,
     /// The member's directory, whose certificate reaches other members.
@@ -324,7 +321,7 @@ impl Cluster for EtcdCluster {
     }
 }
 
-/// What one term of the control plane uses (Go's termSettings).
+/// What one term of the control plane uses.
 struct TermSettings {
     enabled: bool,
     ca: String,
@@ -344,7 +341,7 @@ struct SettingFlags {
     given: Vec<&'static str>,
 }
 
-/// resolveSettings: the cluster's settings over this server's flags, the
+/// The cluster's settings over this server's flags, the
 /// flags over the defaults; a setting the cluster lacks is taken from the
 /// flags given here and stored.
 async fn resolve_settings(
@@ -499,7 +496,7 @@ struct Setup {
     current: Arc<Mutex<Option<Server>>>,
 }
 
-/// One run of a term's server (Go's runTerm).
+/// One run of a term's server.
 async fn run_term(
     s: Arc<Setup>,
     fenced: Etcd,
@@ -545,7 +542,7 @@ async fn run_term(
             })
         }));
     }
-    // certOptions: none without TLS.
+    // None without TLS.
     let mut acme_mgr: Option<(Acme, Arc<EtcdStorage>)> = None;
     if ts.enabled {
         let directory = acme::directory(&ts.ca)?;
@@ -726,7 +723,7 @@ async fn serve(
     {
         return Err(format!("{data_dir} is not initialized; run `armadad init`"));
     }
-    // Rust runs no etcd member inside the server (ADR 0055): the member
+    // armadad runs no etcd member inside the server (ADR 0055): the member
     // is armada-etcd.service's, which armada-server.service wants.
     let wait_log = log.clone();
     let learner_log = log.clone();
@@ -822,8 +819,8 @@ async fn serve(
     .map_err(|e| e.to_string())?;
     // The node's agent is a unit of its own on server machines (ADR
     // 0055); a node certificate that expired while the machine was down
-    // is signed again for it, as Go does before its embedded agent
-    // starts. An agent that started first with the expired one fails its
+    // is signed again for it. An agent that started first with the
+    // expired one fails its
     // handshake, and systemd starts it again with this one.
     renewer.renew_node(&st).await;
     let setup = Arc::new(Setup {

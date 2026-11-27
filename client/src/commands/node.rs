@@ -1,4 +1,4 @@
-//! armada node and armada server (Go's nodes.go and servers.go).
+//! armada node and armada server.
 
 use std::collections::BTreeMap;
 
@@ -20,7 +20,7 @@ use crate::cli::tabwriter::TabWriter;
 use crate::cli::{Args, Ctx, Error, Node, Result, Tree};
 use crate::rpc;
 
-/// pollInterval: how often `node delete` checks for remaining replicas.
+/// How often `node delete` checks for remaining replicas.
 const POLL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// InstallURL: where the installer is published.
@@ -38,7 +38,7 @@ on the leader's endpoint, open only while such a token is unused and
 unexpired: these tokens last 10 minutes by default and at most an hour, and
 --from makes the listener answer only the address the machine joins from.";
 
-/// newJoinTokenCommand: node join-token and server join-token.
+/// Node join-token and server join-token.
 fn join_token_node(server: bool) -> Node {
     let mut long = JOIN_LONG.to_string();
     let (short, ttl, example, run): (&str, &str, &str, crate::cli::Run) = if server {
@@ -68,7 +68,7 @@ fn join_token_node(server: bool) -> Node {
         .run(run)
 }
 
-/// releaseTag: `^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$`.
+/// `^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$`.
 fn release_tag(s: &str) -> bool {
     let Some(rest) = s.strip_prefix('v') else {
         return false;
@@ -87,7 +87,7 @@ fn release_tag(s: &str) -> bool {
         })
 }
 
-/// installCommand: the line that installs Armada, pinned to the server's
+/// The line that installs Armada, pinned to the server's
 /// release when it is one.
 fn install_command(version: &str) -> String {
     let env = if release_tag(version) {
@@ -98,7 +98,7 @@ fn install_command(version: &str) -> String {
     format!("curl -fsSL {INSTALL_URL} | sudo {env}sh")
 }
 
-/// parseLabel: KEY=VALUE, both checked.
+/// KEY=VALUE, both checked.
 fn parse_label(s: &str) -> std::result::Result<(String, String), String> {
     let Some((k, v)) = s.split_once('=') else {
         return Err(format!(
@@ -110,7 +110,7 @@ fn parse_label(s: &str) -> std::result::Result<(String, String), String> {
     Ok((k.to_string(), v.to_string()))
 }
 
-/// formatLabels: k=v,k2=v2 sorted by key.
+/// k=v,k2=v2 sorted by key.
 fn format_labels(labels: &BTreeMap<String, String>) -> String {
     let mut keys: Vec<&String> = labels.keys().collect();
     keys.sort();
@@ -284,7 +284,7 @@ pub fn add_node(t: &mut Tree) -> usize {
     n
 }
 
-/// nodeStatus: the nodes.
+/// The nodes.
 fn node_status(ctx: &mut Ctx<'_>) -> Result<StatusResponse> {
     let mut admin = ctx.admin()?;
     let req = StatusRequest {
@@ -653,7 +653,7 @@ pub fn add_server(t: &mut Tree) -> usize {
     n
 }
 
-/// serverAddrs: the members' API addresses, the leader first.
+/// The members' API addresses, the leader first.
 pub fn server_addrs(resp: &ListServersResponse) -> Vec<String> {
     let mut addrs = Vec::new();
     for s in &resp.servers {
@@ -666,7 +666,7 @@ pub fn server_addrs(resp: &ListServersResponse) -> Vec<String> {
     addrs
 }
 
-/// schemaNote: a pending state migration (ADR 0012).
+/// a pending state migration (ADR 0012).
 fn schema_note(resp: &ListServersResponse) -> String {
     let newest = resp
         .servers
@@ -736,7 +736,7 @@ fn check_servers(addrs: &[String]) -> std::result::Result<(), String> {
     Ok(())
 }
 
-/// syncClientServers: the control plane's addresses kept in the client
+/// The control plane's addresses kept in the client
 /// config.
 fn sync_client_servers(ctx: &mut Ctx<'_>, addrs: &[String]) -> Result {
     if addrs.is_empty() {

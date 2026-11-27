@@ -1,8 +1,6 @@
-//! Image pulls and the image store (ADR 0054 step 4, second and third
-//! parts; not used by nodes yet): what internal/runtime/containerd
-//! (registry.go, proof.go, platforms.go, Driver.Pull) and
-//! internal/runtime/supervisor/images.go do for a pull, into the store of
-//! store.rs, with every layer unpacked under layers/ as containerd's
+//! Image pulls and the image store: a pull (the registry protocol, the
+//! proof of content, the platforms) into the store of store.rs, with
+//! every layer unpacked under layers/ as containerd's
 //! applier unpacks it for the overlay snapshotter (layers.rs, unpack.rs,
 //! tar.rs).
 //!
@@ -25,7 +23,7 @@
 //!   armada-node runtime apply DIR [--media-type MT] [--lower DIR]...
 //!       stdin: a layer blob; applies it to DIR as the applier does (with
 //!       lower directories: as an overlay upper directory, closest
-//!       first); stdout: {"diffID"} or {"error"}. For the parity tests.
+//!       first); stdout: {"diffID"} or {"error"}. For tests.
 //!   armada-node runtime reference
 //!       stdin: [{"image", "auth"}]; stdout: per entry {"ref", "familiar",
 //!       "digested", "pullKey"} or {"error"} (normalize, pullKey)
@@ -35,14 +33,9 @@
 //!   armada-node runtime proxy URL
 //!       stdout: {"proxy": URL or ""}, the proxy a request to URL takes
 //!       under this environment
-//!
-//! Go's TestArmadaNode*MatchesGo tests (internal/runtime/containerd)
-//! compare them with Go against registries in the test process.
 
 pub mod check;
 pub mod digest;
-// The move of Go's image store, for the Rust agent only: the program
-// never converts.
 #[allow(dead_code, unused_imports)]
 pub mod http;
 mod layers;

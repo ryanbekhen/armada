@@ -1,4 +1,4 @@
-//! Joining (ADR 0003; Go's nodes.go and servers.go): the join listener,
+//! Joining (ADR 0003): the join listener,
 //! its bounds and its gate, JoinService for nodes and servers, and join
 //! tokens.
 
@@ -43,7 +43,7 @@ const JOIN_MAX_CONNS_PER_SOURCE: usize = 16;
 const JOIN_IDLE: Duration = Duration::from_secs(15);
 const JOIN_MAX_AGE: Duration = Duration::from_secs(120);
 const JOIN_STOP_GRACE: Duration = Duration::from_secs(5);
-/// joinGateEvery: how often the leader looks whether the tokens that open
+/// How often the leader looks whether the tokens that open
 /// its public join listener expired.
 const JOIN_GATE_EVERY: Duration = Duration::from_secs(5);
 
@@ -64,7 +64,7 @@ pub struct Gate {
     from: Mutex<Option<HashSet<IpAddr>>>,
 }
 
-/// How a machine joins (Go's joining).
+/// How a machine joins.
 #[derive(Default)]
 struct Joining {
     on: bool,
@@ -89,7 +89,7 @@ impl Joining {
     }
 }
 
-/// validNetworkKey: a WireGuard public key, 32 bytes in standard base64,
+/// A WireGuard public key, 32 bytes in standard base64,
 /// not all zero.
 pub(crate) fn valid_network_key(s: &str) -> bool {
     if s.len() != 44 {
@@ -128,7 +128,7 @@ fn ts(t: &armada_spec::gotime::Time) -> armada_proto::google::protobuf::Timestam
 }
 
 impl Server {
-    /// Starts the join listener (Go's serveJoin).
+    /// Starts the join listener.
     pub(crate) async fn serve_join(&self, shutdown: watch::Receiver<bool>) -> Result<(), String> {
         if self.0.join_public {
             let s = self.clone();
@@ -200,7 +200,7 @@ impl Server {
 
     /// Keeps a join listener on the leader's public endpoint open only
     /// while a join token that opens it is unused and unexpired, answering
-    /// only the addresses those tokens name (Go's gateJoin).
+    /// only the addresses those tokens name.
     async fn gate_join(
         &self,
         addr: String,
@@ -506,7 +506,7 @@ impl Server {
         std::env::var("ARMADA_SERVER_VERSION").unwrap_or_else(|_| "dev".to_string())
     }
 
-    /// Checks the address a machine joins with (Go's joiningAddress).
+    /// Checks the address a machine joins with.
     async fn joining_address(
         &self,
         private_ip: &str,
@@ -683,8 +683,8 @@ impl tower::Service<http::Request<Body>> for JoinDispatch {
         let mut join = self.join.clone();
         Box::pin(async move {
             let path = req.uri().path();
-            // grpc-go answers what it does not serve before the interceptor,
-            // which refuses anything but the two join methods.
+            // What the listener does not serve is answered before the
+            // access check, which refuses anything but the two join methods.
             if path != JOIN && path != JOIN_SERVER {
                 return Ok(crate::grpc::unknown_service(path, "armada.v1.JoinService").into_http());
             }

@@ -1,5 +1,4 @@
-//! armada user, service, role (Go's rbac.go), metrics (metrics.go), and
-//! alert (alerts.go).
+//! armada user, service, role, metrics, and alert.
 
 use armada_pki as pki;
 use armada_proto::armada::v1::{
@@ -205,7 +204,7 @@ fn add_principal(t: &mut Tree, kind: &'static str) -> usize {
     n
 }
 
-/// roleFlags.assignment: --space only when given on the command line.
+/// --space only when given on the command line.
 fn assignment(ctx: &Ctx<'_>, role: &str) -> RoleAssignment {
     let mut a = RoleAssignment {
         role: role.to_string(),
@@ -239,7 +238,7 @@ fn allowances(values: &[String]) -> Result<Vec<LabelAllowance>> {
     Ok(out)
 }
 
-/// newFile: refuses to overwrite a file, which may hold another key.
+/// Refuses to overwrite a file, which may hold another key.
 fn new_file(path: &str) -> Result {
     if path.is_empty() {
         return Err("give the file to write with -o".into());
@@ -253,7 +252,7 @@ fn new_file(path: &str) -> Result {
     }
 }
 
-/// writeCredentials: a client config for key and the issued certificate.
+/// a client config for key and the issued certificate.
 fn write_credentials(
     ctx: &mut Ctx<'_>,
     admin: &mut Admin,
@@ -920,7 +919,7 @@ A channel is a JSON webhook, Slack, Discord, Telegram, or email (SMTP). Its
 URL, bot token, or password is read from a file or stdin (-), stored
 encrypted, and never shown. Only cluster admins manage channels.";
 
-/// alertSecretFlags: a channel's secret; each type uses one.
+/// a channel's secret; each type uses one.
 const ALERT_SECRET_FLAGS: [&str; 3] = ["url", "token", "password"];
 
 pub fn add_alert(t: &mut Tree) -> usize {

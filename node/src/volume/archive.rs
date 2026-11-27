@@ -1,8 +1,9 @@
-//! writeArchive: a volume as a gzipped tar, with the headers Go's
-//! archive/tar writes for tar.FileInfoHeader's fields (Uname and Gname
+//! A volume as a gzipped tar, with headers for each file's name, mode,
+//! owner, size, modification time, type, and link (user and group names
 //! left empty): USTAR while every field fits it, PAX records otherwise,
-//! modification times rounded to the second. The gzip stream is flate2's,
-//! so the compressed bytes differ from Go's; the tar inside is the same.
+//! modification times rounded to the second. The gzip stream is flate2's.
+//! The tar writer is derived from Go's archive/tar (BSD-3-Clause, The Go
+//! Authors).
 
 use super::walk::{self, EntryError, Fail, Root, Stat};
 use super::{answer_file, send_answer};
@@ -50,9 +51,9 @@ pub enum WriteError {
     Out(io::Error),
 }
 
-/// writeArchive of dir to w, the library's call: what `volume archive`
+/// The archive of dir to w, the library's call: what `volume archive`
 /// writes on stdout.
-#[allow(dead_code)] // the library's (the Rust agent's)
+#[allow(dead_code)] // the library's (the agent's)
 pub fn write_to<W: Write>(dir: &str, w: W) -> Result<(), WriteError> {
     let root = Root::open(dir.as_bytes()).map_err(|e| WriteError::Entry {
         text: format!(
@@ -74,7 +75,7 @@ fn write_root<W: Write>(root: &Root, out: W, hook: &Hook) -> Result<(), WriteErr
     match archive(root, &mut tw, hook) {
         Ok(()) => {}
         Err(Failure::Entry(e)) => {
-            // As Go, an archive that failed is not ended: the gzip stream
+            // An archive that failed is not ended: the gzip stream
             // stays unfinished.
             std::mem::forget(tw);
             return Err(WriteError::Entry {
@@ -194,7 +195,7 @@ fn header(p: &[u8], st: &Stat, link: Vec<u8>) -> Hdr {
     }
 }
 
-/// Go's tar.Writer for the headers above.
+/// A tar writer for the headers above.
 pub struct TarWriter<W: Write> {
     pub w: W,
     pad: usize,
@@ -480,7 +481,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn splits_ustar_names_as_go() {
+    fn splits_ustar_names() {
         let long = format!("{}/{}", "a".repeat(60), "b".repeat(60));
         assert_eq!(
             split_ustar(long.as_bytes()),
@@ -491,7 +492,7 @@ mod tests {
     }
 
     #[test]
-    fn formats_pax_records_as_go() {
+    fn formats_pax_records() {
         assert_eq!(pax_record("path", b"abc"), b"12 path=abc\n");
         assert_eq!(pax_record("k", &[b'v'; 4]), b"9 k=vvvv\n");
         assert_eq!(pax_record("k", &[b'v'; 5]), b"11 k=vvvvv\n");

@@ -1,5 +1,4 @@
-//! The fake armada-node of the agent's replayed scenarios (agent/tests,
-//! ADR 0055 item 20): a port of fakeNode in internal/agent/parity_side_test.go.
+//! The fake armada-node of the agent's replayed scenarios (agent/tests).
 //! It answers volume, NFS, and connection tracking calls from the script
 //! in $ARMADA_FAKE_NODE_ROOT/script.json and records each call with its
 //! request in node.log there. Never part of a release.
@@ -11,8 +10,8 @@ use std::path::Path;
 
 use serde_json::Value;
 
-/// encoding/json's Marshal of a decoded value: keys sorted, <, >, and &
-/// escaped, numbers as float64 writes them for whole numbers.
+/// Compact JSON of a decoded value: keys sorted, <, >, &, U+2028, and
+/// U+2029 as \u escapes, whole numbers below 1e21 without a fraction.
 fn go_json(v: &Value, out: &mut String) {
     match v {
         Value::Null => out.push_str("null"),
@@ -66,7 +65,8 @@ fn go_json(v: &Value, out: &mut String) {
     }
 }
 
-/// Go's strconv.Quote, for what the calls carry.
+/// Quotes what the calls carry: `"` and `\` escaped, non-printable
+/// runes as `\x`, `\u`, or `\U` escapes.
 fn quote(b: &[u8]) -> String {
     let mut out = String::from("\"");
     for c in String::from_utf8_lossy(b).chars() {
@@ -93,7 +93,7 @@ fn fd(n: i32) -> File {
 }
 
 fn raw(v: &Value) -> Vec<u8> {
-    // A json.RawMessage written as it was read: null too.
+    // A JSON value written as it was read: null too.
     v.to_string().into_bytes()
 }
 

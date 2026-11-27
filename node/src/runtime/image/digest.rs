@@ -179,7 +179,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_as_go_digest() {
+    fn parses_digests() {
         let d = Digest::sha256(b"x");
         assert_eq!(Digest::parse(&d.to_string()).unwrap(), d);
         for bad in [

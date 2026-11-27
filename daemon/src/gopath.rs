@@ -1,7 +1,8 @@
-//! Go's path/filepath on Unix: Clean, Join, Dir, and Base, whose results
-//! Armada's checks and names depend on.
+//! Lexical path handling on Unix: clean, join, dir, and base, whose
+//! results Armada's checks and names depend on.
 
-/// filepath.Clean.
+/// The shortest path equal to p: repeated slashes, `.` elements, and
+/// `..` after a name or at the root removed; "." for an empty result.
 pub fn clean(p: &str) -> String {
     if p.is_empty() {
         return ".".into();
@@ -29,7 +30,7 @@ pub fn clean(p: &str) -> String {
     }
 }
 
-/// filepath.Join of two elements.
+/// Two elements joined with a slash and cleaned, empty ones left out.
 pub fn join(a: &str, b: &str) -> String {
     match (a.is_empty(), b.is_empty()) {
         (true, true) => String::new(),
@@ -39,13 +40,14 @@ pub fn join(a: &str, b: &str) -> String {
     }
 }
 
-/// filepath.Dir.
+/// All but the last element, cleaned.
 pub fn dir(p: &str) -> String {
     let i = p.rfind('/').map_or(0, |i| i + 1);
     clean(&p[..i])
 }
 
-/// filepath.Base.
+/// The last element, trailing slashes removed ("." for empty, "/" for
+/// only slashes).
 pub fn base(p: &str) -> String {
     if p.is_empty() {
         return ".".into();
@@ -65,7 +67,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn as_go() {
+    fn lexical_paths() {
         for (i, want) in [
             ("", "."),
             ("/", "/"),

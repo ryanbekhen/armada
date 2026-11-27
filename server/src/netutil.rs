@@ -1,4 +1,4 @@
-//! The address checks of Go's internal/netutil the server uses.
+//! The address checks the server uses.
 
 use std::net::IpAddr;
 
@@ -16,7 +16,7 @@ fn is_loopback(a: &Addr) -> bool {
     std_ip(&a.unmap()).is_loopback()
 }
 
-/// netutil.IsPrivate: RFC 1918, IPv6 ULA, loopback, or carrier-grade NAT,
+/// RFC 1918, IPv6 ULA, loopback, or carrier-grade NAT,
 /// never with a zone.
 pub fn is_private(a: &Addr) -> bool {
     if !a.zone.is_empty() {
@@ -27,7 +27,6 @@ pub fn is_private(a: &Addr) -> bool {
     u.is_private() || is_loopback(&u) || cgnat.contains(&u)
 }
 
-/// netutil.CheckPrivateIP.
 pub fn check_private_ip(s: &str) -> Result<Addr, String> {
     let addr = match parse_addr(s) {
         Some(a) if a.zone.is_empty() => a,
@@ -49,7 +48,6 @@ pub fn check_private_ip(s: &str) -> Result<Addr, String> {
     Ok(u)
 }
 
-/// netutil.CheckNodeIP.
 pub fn check_node_ip(s: &str) -> Result<Addr, String> {
     let a = check_private_ip(s)?;
     if is_loopback(&a) {
@@ -58,7 +56,6 @@ pub fn check_node_ip(s: &str) -> Result<Addr, String> {
     Ok(a)
 }
 
-/// netutil.CheckEndpoint.
 pub fn check_endpoint(s: &str) -> Result<Addr, String> {
     let a = match parse_addr(s) {
         Some(a) if a.is4 && a.string() == s => a,

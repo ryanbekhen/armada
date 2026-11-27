@@ -1,14 +1,12 @@
-//! The nftables isolation tables (isolation_linux.go, ADR 0026) as the
-//! nf_tables netlink messages Go's nftables library sends for them, encoded
-//! here by hand: no netfilter library is linked and no `nft` binary is
-//! needed. `isolate`, `update_isolation`, and `remove_isolation` build the
-//! batch of one transaction; `decide` is the agent's choice between keeping,
-//! updating, and rebuilding the tables (Net.isolate).
+//! The nftables isolation tables (ADR 0026) as nf_tables netlink messages,
+//! encoded here by hand: no netfilter library is linked and no `nft` binary
+//! is needed. `isolate`, `update_isolation`, and `remove_isolation` build
+//! the batch of one transaction; `decide` is the agent's choice between
+//! keeping, updating, and rebuilding the tables.
 //!
 //! Messages come out with sequence number and port ID 0; the socket that
 //! sends them numbers them (kernel.rs). Set IDs, which name a set created
-//! in the same batch, count up from the batch's first one: Go takes them
-//! from a counter shared by the whole process.
+//! in the same batch, count up from the batch's first one.
 
 use super::addr::{Addr, Prefix};
 use super::policy::Policy;
@@ -23,7 +21,7 @@ const DNS_PORT: u16 = 53;
 const HTTP_PORT: u16 = 80;
 const HTTPS_PORT: u16 = 443;
 
-/// blockedRanges: what an isolated container never reaches outside the
+/// What an isolated container never reaches outside the
 /// cluster CIDR.
 const BLOCKED: [([u8; 4], u8); 9] = [
     ([10, 0, 0, 0], 8),
@@ -67,7 +65,7 @@ const NFT_MSG_NEWSETELEM: u16 = 12;
 const NFT_MSG_DELSETELEM: u16 = 14;
 /// How many elements one message carries: netlink attribute lengths are 16
 /// bits, so a message with every element of a large set would overflow
-/// them (maxSetElements in Go).
+/// them.
 const MAX_SET_ELEMENTS: usize = 256;
 
 // Set key types (nftables' datatype magic numbers) and flags.
@@ -101,9 +99,8 @@ const VERDICT_JUMP: i32 = -3;
 const VERDICT_DROP: i32 = 0;
 const VERDICT_ACCEPT: i32 = 1;
 
-/// One netlink attribute, as mdlayher/netlink marshals it: length and type
-/// in host order, the data padded to four bytes. The length is 16 bits and
-/// wraps like Go's.
+/// One netlink attribute: length and type in host order, the data padded
+/// to four bytes. The length is 16 bits and wraps.
 fn attr(out: &mut Vec<u8>, ty: u16, data: &[u8]) {
     out.extend_from_slice(&((4 + data.len()) as u16).to_ne_bytes());
     out.extend_from_slice(&ty.to_ne_bytes());
@@ -158,7 +155,7 @@ impl Msg {
     }
 }
 
-/// extraHeader: the nfgenmsg in front of every message.
+/// The nfgenmsg in front of every message.
 fn gen_header(family: u8, res_id: u16) -> Vec<u8> {
     let mut b = vec![family, 0];
     b.extend_from_slice(&res_id.to_be_bytes());
@@ -190,7 +187,7 @@ struct Elem {
     jump: Option<String>,
 }
 
-/// An expression of a rule, with Go's registers (1, or 0 for verdicts).
+/// An expression of a rule, with its registers (1, or 0 for verdicts).
 enum Expr {
     Payload { base: u32, offset: u32, len: u32 },
     Cmp { op: u32, data: Vec<u8> },
@@ -275,7 +272,7 @@ fn addr_bytes(a: &Addr) -> Vec<u8> {
     }
 }
 
-/// The netmask of a prefix's IPv4 address, as Go computes it.
+/// The netmask of a prefix's IPv4 address.
 fn mask4(bits: u8) -> Vec<u8> {
     let m = u32::MAX
         .checked_shl(32u32.saturating_sub(u32::from(bits)))
@@ -420,8 +417,8 @@ fn bound_to_address() -> Vec<Expr> {
     ]
 }
 
-/// notNewConn: replies and related traffic of known connections. The mask
-/// is in host order, as Go writes it.
+/// Replies and related traffic of known connections. The mask is in host
+/// order.
 fn not_new_conn() -> Vec<Expr> {
     vec![
         Expr::Ct { key: CT_STATE },
@@ -436,7 +433,7 @@ fn not_new_conn() -> Vec<Expr> {
     ]
 }
 
-/// appNames: the names of an app's address set and chain.
+/// The names of an app's address set and chain.
 pub fn app_names(app: &str) -> (String, String) {
     let h = Sha256::digest(app.as_bytes());
     let id: String = h[..8].iter().map(|b| format!("{b:02x}")).collect();
@@ -584,8 +581,8 @@ impl Batch {
         self.push(NFT_MSG_DELSET, NLM_F_REQUEST | NLM_F_ACK, family, d);
     }
 
-    /// makeElemList in NEWSETELEM or DELSETELEM messages of at most
-    /// MAX_SET_ELEMENTS each (addElements and deleteElements in Go).
+    /// The elements in NEWSETELEM or DELSETELEM messages of at most
+    /// MAX_SET_ELEMENTS each.
     fn elements(&mut self, msg: u16, set: &Set, elems: &[Elem]) {
         for chunk in elems.chunks(MAX_SET_ELEMENTS) {
             self.element_message(msg, set, chunk);
@@ -612,7 +609,7 @@ impl Batch {
         self.push(msg, flags, set.family, d);
     }
 
-    /// addAppChain: an app's address set and the chain that lets only
+    /// An app's address set and the chain that lets only
     /// those addresses reach it.
     fn add_app_chain(&mut self, family: u8, app: &str, members: &[Addr]) -> String {
         let bridge = family == FAMILY_BRIDGE;
@@ -767,7 +764,7 @@ impl Batch {
         input(self, vec![isolated(), drop()]);
     }
 
-    /// changeElements: make a set (created before this batch) hold want
+    /// Make a set (created before this batch) hold want
     /// instead of have.
     fn change_elements(&mut self, set: &Set, have: &[Addr], want: &[Addr]) {
         let gone: Vec<Addr> = have.iter().filter(|a| !want.contains(a)).cloned().collect();
@@ -856,8 +853,7 @@ impl Batch {
     }
 
     /// The whole transaction: the queued messages between a batch begin
-    /// and end, or nothing when none is queued (Go's Flush sends nothing
-    /// then).
+    /// and end, or nothing when none is queued.
     pub fn transaction(&self) -> Vec<Msg> {
         if self.msgs.is_empty() {
             return Vec::new();
@@ -887,7 +883,7 @@ pub fn isolate(pol: &Policy, first_set_id: u32) -> Batch {
     b
 }
 
-/// updateIsolation: change the tables from old to pol in place.
+/// Change the tables from old to pol in place.
 pub fn update_isolation(old: &Policy, pol: &Policy, first_set_id: u32) -> Batch {
     let mut b = Batch::new(first_set_id);
     for fam in FAMILIES {
@@ -896,7 +892,7 @@ pub fn update_isolation(old: &Policy, pol: &Policy, first_set_id: u32) -> Batch 
     b
 }
 
-/// removeIsolation: delete the tables.
+/// Delete the tables.
 pub fn remove_isolation() -> Batch {
     let mut b = Batch::new(1);
     for fam in FAMILIES {
@@ -918,7 +914,7 @@ pub fn get_table(family: u8) -> Msg {
     }
 }
 
-/// sameFrame: two policies differ only in what updateIsolation changes in
+/// Two policies differ only in what updateIsolation changes in
 /// place.
 pub fn same_frame(a: &Policy, b: &Policy) -> bool {
     a.cidr == b.cidr

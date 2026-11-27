@@ -1,10 +1,8 @@
-//! The kernel side of the cluster network (clusternet_linux.go's Net.Apply,
-//! Net.Up, and Remove, with vxlan_linux.go, wireguard_linux.go, and
-//! switch_linux.go): the firewall and isolation tables first, then the
-//! tunnel interfaces (VXLAN, or kernel WireGuard), their addresses, peers,
-//! forwarding and neighbour entries, and routes, in the order Go sets them
-//! up. The userspace WireGuard device stays in the Go agent: where Go would
-//! start it, this answers that the pass needs it.
+//! The kernel side of the cluster network (apply, up, and remove): the
+//! firewall and isolation tables first, then the tunnel interfaces (VXLAN,
+//! or kernel WireGuard), their addresses, peers, forwarding and neighbour
+//! entries, and routes, in that order. There is no userspace WireGuard
+//! device: where one would be needed, this answers that the pass needs it.
 //!
 //!   armada-node net apply    stdin: a request (below); stdout: the answer
 //!   armada-node net up       stdin: a request whose Config may be null
@@ -15,14 +13,14 @@
 //! A request is one JSON object: Config (a NetworkConfig in protojson, or
 //! null), Node, PrivateIP, Endpoint ("" for none), MeshCache, UplinkMTU,
 //! Key (the private key, "" for none), Local (the node's containers, null
-//! when they are not in its subnet), Userspace (the Go agent holds the
-//! userspace device), and State: what Go's Net keeps between passes
+//! when they are not in its subnet), Userspace (a userspace device holds
+//! the node's WireGuard), and State: what the caller keeps between passes
 //! (Previous: the isolation policy last applied, Clean, Switch, Since,
 //! Last). The answer: {error, needsUserspace, state, switch (the
 //! SwitchStatus, or null), probe, done (what changed), log}.
 //!
-//! The probe of a switch's prepare step runs beside the agent, as Go's
-//! does: a pass that starts one marks the switch state probing and answers
+//! The probe of a switch's prepare step runs beside the agent: a pass that
+//! starts one marks the switch state probing and answers
 //! with probe (the addresses to ping); the caller runs `armada-node net
 //! probe` with it in the background (probe.rs), records who answered in the
 //! state, and clears probing probeEvery after the start, which lets the
@@ -59,8 +57,8 @@ pub const MIN_UPLINK_MTU: i64 = 1280;
 pub const USER_SOCKET: &str = "/var/run/wireguard/armada-net.sock";
 const MAX_UNREACHED: usize = 32;
 
-/// Why a pass stopped: an error as Go words it, or the userspace device
-/// the Go agent holds.
+/// Why a pass stopped: an error, or a WireGuard device only a userspace
+/// device could run.
 #[derive(Debug)]
 pub enum Fail {
     Err(String),
@@ -77,9 +75,7 @@ impl Fail {
     pub fn text(&self) -> String {
         match self {
             Fail::Err(s) => s.clone(),
-            Fail::Userspace => {
-                "the kernel has no WireGuard; the Go agent runs it in userspace".to_string()
-            }
+            Fail::Userspace => "the kernel has no WireGuard".to_string(),
         }
     }
 }
@@ -126,7 +122,7 @@ pub struct SeenState {
     pub since: i64,
 }
 
-/// What Go's Net keeps between passes.
+/// What the caller keeps between passes.
 #[derive(Serialize, Deserialize, Default)]
 #[serde(rename_all = "PascalCase", default)]
 pub struct State {
@@ -154,7 +150,7 @@ pub struct Request {
     pub key: String,
     pub local: Option<HashMap<String, String>>,
     pub userspace: bool,
-    // Go sends null before the first pass.
+    // null before the first pass.
     #[serde(deserialize_with = "super::config::nullable")]
     pub state: State,
 }
@@ -170,7 +166,7 @@ pub struct SwitchStatus {
     pub error: String,
 }
 
-/// One line for the caller's log, at Go's level for it.
+/// One line for the caller's log, with its level.
 #[derive(Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct LogLine {
     pub level: &'static str,
@@ -490,7 +486,7 @@ impl Net {
         Ok(())
     }
 
-    /// Net.transport: the MTU it set.
+    /// The MTU it set.
     fn transport(&mut self, p: &Plan, mode: &str, name: &str, r: RouteSet) -> Res<i64> {
         let (uplink, mut uplink_mtu, _) = self.uplink_for(mode)?;
         if encrypted(mode) {
@@ -534,8 +530,7 @@ impl Net {
         Ok(())
     }
 
-    /// Net.delLink (the kernel's interfaces only: the userspace device is
-    /// the Go agent's).
+    /// Deletes a link (the kernel's interfaces only).
     fn del_link(&mut self, l: &Link) -> Res<()> {
         self.rt
             .exec(&rtnl::del_link(l.index))
@@ -544,8 +539,9 @@ impl Net {
         Ok(())
     }
 
-    /// remoteUplinkMTU. A peer behind NAT has no endpoint: Go asks for the
-    /// route to the empty address, which the kernel refuses, and skips it.
+    /// The smallest uplink MTU towards remote peers' endpoints. A peer
+    /// behind NAT has no endpoint: the route to the empty address is asked
+    /// for, which the kernel refuses, and the peer is skipped.
     fn remote_uplink_mtu(&mut self, peers: &[Peer], def: i64) -> i64 {
         let mut mtu = def;
         for pe in peers {
@@ -594,7 +590,7 @@ impl Net {
         )))
     }
 
-    /// uplinkFor: the uplink, its MTU, and whether the node is meshed.
+    /// The uplink, its MTU, and whether the node is meshed.
     pub fn uplink_for(&mut self, mode: &str) -> Res<(Link, i64, bool)> {
         if mode != MODE_MESH {
             let ip = self.ip.clone();
@@ -881,8 +877,8 @@ impl Net {
         self.sync_routes(&link, p, false, r)
     }
 
-    /// Net.wgDevice: user is whether Go would fall back to the userspace
-    /// device, which this answers with Fail::Userspace.
+    /// The WireGuard device: user is whether a userspace device would be
+    /// needed, which this answers with Fail::Userspace.
     fn wg_device(&mut self, name: &str, mtu: i64, user: bool) -> Res<Link> {
         if let Some(l) = self.rt.link_named(name).map_err(errno)? {
             if l.kind == "wireguard" {
@@ -948,7 +944,7 @@ impl Net {
         Ok(())
     }
 
-    /// Net.track: in the prepare step, a pass that finds no probe running
+    /// In the prepare step, a pass that finds no probe running
     /// starts one, which the caller runs in the background (probe.rs).
     fn track(&mut self, p: &Plan, err: Option<&Fail>) {
         if !p.switching() {
@@ -1004,7 +1000,7 @@ impl Net {
     }
 }
 
-/// carries: whether link is the transport of mode.
+/// Whether link is the transport of mode.
 fn carries(link: &Link, mode: &str) -> bool {
     match link.kind.as_str() {
         "wireguard" => encrypted(mode),
@@ -1096,7 +1092,7 @@ pub fn command(op: &str) -> Result<(), String> {
 }
 
 /// One pass of net apply (op "apply") or net up ("up"), in process: the
-/// Rust agent calls it with what the Go agent sends the program.
+/// agent calls it with the request the program reads.
 pub fn pass(op: &str, mut req: Request) -> Answer {
     let state = std::mem::take(&mut req.state);
     let mut answer = Answer {
@@ -1174,7 +1170,7 @@ struct UnreachableAnswer {
 /// UnreachablePeers on the kernel's devices: the peers of Interface and
 /// SiteInterface known in since that are stale now; null when since is
 /// empty. The caller asks only while no switch runs and the kernel holds
-/// the devices (the userspace device is the Go agent's).
+/// the devices.
 pub fn unreachable(since: &[SeenState], now: i64) -> Option<Vec<String>> {
     if since.is_empty() {
         return None;
@@ -1237,7 +1233,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn switch_status_follows_go() {
+    fn switch_status_follows_the_state() {
         assert_eq!(switch_status(&SwitchState::default()), None);
         let mut sw = SwitchState {
             to: "wireguard".into(),

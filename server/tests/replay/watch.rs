@@ -1,5 +1,4 @@
-//! Fake agents that answer log and exec requests (internal/server/
-//! parity_logs_test.go's watchAgent): the lines each replica's live logs
+//! Fake agents that answer log and exec requests: the lines each replica's live logs
 //! send, the entries the node's log history answers searches with, and
 //! exec sessions by the command's name, with what the node was asked.
 
@@ -38,8 +37,8 @@ pub struct State {
     pub attach_as: Option<Channel>,
     /// What the attaches with another node's client answered.
     pub attached: Vec<Value>,
-    /// Sessions the node leaves open without ending them (Go's harness
-    /// returns without cancelling their streams).
+    /// Sessions the node leaves open without ending them (their streams
+    /// are never cancelled).
     kept: Vec<Stream>,
 }
 

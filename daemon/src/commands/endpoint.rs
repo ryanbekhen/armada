@@ -1,4 +1,4 @@
-//! armadad endpoint show|set (Go's endpoint.go, ADR 0050).
+//! armadad endpoint show|set (ADR 0050).
 
 use std::path::Path;
 
@@ -7,10 +7,11 @@ use armada_client::cli::{Ctx, Error, Result};
 use crate::agentconfig::{self, AgentConfig, FILE_SERVER_CERT, NETWORK_MESH};
 use crate::{netutil, systemd};
 
-/// endpointNone: `set none`, behind NAT.
+/// `set none`, behind NAT.
 const ENDPOINT_NONE: &str = "none";
 
-/// announcedEndpoint.
+/// The endpoint the node announces: none behind NAT, the one set, else
+/// on a cluster network the machine's only public IPv4 address.
 pub fn announced(ac: &AgentConfig) -> String {
     if ac.behind_nat {
         return String::new();
@@ -24,11 +25,10 @@ pub fn announced(ac: &AgentConfig) -> String {
     }
 }
 
-/// restartService: the machine's active Armada services, restarted; the
+/// The machine's active Armada services, restarted; the
 /// units ("armada-server and armada-agent" on a server machine, whose
 /// server opens its join listener on the endpoint and whose agent
-/// announces it: ADR 0055 runs them as units of their own, where Go's
-/// server restarted its embedded agent with it), or "" when none runs.
+/// announces it: each a unit of its own, ADR 0055), or "" when none runs.
 fn restart_service() -> std::result::Result<String, (String, String)> {
     let mut done: Vec<&str> = Vec::new();
     for unit in ["armada-server", "armada-agent"] {

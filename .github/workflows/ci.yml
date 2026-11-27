@@ -118,9 +118,9 @@ jobs:
 
   # The tests of the members a change touches (with the command line
   # reference in docs/cli, which the client's and the daemon's clidoc tests
-  # compare), then their replays of what Go's code did (make replays, ADR
-  # 0055 item 20): the store's, the control plane's, and the daemon's on the
-  # pinned etcd, the agent's, and the client's.
+  # compare), then their replays of the recorded behaviour (make replays):
+  # the store's, the control plane's, and the daemon's on the pinned etcd,
+  # the agent's, and the client's.
   test:
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -230,7 +230,7 @@ jobs:
   # programs the runtime pack carries, each with its own lock and toolchain
   # (standard library only). For each that changed: format, lints, tests,
   # and static builds for both architectures; for armada-log also the
-  # recorded logger cases (it stores what Go's writer stored).
+  # recorded logger cases.
   logger:
     needs: changes
     if: needs.changes.outputs.logger == 'true' || needs.changes.outputs.shim == 'true' || needs.changes.outputs.dns == 'true'

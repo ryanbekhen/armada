@@ -1,4 +1,4 @@
-//! The probe of a switch's prepare step (switch_linux.go's ping): an ICMP
+//! The probe of a switch's prepare step: an ICMP
 //! echo request from this node's tunnel address to every peer's, which the
 //! prepare step routes over Next, counting the peers whose reply came in
 //! through Next within the wait.
@@ -8,7 +8,7 @@
 //!                           stdout: {reached: [node, ...], error}
 //!
 //! It returns within probeWait (two seconds) of sending, so the caller runs
-//! it beside the agent as Go runs its probe: a pass never waits for it.
+//! it beside the agent: a pass never waits for it.
 
 use super::addr::Addr;
 use super::plan::{NEXT, Plan};
@@ -20,7 +20,7 @@ use std::io;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::time::{Duration, Instant};
 
-/// probeWait: how long a probe waits for the answers.
+/// How long a probe waits for the answers.
 pub const PROBE_WAIT: Duration = Duration::from_secs(2);
 
 /// One peer to ping: its node and tunnel address.
@@ -146,8 +146,8 @@ fn fail(r: &Reached, e: String) -> Result<Reached, (Reached, String)> {
     Err((r.clone(), e))
 }
 
-/// ping: the peers whose echo reply came in through Next within wait. On
-/// an error it returns, as Go's ping does, who answered before it.
+/// The peers whose echo reply came in through Next within wait. On an
+/// error it returns who answered before it.
 pub fn ping(
     from: &Addr,
     peers: &[(String, Addr)],
@@ -222,7 +222,7 @@ pub fn ping(
         let b = echo(id, i as u16);
         let dst = sockaddr(to);
         // SAFETY: b and dst are valid for their lengths; a failed send is
-        // skipped as Go skips it.
+        // skipped.
         unsafe {
             libc::sendto(
                 raw,

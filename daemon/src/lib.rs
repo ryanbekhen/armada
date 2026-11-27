@@ -1,16 +1,12 @@
-//! armadad in Rust (ADR 0055, pull request 18): the command tree of Go's
-//! internal/daemon with the same names, flags, help, examples, output,
-//! and exit codes, on the client's command framework (armada_client::cli,
-//! as Go's daemon runs cli.Run). This first part (18a) has the commands
-//! that need neither the running server or agent, nor the cluster's state,
-//! nor the container runtime's driver: version, endpoint, etcd, upgrade,
-//! and runtime. The second (18b) adds those that need the cluster's state
-//! but not the running server or agent: backup, backup list, restore,
-//! user renew, and runtime-log; then those that set a machine up and run
-//! it: init, join, server join, server (armada-server's terms on the
-//! member armada-etcd.service runs), agent (armada-agent on the
-//! supervisor runtime), runtime reset, and doctor. `runtime migrate` left
-//! with containerd.
+//! armadad (ADR 0027, ADR 0055): every command that runs on a machine, on
+//! the client's command framework (armada_client::cli). Some need neither
+//! the running server or agent, nor the cluster's state, nor the container
+//! runtime: version, endpoint, etcd, upgrade, and runtime. Some need the
+//! cluster's state but not the running server or agent: backup, backup
+//! list, restore, user renew, and runtime-log. The rest set a machine up
+//! and run it: init, join, server join, server (armada-server's terms on
+//! the member armada-etcd.service runs), agent (armada-agent on the
+//! supervisor runtime), runtime reset, and doctor.
 
 pub mod agentconfig;
 pub mod backup;
@@ -41,12 +37,11 @@ pub async fn stopped(rx: &mut tokio::sync::watch::Receiver<bool>) {
     }
 }
 
-/// runDir: the node's runtime state on tmpfs.
+/// The node's runtime state on tmpfs.
 pub fn run_dir() -> String {
     hooks::get("RUN_DIR").unwrap_or_else(|| "/run/armada".to_string())
 }
 
-/// runtimePaths.
 pub fn paths(data_dir: &str) -> pack::Paths {
     pack::Paths {
         data_dir: data_dir.into(),
@@ -54,7 +49,7 @@ pub fn paths(data_dir: &str) -> pack::Paths {
     }
 }
 
-/// The --config default (clientconfig.DefaultPath).
+/// The --config default.
 pub fn config_default() -> String {
     armada_client::config::default_path()
 }

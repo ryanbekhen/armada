@@ -4,12 +4,12 @@
 //! unspecified, multicast, or broadcast address (checked for every
 //! address dialled, the proxy's included), and an HTTPS proxy is used only
 //! when the environment names one (HTTPS_PROXY, NO_PROXY), tunnelled with
-//! CONNECT. Servers are checked against the machine's roots as Go reads
-//! them (SSL_CERT_FILE, SSL_CERT_DIR, the distributions' bundles), plus,
+//! CONNECT. Servers are checked against the machine's roots
+//! (SSL_CERT_FILE, SSL_CERT_DIR, the distributions' bundles), plus,
 //! only when the caller passes one, an extra CA file (tests).
 //!
 //! HTTP/1.1 with one connection per request; Authorization goes with a
-//! redirect only to the same host or a subdomain, as Go's client does.
+//! redirect only to the same host or a subdomain.
 
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream, ToSocketAddrs};
@@ -20,8 +20,8 @@ use std::time::Duration;
 pub const MAX_REDIRECTS: usize = 10;
 const DIAL_TIMEOUT: Duration = Duration::from_secs(30);
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
-/// A read that waits this long fails (Go's client has no such bound; a
-/// separate process must not hang for ever on a silent registry).
+/// A read that waits this long fails (a separate process must not hang
+/// for ever on a silent registry).
 const READ_TIMEOUT: Duration = Duration::from_secs(300);
 const MAX_HEADER_BYTES: usize = 1 << 20;
 
@@ -243,7 +243,7 @@ pub fn check_dial(addr: &SocketAddr) -> Result<(), Error> {
 }
 
 /// Dials host:port, every address it resolves to checked before it is
-/// dialled; the first that connects wins, as Go's dialer does.
+/// dialled; the first that connects wins.
 fn dial(host: &str, port: u16) -> Result<TcpStream, Error> {
     let addrs: Vec<SocketAddr> = match host.parse::<IpAddr>() {
         Ok(ip) => vec![SocketAddr::new(ip, port)],
@@ -304,8 +304,8 @@ fn keepalive(s: &TcpStream) {
     }
 }
 
-/// The environment's HTTPS proxy (golang.org/x/net/http/httpproxy, read
-/// once like http.ProxyFromEnvironment).
+/// The environment's HTTPS proxy (HTTPS_PROXY and NO_PROXY, or their
+/// lowercase names), read once.
 #[derive(Clone, Debug, Default)]
 pub struct Proxy {
     pub https_proxy: Option<Url>,
@@ -445,7 +445,8 @@ fn in_cidr(ip: IpAddr, net: IpAddr, bits: u8) -> bool {
     }
 }
 
-/// The roots Go's crypto/x509 loads on Linux.
+/// The machine's root certificates: SSL_CERT_FILE and SSL_CERT_DIR when
+/// set, else the distributions' bundle files and directories.
 pub fn system_roots(store: &mut rustls::RootCertStore) {
     use rustls::pki_types::CertificateDer;
     use rustls::pki_types::pem::PemObject;
@@ -611,8 +612,8 @@ impl Client {
         self.tls_wrap(Box::new(r.into_inner()), &u.host)
     }
 
-    /// Sends one request and follows redirects as Go's client does for
-    /// the registry client (guardRegistryClient's CheckRedirect).
+    /// Sends one request and follows redirects: at most MAX_REDIRECTS,
+    /// HTTPS only, every address checked.
     pub fn send(&self, req: &Request) -> Result<Response, Error> {
         let mut url = req.url.clone();
         let mut method = req.method.clone();
@@ -739,7 +740,7 @@ impl Client {
     }
 }
 
-/// The verb Go's url.Error names.
+/// The verb an error names for a method ("Get", "Head", ...).
 fn op(method: &str) -> String {
     let lower = method.to_ascii_lowercase();
     let mut c = lower.chars();
@@ -903,7 +904,7 @@ impl Response {
             .collect()
     }
 
-    /// "404 Not Found", as Go's Response.Status reads.
+    /// The status line's code and reason, e.g. "404 Not Found".
     pub fn status_text(&self) -> String {
         format!("{} {}", self.status, self.reason)
     }
@@ -981,7 +982,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn dial_control_as_go() {
+    fn dial_control_refuses_addresses() {
         for (addr, ok) in [
             ("169.254.169.254:80", false),
             ("[fe80::1]:443", false),
@@ -1001,7 +1002,7 @@ mod tests {
     }
 
     #[test]
-    fn no_proxy_as_go() {
+    fn no_proxy_matches() {
         let n = "example.org, .sub.test, *.wild.test, 10.0.0.0/8, 192.168.1.1, [::1]:443, host.test:8443";
         for (host, port, proxied) in [
             ("localhost", 443, false),

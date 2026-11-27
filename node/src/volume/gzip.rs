@@ -1,9 +1,8 @@
-//! Go's compress/gzip Reader (multistream) over a buffered reader: the
-//! header read when it is made, the same errors, and the trailer checked
-//! only when the deflate stream ends inside a read, an error found then
-//! returned on the next read when that one returned data, as Go returns
-//! it beside the data. A restore stops reading at the tar's end, as Go's
-//! does, so a trailer past it is never checked by either.
+//! A gzip reader (multistream) over a buffered reader: the header read
+//! when it is made, and the trailer checked only when the deflate stream
+//! ends inside a read, an error found then returned on the next read when
+//! that one returned data. Derived from Go's compress/gzip (BSD-3-Clause,
+//! The Go Authors).
 
 use std::io::{self, BufRead, Read};
 
@@ -18,7 +17,7 @@ fn unexpected() -> io::Error {
     io::ErrorKind::UnexpectedEof.into()
 }
 
-/// Go's text of a reading error.
+/// The text of a reading error.
 pub fn text(e: &io::Error) -> String {
     match e.kind() {
         io::ErrorKind::UnexpectedEof => "unexpected EOF".into(),
@@ -32,7 +31,7 @@ pub fn text(e: &io::Error) -> String {
     }
 }
 
-/// The end of the input: Go's io.EOF.
+/// The end of the input ("EOF").
 pub fn eof() -> io::Error {
     other("EOF")
 }
@@ -41,7 +40,7 @@ pub struct Reader<R: BufRead> {
     r: R,
     dec: flate2::Decompress,
     crc: flate2::Crc,
-    /// The sticky error (Go's z.err); None with done for io.EOF.
+    /// The sticky error; None with done for the end of the input.
     err: Option<io::Error>,
     done: bool,
 }
@@ -87,7 +86,7 @@ impl<R: BufRead> Reader<R> {
         Ok(z)
     }
 
-    /// readHeader: Ok(false) for io.EOF before any byte.
+    /// Ok(false) for the end of the input before any byte.
     fn read_header(&mut self) -> io::Result<bool> {
         let mut h = [0u8; 10];
         if !read_full(&mut self.r, &mut h)? {

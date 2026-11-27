@@ -1,5 +1,6 @@
 //! volbackup's chunker: content-defined chunks from a gear rolling hash
-//! keyed by the repository, between 512 KiB and 8 MiB, cut where Go cuts.
+//! keyed by the repository, between 512 KiB and 8 MiB, cut at the same
+//! places for the same data and key.
 
 use std::io::{self, Read};
 

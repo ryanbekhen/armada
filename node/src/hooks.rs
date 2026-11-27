@@ -1,4 +1,4 @@
-//! Test hooks: the ARMADA_NODE_TEST_* variables Go's parity tests set to
+//! Test hooks: the ARMADA_NODE_TEST_* variables tests set to
 //! reach what a test cannot arrange from outside (a volume entry swapped
 //! mid-archive, the free space a restore sees, a bucket on a loopback
 //! address). Only a binary built with the `test-hooks` feature reads them

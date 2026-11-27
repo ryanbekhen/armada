@@ -1,13 +1,12 @@
-//! volbackup.S3: the bucket of a target, path-style, signed with AWS
-//! Signature Version 4 from the URL's static keys, as minio-go reaches it
-//! for the Go agent: objects written whole with Content-MD5, read whole
+//! The bucket of a target, path-style, signed with AWS Signature Version 4
+//! from the URL's static keys: objects written whole with Content-MD5, read whole
 //! up to a bound, listed with ListObjectsV2, deleted one at a time, and
 //! the bucket's region asked once when the URL names none. The bucket is
 //! dialled itself, never through a proxy from the environment, and every
 //! address dialled is refused when it reaches the node itself (nodeOnly),
 //! whatever name resolved to it. http:// is plain TCP (ParseTarget keeps
 //! it to private IP addresses); https:// is TLS 1.2 or 1.3 with the
-//! machine's roots, as Go reads them. Errors keep what the bucket answered
+//! machine's roots. Errors keep what the bucket answered
 //! and never the request's URL or the keys.
 //!
 //! One connection per Conn, kept alive between its requests; a request
@@ -34,8 +33,8 @@ const TRIES: usize = 3;
 const MAX_ANSWER: usize = 32 << 20;
 
 /// ARMADA_NODE_TEST_BUCKET_ADDR=IP:PORT: tests' bucket, dialled in place
-/// of the endpoint and without the nodeOnly refusal (Go's tests set
-/// Target.loopback); read only by builds with test hooks.
+/// of the endpoint and without the refusal of the node's own addresses;
+/// read only by builds with test hooks.
 const TEST_ADDR: &str = "ARMADA_NODE_TEST_BUCKET_ADDR";
 
 #[derive(Debug)]

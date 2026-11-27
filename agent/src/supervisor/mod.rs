@@ -1,19 +1,17 @@
-//! The supervisor runtime behind the agent's [`Runtime`] (ADR 0055, item
-//! 16e; ADR 0046, ADR 0054): Go's internal/runtime/containerd driver on
-//! its supervisor backend through armada-node, with armada-node's code
-//! called in process. Images are pulled into and pruned from armada-node's
-//! store, root filesystems prepared on its unpacked layers, specs built by
-//! its `runtime spec` code, bundles written and listed, shims started and
-//! asked, and containers sampled as its commands do; exec runs
-//! `armada-node runtime exec` as a process of its own. The network is
-//! the pack's CNI plugins run as libcni runs them, logs go through
-//! armada-log on the shim's descriptors, and init containers and sidecars
-//! start in order as Go's driver starts them.
+//! The supervisor runtime behind the agent's [`Runtime`] (ADR 0046), with
+//! armada-node's code called in process. Images are pulled into and pruned from
+//! armada-node's store, root filesystems prepared on its unpacked layers, specs
+//! built by its `runtime spec` code, bundles written and listed, shims started
+//! and asked, and containers sampled as its commands do; exec runs `armada-node
+//! runtime exec` as a process of its own. The network is the pack's CNI plugins
+//! run as libcni runs them, logs go through armada-log on the shim's
+//! descriptors, and init containers and sidecars start in order: init
+//! containers one by one, then sidecars, then the app's container.
 //!
-//! Every file is where and as the Go agent keeps it (bundles, records,
-//! config.json, armada-node's image store and root filesystems, the CNI
-//! cache, the container files, log history), so either agent adopts the
-//! containers the other made. What needs root or the kernel goes through
+//! Every file keeps its place and format across releases (bundles, records,
+//! config.json, armada-node's image store and root filesystems, the CNI cache,
+//! the container files, log history), so an upgraded agent adopts the
+//! containers the one before made. What needs root or the kernel goes through
 //! [`host::Host`].
 
 pub mod cni;
@@ -152,7 +150,7 @@ struct Inner {
     starts: Mutex<HashMap<String, Arc<Start>>>,
     /// Records a listing left out, logged once while they stay so.
     skipped: Mutex<BTreeMap<String, String>>,
-    /// go-selinux's state: the categories handed out.
+    /// The SELinux state: the categories handed out.
     selinux: selinux::Selinux,
     /// Sandboxes are made, removed, and listed one at a time.
     sandboxes: tokio::sync::Mutex<()>,
@@ -164,12 +162,12 @@ struct Start {
     done: tokio::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
-/// "op path: errno", as Go's *PathError prints.
+/// "op path: errno".
 pub(crate) fn os_err(op: &str, p: &Path, e: &std::io::Error) -> String {
     format!("{op} {}: {}", p.display(), errno(e))
 }
 
-/// Go's text for an OS error.
+/// The text of an OS error ("no such file or directory", ...).
 pub(crate) fn errno(e: &std::io::Error) -> String {
     match e.raw_os_error() {
         Some(n) => armada_node::runtime::container::errno_text(n),
@@ -177,7 +175,7 @@ pub(crate) fn errno(e: &std::io::Error) -> String {
     }
 }
 
-/// exec.ExitError's text.
+/// How a process ended: "exit status N", or "signal: NAME".
 pub(crate) fn exit_text(s: &std::process::ExitStatus) -> String {
     use std::os::unix::process::ExitStatusExt;
     if let Some(c) = s.code() {
@@ -213,7 +211,7 @@ fn random_hex(n: usize) -> String {
     b.iter().map(|c| format!("{c:02x}")).collect()
 }
 
-/// newID: a fresh container ID for name, unique per creation.
+/// A fresh container ID for name, unique per creation.
 pub fn new_id(name: &str) -> Result<String, String> {
     let id = format!("{name}-{}", random_hex(4));
     if !logs::valid_id(&id) {
@@ -225,12 +223,13 @@ pub fn new_id(name: &str) -> Result<String, String> {
     Ok(id)
 }
 
-/// time.Now().UTC().Format(time.RFC3339Nano).
+/// Now in RFC 3339 with nanoseconds, UTC, trailing zeros dropped.
 fn now_text() -> String {
     crate::clock::rfc3339_nano(SystemTime::now())
 }
 
-/// time.Parse(time.RFC3339Nano, s); None when it is not one.
+/// Parses an RFC 3339 time with an optional fraction; None when s is not
+/// one.
 pub fn parse_time(s: &str) -> Option<SystemTime> {
     let b = s.as_bytes();
     if b.len() < 20
@@ -295,8 +294,7 @@ pub fn parse_time(s: &str) -> Option<SystemTime> {
     }
 }
 
-/// netutil.CheckPrivateIP's acceptance: a private address in canonical
-/// form.
+/// Whether s is a private address in canonical form.
 fn private_ip(s: &str) -> bool {
     let Some(a) = armada_node::net::addr::Addr::parse(s) else {
         return false;
@@ -391,7 +389,7 @@ enum Kind {
     System(Box<SystemSpec>, selinux::Labels),
 }
 
-/// What a replica's containers share (podEnv).
+/// What a replica's containers share.
 #[derive(Clone)]
 struct Pod {
     spec: ContainerSpec,
@@ -430,7 +428,7 @@ fn truncate(s: &str, n: usize) -> String {
     String::from_utf8_lossy(&b[..b.len().min(n)]).into_owned()
 }
 
-/// sortMembers: init containers first, then by when they started.
+/// Init containers first, then by when they started.
 fn sort_members(ms: &mut [Member]) {
     let rank = |m: &Member| if m.role == ROLE_INIT { 0 } else { 1 };
     for i in 1..ms.len() {
@@ -458,10 +456,10 @@ fn member_of(c: &Container) -> Member {
     }
 }
 
-/// A shim's error from a kill, as taskProc.Kill words it.
+/// A shim's error from a kill.
 enum KillError {
     NotFound,
-    /// "is not running": nothing to signal (errdefs.ErrFailedPrecondition).
+    /// "is not running": nothing to signal.
     Precondition(String),
     Other(String),
 }
@@ -568,7 +566,7 @@ impl Inner {
             .map_err(|e| other(e.to_string()))
     }
 
-    /// Bundles.Records through armada-node's code: a record that cannot
+    /// The bundles' records through armada-node's code: a record that cannot
     /// be read is left out and logged once while it stays so.
     async fn records(&self) -> Result<Vec<Record>, Error> {
         let dir = self.bundles.display().to_string();
@@ -603,7 +601,7 @@ impl Inner {
         Store::open(&self.images)
     }
 
-    /// Driver.image: a pulled image's record.
+    /// A pulled image's record.
     async fn image(&self, image: &str) -> Result<ImageRecord, String> {
         let r = reference::parse_docker_ref(image).map_err(|e| {
             format!(
@@ -640,7 +638,7 @@ impl Inner {
         self.cfg.host.is_netns(p)
     }
 
-    /// EnsureSandbox: a network namespace pinned at <run dir>/sandboxes/
+    /// A network namespace pinned at <run dir>/sandboxes/
     /// <id>, attached by the plugins as sandbox-<id>; an existing one as
     /// it is, one half made made again.
     async fn ensure_sandbox(&self, id: &str) -> Result<crate::side::Sandbox, Error> {
@@ -682,7 +680,7 @@ impl Inner {
         }
     }
 
-    /// teardownSandbox: an unpinned file goes first, then what the plugins
+    /// An unpinned file goes first, then what the plugins
     /// gave the sandbox and its namespace.
     async fn teardown_sandbox(&self, id: &str) -> Result<(), String> {
         let path = self.sandbox_path(id);
@@ -709,7 +707,7 @@ impl Inner {
             .map_err(|e| other(format!("sandbox network: {e}")))
     }
 
-    /// ListSandboxes: every pinned one with its address; one whose
+    /// Every pinned one with its address; one whose
     /// address is unknown without.
     async fn list_sandboxes(&self) -> Result<Vec<crate::side::Sandbox>, Error> {
         let _g = self.sandboxes.lock().await;
@@ -746,7 +744,7 @@ impl Inner {
         snapshot::release(store, id)
     }
 
-    /// The pack's armada-log, None when it has none (packLogger).
+    /// The pack's armada-log, None when it has none.
     fn pack_logger(&self) -> Option<PathBuf> {
         let p = self.bin.join("armada-log");
         fs::metadata(&p).is_ok_and(|m| m.is_file()).then_some(p)
@@ -849,7 +847,7 @@ impl Inner {
         Ok(r)
     }
 
-    /// Store.NewContainer on armada-node: the root filesystem, the spec
+    /// A new container on armada-node: the root filesystem, the spec
     /// built on it, and the bundle.
     async fn new_container(
         self: &Arc<Self>,
@@ -922,7 +920,7 @@ impl Inner {
         })
     }
 
-    /// newLabels: fresh SELinux labels for a container, empty where
+    /// Fresh SELinux labels for a container, empty where
     /// containers are not confined. The first call reserves the
     /// categories of the containers that exist, which an agent adopts
     /// after a restart.
@@ -990,7 +988,7 @@ impl Inner {
         .map_err(|e| e.to_string())?
     }
 
-    /// container.Delete: the bundle, then the root filesystem.
+    /// Deletes a container: the bundle, then the root filesystem.
     async fn delete_container(self: &Arc<Self>, id: &str) -> Result<(), String> {
         let me = self.clone();
         let id = id.to_string();
@@ -1003,7 +1001,7 @@ impl Inner {
         .map_err(|e| e.to_string())?
     }
 
-    /// logMeta: whose container id is, so its output is kept in the log
+    /// Whose container id is, so its output is kept in the log
     /// history. System containers keep none.
     fn log_meta(&self, id: &str, labels: &BTreeMap<String, String>) {
         let app = label(labels, LABEL_APP);
@@ -1025,7 +1023,7 @@ impl Inner {
         }
     }
 
-    /// container.NewTask: the process created in the group's shim, not
+    /// The process created in the group's shim, not
     /// started.
     async fn new_task(&self, rec: &Record) -> Result<i64, String> {
         let rt = OciRuntime::of_record(&rec.runtime)
@@ -1043,7 +1041,7 @@ impl Inner {
             .map_err(|e| format!("create task: {e}"))
     }
 
-    /// container.Task: the shim's state of the container; None when it has
+    /// The shim's state of the container; None when it has
     /// no task. A shim that is gone took its containers with it: they are
     /// ended, and the task is not found. A shim that runs but does not
     /// answer keeps them: the error is returned.
@@ -1090,7 +1088,7 @@ impl Inner {
     async fn kill_and_wait(&self, rec: &Record) -> Result<(), String> {
         let wait = self.shims.wait(&rec.group, &rec.id);
         tokio::pin!(wait);
-        // The wait is asked before the kill, as Go's.
+        // The wait is asked before the kill.
         let first = tokio::time::timeout(Duration::from_millis(1), &mut wait).await;
         if first.is_ok() {
             return Ok(());
@@ -1105,7 +1103,7 @@ impl Inner {
         }
     }
 
-    /// taskProc.Delete: the process removed from its shim (killed first
+    /// The process removed from its shim (killed first
     /// with kill); NotFound when the shim has no such container.
     async fn delete_task(&self, rec: &Record, kill: bool, pid: i64) -> Result<(), Option<String>> {
         if kill && pid != 0 {
@@ -1139,7 +1137,7 @@ impl Inner {
         }
     }
 
-    /// Driver.create: the container made and its task started.
+    /// The container made and its task started.
     async fn create(
         self: &Arc<Self>,
         id: &str,
@@ -1175,7 +1173,7 @@ impl Inner {
             .collect())
     }
 
-    /// pickPort: a free port on host_ip, not used by another container nor
+    /// A free port on host_ip, not used by another container nor
     /// bound by a host process, from a random start.
     fn pick_port(&self, host_ip: &str, used: &[i64]) -> Result<u16, String> {
         let n = u32::from(PORT_MAX - PORT_MIN) + 1;
@@ -1301,7 +1299,7 @@ impl Inner {
         self.create(id, img, &labels, &kind, undo).await
     }
 
-    /// runPod: the replica's container and its task, unstarted; the rest
+    /// The replica's container and its task, unstarted; the rest
     /// is bring_up's, which outlives Run.
     #[allow(clippy::too_many_arguments)]
     async fn run_pod(
@@ -1373,7 +1371,7 @@ impl Inner {
             .map_err(other)
     }
 
-    /// bringUp: the init containers in order, each to its end, then the
+    /// The init containers in order, each to its end, then the
     /// sidecars, then the replica's task. Whether it gave up, and why
     /// unless a failed init container tells it; a cancel stops it without
     /// giving up (Stop or Remove take over).
@@ -1417,7 +1415,7 @@ impl Inner {
         (String::new(), false)
     }
 
-    /// startMember: an init container or sidecar of pod, created and
+    /// An init container or sidecar of pod, created and
     /// started in its network namespace; its record and its exit.
     async fn start_member(
         self: &Arc<Self>,
@@ -1485,7 +1483,7 @@ impl Inner {
             .contains_key(id)
     }
 
-    /// endStart: stops bringing up id, if that still goes on, and waits
+    /// Stops bringing up id, if that still goes on, and waits
     /// for it to have stopped.
     async fn end_start(&self, id: &str) {
         let s = self
@@ -1502,7 +1500,7 @@ impl Inner {
         }
     }
 
-    /// describeTask: a record as a container, with its task's state when
+    /// A record as a container, with its task's state when
     /// known already; and its pod when it is a member.
     async fn describe(
         &self,
@@ -1642,7 +1640,7 @@ impl Inner {
             .collect())
     }
 
-    /// stopContainer: SIGTERM, SIGKILL after grace; a task created but
+    /// SIGTERM, SIGKILL after grace; a task created but
     /// never started is deleted.
     async fn stop_container(&self, rec: &Record, grace: Duration) -> Result<(), String> {
         let Some(st) = self.task(rec).await? else {
@@ -1701,7 +1699,7 @@ impl Inner {
         }
     }
 
-    /// removeContainer: its task, network, bundle, root filesystem, files,
+    /// Its task, network, bundle, root filesystem, files,
     /// and logs.
     async fn remove_container(self: &Arc<Self>, rec: &Record) -> Result<(), Error> {
         let id = &rec.id;
@@ -1790,7 +1788,7 @@ impl Inner {
             .map_err(other)
     }
 
-    /// StatsBatch: armada-node's sampling of every container in process;
+    /// armada-node's sampling of every container in process;
     /// a container it leaves ("redo") is looked up through its task, which
     /// ends the containers of a shim that is gone.
     async fn stats_batch(&self, ids: &[String]) -> Vec<Result<Stats, Error>> {
@@ -1889,8 +1887,8 @@ impl Inner {
             .join(format!("exec-{}-exec-{}", rec.id, random_hex(6)))
     }
 
-    /// ExecApp's session: the container loaded, never a system one, its
-    /// task running, then armada-node runs the whole session.
+    /// An app container's exec session: the container loaded, never a system
+    /// one, its task running, then armada-node runs the whole session.
     async fn exec_session(&self, id: &str, opts: crate::side::ExecOptions) -> Result<i64, Error> {
         check_exec_command(&opts.cmd).map_err(other)?;
         let rec = self.load(id).await?;
@@ -2312,7 +2310,7 @@ impl Runtime for Supervisor {
     }
 }
 
-/// runtime.CheckExecCommand: errors never repeat the arguments.
+/// Checks a command's bounds; errors never repeat the arguments.
 pub fn check_exec_command(cmd: &[String]) -> Result<(), String> {
     if cmd.is_empty() || cmd[0].is_empty() {
         return Err("command is empty".into());

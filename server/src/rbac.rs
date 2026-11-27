@@ -1,4 +1,4 @@
-//! Access control (ADR 0033; Go's rbac.go): users and services and the
+//! Access control (ADR 0033): users and services and the
 //! roles they hold. Only cluster-admin calls these methods, except
 //! RenewOwnCertificate.
 

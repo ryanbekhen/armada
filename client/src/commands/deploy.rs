@@ -1,4 +1,4 @@
-//! app deploy and job deploy (Go's appspec.go, vars.go, and diff.go): a
+//! app deploy and job deploy: a
 //! spec from flags or a file, created or changed, with --diff and --new.
 
 use std::collections::HashMap;
@@ -211,7 +211,7 @@ pub fn flags(job: bool) -> (Vec<Flag>, Vec<Vec<&'static str>>) {
     (f, exclusive)
 }
 
-/// specFlags: what the flags of one run say.
+/// What the flags of one run say.
 struct SpecFlags<'c, 'a> {
     ctx: &'c Ctx<'a>,
     job: bool,
@@ -588,7 +588,7 @@ impl SpecFlags<'_, '_> {
     }
 }
 
-/// readFile: --file with its variables filled in.
+/// --file with its variables filled in.
 fn read_file(ctx: &mut Ctx<'_>) -> Result<Vec<u8>> {
     {
         let file = ctx.str("file");
@@ -623,12 +623,12 @@ fn non_empty(s: Vec<String>) -> Vec<String> {
     s
 }
 
-/// An os.PathError's text.
+/// A failed file operation's text: "OP PATH: ERRNO TEXT".
 pub fn path_error(op: &str, path: &str, e: &std::io::Error) -> String {
     format!("{op} {path}: {}", armada_fsutil::errno_text(e))
 }
 
-/// ipRuleFlags: RANGE[,name=NAME][,description=TEXT].
+/// RANGE[,name=NAME][,description=TEXT].
 fn ip_rule_flags(flag: &str, vals: &[String]) -> Result<Vec<IPRule>> {
     let mut out = Vec::new();
     for v in vals {
@@ -660,7 +660,7 @@ fn ip_rule_flags(flag: &str, vals: &[String]) -> Result<Vec<IPRule>> {
     Ok(out)
 }
 
-/// loadVars: NAME=VALUE lines of file, then each of list, which wins.
+/// NAME=VALUE lines of file, then each of list, which wins.
 fn load_vars(file: &str, list: &[String]) -> std::result::Result<HashMap<String, String>, String> {
     const MAX: usize = 1 << 20;
     let mut vars = HashMap::new();
@@ -727,7 +727,7 @@ fn split_var(s: &str) -> std::result::Result<(String, String), String> {
     }
 }
 
-/// checkKind: an app spec refused for a job command and the other way.
+/// An app spec refused for a job command and the other way.
 pub fn check_kind(sp: &App, job: bool, verb: &str) -> Result {
     if sp.is_job() && !job {
         return Err(Error::Msg(format!(
@@ -744,7 +744,7 @@ pub fn check_kind(sp: &App, job: bool, verb: &str) -> Result {
     Ok(())
 }
 
-/// appTarget: the space and name of an ID, "" for the default space.
+/// The space and name of an ID, "" for the default space.
 pub fn app_target(id: &str) -> (String, String) {
     let (p, n) = spec::validate::split_app_id(id).unwrap_or_default();
     if p == spec::validate::DEFAULT_SPACE {
@@ -753,7 +753,7 @@ pub fn app_target(id: &str) -> (String, String) {
     (p, n)
 }
 
-/// createSpec: the spec from --file or from the flags.
+/// The spec from --file or from the flags.
 fn create_spec(ctx: &mut Ctx<'_>, job: bool, id: &str, space: &str) -> Result<(Vec<u8>, App)> {
     if !ctx.str("file").is_empty() {
         let data = read_file(ctx)?;
@@ -792,14 +792,14 @@ fn create_spec(ctx: &mut Ctx<'_>, job: bool, id: &str, space: &str) -> Result<(V
     spec_data(&a, space)
 }
 
-/// specData: the spec as a file holds it, validated here first.
+/// The spec as a file holds it, validated here first.
 fn spec_data(a: &App, space: &str) -> Result<(Vec<u8>, App)> {
     let data = a.export().map_err(Error::Msg)?;
     let sp = spec::parse_in(&data, space).map_err(Error::Msg)?;
     Ok((data, sp))
 }
 
-/// runDeploy: app deploy and job deploy.
+/// App deploy and job deploy.
 pub fn run_deploy(ctx: &mut Ctx<'_>, args: &[String], job: bool) -> Result {
     if ctx.bool("new") {
         if ctx.bool("diff") {
@@ -958,7 +958,7 @@ fn run_update(ctx: &mut Ctx<'_>, args: &[String], job: bool) -> Result {
     wait_rollout(ctx, &mut admin, &resp.app, &resp.revision, w.timeout)
 }
 
-/// checkCurrentKind: never replace a job with an app or the other way.
+/// Never replace a job with an app or the other way.
 fn check_current_kind(id: &str, current: &[u8], job: bool) -> Result {
     let (p, _) = app_target(id);
     match spec::parse_in(current, &p) {
@@ -969,7 +969,7 @@ fn check_current_kind(id: &str, current: &[u8], job: bool) -> Result {
 
 const MAX_DIFF_CELLS: usize = 4 << 20;
 
-/// printDiff: "-" for a line removed, "+" for one added, three lines of
+/// "-" for a line removed, "+" for one added, three lines of
 /// context, "@@" between hunks.
 pub fn print_diff(before: &[u8], after: &[u8]) -> String {
     let a_text = String::from_utf8_lossy(before);

@@ -371,7 +371,7 @@ const ALLOWED: &[&str] = &[
     "writev",
 ];
 
-/// allowedSocketDomains, as golang.org/x/sys/unix numbers them on Linux;
+/// The socket domains allowed, by their Linux numbers;
 /// AF_ALG (38) and AF_VSOCK (40) are left out, as upstream leaves them.
 const SOCKET_DOMAINS: &[u64] = &[
     1,  // AF_UNIX
@@ -450,7 +450,7 @@ fn allow_arg(name: &str, index: u64, value: u64, op: &str) -> Syscall {
     }
 }
 
-/// arches(): the seccomp architectures of a Go architecture.
+/// The seccomp architectures of an architecture (amd64, arm64, ...).
 fn arches(goarch: &str) -> Vec<String> {
     let a: &[&str] = match goarch {
         "amd64" => &["SCMP_ARCH_X86_64", "SCMP_ARCH_X86", "SCMP_ARCH_X32"],
@@ -491,7 +491,7 @@ fn socket_syscalls() -> Vec<Syscall> {
 }
 
 /// DefaultProfile for a process with these bounding capabilities on goarch
-/// (Go's runtime.GOARCH names), on a kernel at least 4.8 or not
+/// (amd64, arm64, ...), on a kernel at least 4.8 or not
 /// (kernelversion.GreaterEqualThan; false when unreadable, as upstream).
 pub fn default_profile(bounding: &[String], goarch: &str, kernel_4_8: bool) -> Seccomp {
     let mut syscalls = vec![allow(ALLOWED)];
@@ -637,7 +637,7 @@ pub fn kernel_at_least_4_8() -> bool {
     }
 }
 
-/// fmt.Sscanf(release, "%d.%d"): two decimal numbers (each with an
+/// The kernel release's first two numbers: two decimal numbers (each with an
 /// optional sign) around a dot.
 fn scan_two(s: &[u8]) -> Option<(i64, i64)> {
     let (a, rest) = scan_int(s)?;

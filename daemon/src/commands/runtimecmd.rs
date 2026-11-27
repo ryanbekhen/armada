@@ -15,7 +15,6 @@ fn msg(s: impl Into<String>) -> Error {
     Error::Msg(s.into())
 }
 
-/// runtimeHint.
 fn runtime_hint(rt: &str) -> &'static str {
     if rt == RUNTIME_SUPERVISOR {
         "the runtime pack is installed by armada-server or armada-agent; check sudo armadad doctor"
@@ -24,7 +23,7 @@ fn runtime_hint(rt: &str) -> &'static str {
     }
 }
 
-/// removeContainers: every container with Armada's labels, then the
+/// Every container with Armada's labels, then the
 /// network sandboxes; the errors of those left.
 async fn remove_containers(
     rt: &Supervisor,

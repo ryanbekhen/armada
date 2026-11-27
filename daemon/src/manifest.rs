@@ -1,7 +1,7 @@
-//! A backup's manifest (Go's backup.Manifest): written as
-//! json.MarshalIndent writes it, and read as a json.Decoder with
-//! DisallowUnknownFields reads it, with Go's texts for every error a
-//! restore can meet (syntax, unknown fields, types, times).
+//! A backup's manifest: written as indented JSON (two spaces, fields in a
+//! fixed order), and read strictly (unknown fields refused, only the
+//! first value read), with a fixed text for every error a restore can
+//! meet (syntax, unknown fields, types, times).
 
 use std::collections::BTreeMap;
 
@@ -29,7 +29,7 @@ pub struct Created {
     pub unix: i64,
     pub nsec: i64,
     pub offset: Option<i64>,
-    /// time.Time{}: never set.
+    /// Never set (the zero time).
     pub zero: bool,
 }
 
@@ -72,7 +72,7 @@ impl Created {
         )
     }
 
-    /// MarshalJSON: RFC 3339 with nanoseconds.
+    /// As JSON: RFC 3339 with nanoseconds.
     fn rfc3339_nano(&self) -> String {
         let s = self.wall().rfc3339_nano();
         match self.offset {
@@ -103,7 +103,7 @@ impl Default for Created {
 }
 
 impl Manifest {
-    /// json.MarshalIndent(m, "", "  ").
+    /// The manifest as JSON, indented by two spaces.
     pub fn to_json(&self) -> String {
         let mut s = String::from("{\n");
         s.push_str(&format!("  \"format\": {},\n", self.format));
@@ -142,8 +142,8 @@ impl Manifest {
         s
     }
 
-    /// A json.Decoder's Decode with DisallowUnknownFields: the first value
-    /// in b (what follows it is not read), or Go's error.
+    /// The first JSON value in b (what follows it is not read), unknown
+    /// fields refused, or the error.
     pub fn decode(b: &[u8]) -> Result<Manifest, String> {
         let mut p = Scanner { b, i: 0 };
         let v = p.top()?;
@@ -157,7 +157,7 @@ impl Manifest {
     }
 }
 
-/// A JSON value with Go's view of it.
+/// A parsed JSON value.
 enum Value {
     Null,
     Bool,
@@ -181,7 +181,8 @@ impl Value {
     }
 }
 
-/// Go's quoteChar.
+/// A byte as quoted in a syntax error: in single quotes, with ' and "
+/// escaped and non-printable bytes as escapes.
 fn quote_char(c: u8) -> String {
     match c {
         b'\'' => "'\\''".to_string(),
@@ -195,7 +196,7 @@ fn quote_char(c: u8) -> String {
 
 const UNEXPECTED_EOF: &str = "unexpected EOF";
 
-/// The syntax check of json.Decoder.readValue and a parse of the value.
+/// The syntax check of a JSON value and a parse of it.
 struct Scanner<'a> {
     b: &'a [u8],
     i: usize,
@@ -460,8 +461,8 @@ impl Scanner<'_> {
     }
 }
 
-/// d.unmarshal into a Manifest: the first error saved, as Go's decoder
-/// saves type errors and unknown fields and goes on.
+/// A value decoded into a Manifest: the first type error or unknown field
+/// saved, and decoding goes on.
 struct Decoder {
     first: Option<String>,
 }
@@ -492,7 +493,7 @@ impl Decoder {
             _ => v.kind().to_string(),
         };
         self.save(format!(
-            "json: cannot unmarshal {what} into Go struct field Manifest.{field} of type {typ}"
+            "json: cannot unmarshal {what} into struct field Manifest.{field} of type {typ}"
         ));
     }
 
@@ -503,7 +504,7 @@ impl Decoder {
             other => {
                 // Unmarshal stops at a type error of the whole value.
                 self.save(format!(
-                    "json: cannot unmarshal {} into Go value of type {GO_TYPE}",
+                    "json: cannot unmarshal {} into value of type {GO_TYPE}",
                     other.kind()
                 ));
                 return;
@@ -578,7 +579,7 @@ impl Decoder {
                             m.insert(k.clone(), String::new());
                             let what = v.kind();
                             self.save(format!(
-                                "json: cannot unmarshal {what} into Go struct field Manifest.files.{k} of type string"
+                                "json: cannot unmarshal {what} into struct field Manifest.files.{k} of type string"
                             ));
                         }
                     }
@@ -589,7 +590,7 @@ impl Decoder {
     }
 }
 
-/// Go's foldName match of a JSON key and a field name: equal under simple
+/// Whether a JSON key names a field: equal under simple
 /// case folding.
 fn fold_eq(field: &str, key: &str) -> bool {
     let f: Vec<char> = field.chars().collect();
@@ -603,8 +604,8 @@ fn fold_eq(field: &str, key: &str) -> bool {
         })
 }
 
-/// time.Time's UnmarshalJSON of a JSON string: RFC 3339, with Go's error
-/// for the common case and a fixed text past it.
+/// A time from a JSON string: RFC 3339, with a precise error for the
+/// common case and a fixed text past it.
 fn parse_rfc3339(s: &str) -> Result<Created, String> {
     let fail = || {
         let layout = "2006-01-02T15:04:05Z07:00";
@@ -653,7 +654,7 @@ mod tests {
     }
 
     #[test]
-    fn errors_as_go() {
+    fn errors_as_recorded() {
         assert_eq!(err(""), "EOF");
         assert_eq!(err(" "), "EOF");
         assert_eq!(err("{"), "unexpected EOF");
@@ -690,31 +691,31 @@ mod tests {
         );
         assert_eq!(
             err("[]"),
-            "json: cannot unmarshal array into Go value of type backup.Manifest"
+            "json: cannot unmarshal array into value of type backup.Manifest"
         );
         assert_eq!(
             err(r#"{"format":"3"}"#),
-            "json: cannot unmarshal string into Go struct field Manifest.format of type int"
+            "json: cannot unmarshal string into struct field Manifest.format of type int"
         );
         assert_eq!(
             err(r#"{"format":1.5}"#),
-            "json: cannot unmarshal number 1.5 into Go struct field Manifest.format of type int"
+            "json: cannot unmarshal number 1.5 into struct field Manifest.format of type int"
         );
         assert_eq!(
             err(r#"{"listen":3}"#),
-            "json: cannot unmarshal number into Go struct field Manifest.listen of type string"
+            "json: cannot unmarshal number into struct field Manifest.listen of type string"
         );
         assert_eq!(
             err(r#"{"files":[]}"#),
-            "json: cannot unmarshal array into Go struct field Manifest.files of type map[string]string"
+            "json: cannot unmarshal array into struct field Manifest.files of type map[string]string"
         );
         assert_eq!(
             err(r#"{"files":{"a":1}}"#),
-            "json: cannot unmarshal number into Go struct field Manifest.files.a of type string"
+            "json: cannot unmarshal number into struct field Manifest.files.a of type string"
         );
         assert_eq!(
             err(r#"{"created":3}"#),
-            "json: cannot unmarshal number into Go struct field Manifest.created of type time.Time"
+            "json: cannot unmarshal number into struct field Manifest.created of type time.Time"
         );
         assert_eq!(
             err(r#"{"created":"x"}"#),
@@ -728,7 +729,7 @@ mod tests {
     }
 
     #[test]
-    fn decodes_as_go() {
+    fn decodes_as_recorded() {
         let m =
             Manifest::decode(br#"{"FORMAT":3,"Listen":"a","masterKeyID":"k","format":4} trailing"#)
                 .unwrap();
@@ -749,7 +750,7 @@ mod tests {
     }
 
     #[test]
-    fn writes_as_go() {
+    fn writes_as_recorded() {
         let mut files = BTreeMap::new();
         files.insert("ca.crt".to_string(), "ab".to_string());
         files.insert("agent.json".to_string(), "cd".to_string());

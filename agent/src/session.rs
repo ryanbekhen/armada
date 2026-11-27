@@ -1,6 +1,6 @@
-//! The session with the control plane (Go's Agent.Run and session): the
-//! node certificate's mTLS connection to the servers in order, Hello, the
-//! Connect stream, the reconnect timing, and the loops that run beside it.
+//! The session with the control plane: the node certificate's mTLS
+//! connection to the servers in order, Hello, the Connect stream, the
+//! reconnect timing, and the loops that run beside it.
 
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
@@ -34,9 +34,8 @@ pub const MAX_BACKOFF: Duration = Duration::from_secs(30);
 pub const AGENT_MAX_RECV: usize = 64 << 20;
 
 /// How long the agent waits before connecting again, and its backoff and
-/// the time the last accepted session ended afterwards (Go's
-/// reconnectWait); jitter is added to failover retries (below a quarter
-/// of FAILOVER_RETRY).
+/// the time the last accepted session ended afterwards; jitter is added to
+/// failover retries (below a quarter of FAILOVER_RETRY).
 pub fn reconnect_wait(
     accepted: bool,
     backoff: Duration,
@@ -301,8 +300,7 @@ impl<R: Runtime> Inner<R> {
             return (false, "the stream closed".into());
         }
         let mut client = conn.client();
-        // Reports go on the stream from now on, as Go's agent sends them
-        // once its Hello is out.
+        // Reports go on the stream from now on, once the Hello is out.
         *lock(&self.stream) = StreamState {
             tx: Some(tx),
             last_sent: None,

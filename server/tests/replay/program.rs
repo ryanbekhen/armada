@@ -1,6 +1,5 @@
-//! armada-server-parity, the Rust control plane as a program, driven as
-//! Go's harness drove it (internal/server/parity_test.go, rustServer):
-//! one JSON line of configuration, then requests answered by ID, the
+//! armada-server-parity, the control plane as a program, driven as the
+//! recordings say: one JSON line of configuration, then requests answered by ID, the
 //! etcd membership asked of the test, and settings changes told.
 
 use std::collections::HashMap;
@@ -13,7 +12,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 use tokio::sync::oneshot;
 
-/// The fake etcd membership (Go's fakeCluster).
+/// The fake etcd membership.
 #[derive(Default)]
 pub struct Cluster {
     pub members: Vec<Value>,
@@ -30,7 +29,7 @@ impl Cluster {
     }
 }
 
-/// A member as encoding/json writes etcd.MemberInfo.
+/// A member as the recordings write it.
 pub fn member(id: u64, name: &str, learner: bool) -> Value {
     json!({"ID": id, "Name": name, "PeerURL": "", "ClientURL": "", "Learner": learner})
 }
@@ -182,8 +181,7 @@ impl Program {
     }
 }
 
-/// Answers the program's membership calls from the fake cluster, as Go's
-/// rustServer.answerCluster does.
+/// Answers the program's membership calls from the fake cluster.
 fn answer_cluster(cluster: &Mutex<Cluster>, m: &Value) -> Value {
     let mut fc = cluster.lock().unwrap_or_else(|p| p.into_inner());
     let mut ans = json!({"op": "answer", "call": m["call"]});

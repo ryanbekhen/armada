@@ -1,6 +1,5 @@
-//! The armadad command tree, as Go's NewRootCommand builds it: names,
-//! help, examples, flags, and argument checks (generated once from Go's
-//! tree, then kept by hand).
+//! The armadad command tree: names, help, examples, flags, and argument
+//! checks.
 
 use armada_client::cli::flags::Flag;
 use armada_client::cli::{Args, Node, Tree};

@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "Armada's node agent in Rust, moving there in steps (ADR 0054)"
+description = "armada-node: the node's work the agent hands it (ADR 0054)"
 
 # Versions and features live in the workspace (../Cargo.toml).
 [dependencies]
@@ -23,6 +23,6 @@ sha2.workspace = true
 x25519-dalek.workspace = true
 
 [features]
-# The ARMADA_NODE_TEST_* hooks of Go's parity tests (src/hooks.rs): only in
+# The ARMADA_NODE_TEST_* hooks of the tests (src/hooks.rs): only in
 # `make node-test-hooks`, never in release builds.
 test-hooks = []

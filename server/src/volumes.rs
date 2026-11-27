@@ -1,4 +1,4 @@
-//! Volumes (Go's volumes.go, ADR 0023): apps whose target revision mounts
+//! Volumes (ADR 0023): apps whose target revision mounts
 //! local volumes run at most one replica, on the node their volumes are
 //! bound to, and a new replica starts only once every other one is gone
 //! (recreate), its images pulled first into a held replica while the old
@@ -36,11 +36,11 @@ use crate::store_err;
 
 type Result<T> = std::result::Result<T, armada_store::Error>;
 
-/// volumeChunk: the most archive data one message carries.
+/// The most archive data one message carries.
 pub(crate) const VOLUME_CHUNK: usize = 64 << 10;
-/// attachTimeout: how long an agent has to open the session.
+/// How long an agent has to open the session.
 const ATTACH_TIMEOUT: Duration = Duration::from_secs(10);
-/// How long a request waits for room in a session's queue (Go's offer).
+/// How long a request waits for room in a session's queue.
 const OFFER_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub(crate) type Check = Box<dyn Fn(&Access) -> std::result::Result<(), Status> + Send + Sync>;
@@ -57,7 +57,7 @@ struct Pending {
     tx: oneshot::Sender<Attached>,
 }
 
-/// volumeRouter: pairs volume requests with the agent streams that serve
+/// Pairs volume requests with the agent streams that serve
 /// them.
 #[derive(Default)]
 pub struct VolumeRouter {
@@ -141,7 +141,6 @@ impl VolumeSession {
     }
 }
 
-/// checkVolumeArgs.
 pub(crate) fn check_volume_args(app: &str, name: &str) -> std::result::Result<(), Status> {
     if !valid_app_id(app) || !valid_name(name) {
         return Err(Status::new(
@@ -166,12 +165,12 @@ fn local_volumes(sp: &armada_spec::App, out: &mut HashMap<String, SpecVolume>) {
 }
 
 impl Server {
-    /// holdsAt: the agent of node is connected and keeps held replicas.
+    /// The agent of node is connected and keeps held replicas.
     fn holds_at(&self, node: &str) -> bool {
         self.session(node).is_some_and(|s| s.caps.holds)
     }
 
-    /// volumeNode: the node the volumes of rev's app are bound to ("" if
+    /// The node the volumes of rev's app are bound to ("" if
     /// none is yet), and whether they are bound to different nodes.
     async fn volume_node(&self, app: &str, rev: &Revision) -> Result<(String, bool)> {
         let vols = self.store().list_volumes(app).await?;
@@ -269,7 +268,7 @@ impl Server {
         Ok(Some(r))
     }
 
-    /// reconcileVolumeApp: at most one replica, always on the node its
+    /// At most one replica, always on the node its
     /// volumes are bound to, and a new one only once every other replica
     /// of the app is gone, so two containers never write the same volume.
     pub(crate) async fn reconcile_volume_app(
@@ -477,7 +476,7 @@ impl Server {
         Ok(())
     }
 
-    /// mountedVolumes: the local volumes app's serving and target revisions
+    /// The local volumes app's serving and target revisions
     /// mount, by name (none when the app is gone).
     pub(crate) async fn mounted_volumes(&self, app: &str) -> Result<HashMap<String, SpecVolume>> {
         let a = match self.store().get_app(app).await {
@@ -496,7 +495,7 @@ impl Server {
         Ok(out)
     }
 
-    /// mountedVolumesOf: mountedVolumes for the apps of vols, read in one
+    /// The mounted volumes of the apps of vols, read in one
     /// batch of apps and one of revisions.
     async fn mounted_volumes_of(
         &self,
@@ -680,7 +679,7 @@ impl Server {
         Ok(RemoveVolumeResponse {})
     }
 
-    /// A stream's guard for a principal (Go's streamGuard), and its first
+    /// A stream's guard for a principal, and its first
     /// check.
     pub(crate) fn stream_guard(
         &self,
@@ -1074,7 +1073,7 @@ impl Server {
         Ok(RestoreVolumeResponse { node })
     }
 
-    /// openVolumeSession: asks node's agent to serve req and waits for its
+    /// Asks node's agent to serve req and waits for its
     /// session. An error in the agent's first message is returned.
     pub(crate) async fn open_volume_session(
         &self,
@@ -1122,7 +1121,7 @@ impl Server {
         })
     }
 
-    /// volumeOp: a request whose answer is the agent's first message.
+    /// A request whose answer is the agent's first message.
     async fn volume_op(
         &self,
         node: &str,

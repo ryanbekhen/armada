@@ -1,10 +1,8 @@
 //! ECDSA P-256 keys as certmagic keeps them: generated for every account
-//! and certificate (StandardKeyGenerator{P256}), written as SEC 1 "EC
-//! PRIVATE KEY" PEM blocks (PEMEncodePrivateKey, x509.MarshalECPrivateKey)
-//! and read from SEC 1 or PKCS#8 (PEMDecodePrivateKey); the account's JWK
-//! and its thumbprint (RFC 7638) as acmez writes them, ES256 signatures
-//! as fixed-size r||s, and certificate requests with only DNS or IP names
-//! (Config.generateCSR).
+//! and certificate, written as SEC 1 "EC PRIVATE KEY" PEM blocks and read
+//! from SEC 1 or PKCS#8; the account's JWK and its thumbprint (RFC 7638)
+//! as acmez writes them, ES256 signatures as fixed-size r||s, and
+//! certificate requests with only DNS or IP names.
 
 use armada_pki::SecretBytes;
 use armada_pki::encoding::{pem_decode, pem_encode, read_tlv, seq, tlv};
@@ -63,7 +61,7 @@ impl EcKey {
         })
     }
 
-    /// PEMDecodePrivateKey for the keys certmagic makes: the first PEM
+    /// A key from PEM: the first PEM
     /// block, a type of "PRIVATE KEY" or "... PRIVATE KEY", SEC 1 or
     /// PKCS#8 holding a P-256 key.
     pub fn from_pem(b: &[u8]) -> Result<EcKey, String> {
@@ -82,9 +80,8 @@ impl EcKey {
         EcKey::from_parts(private, public)
     }
 
-    /// PEMEncodePrivateKey: an "EC PRIVATE KEY" block of the key's SEC 1
-    /// encoding with its curve and public key, as
-    /// x509.MarshalECPrivateKey writes it.
+    /// An "EC PRIVATE KEY" block of the key's SEC 1 encoding with its
+    /// curve and public key.
     pub fn to_pem(&self) -> SecretBytes {
         let mut bits = vec![0u8];
         bits.extend_from_slice(&self.public);
@@ -118,7 +115,7 @@ impl EcKey {
         &self.public
     }
 
-    /// An ES256 signature of msg: r||s, 32 bytes each (jwsSign).
+    /// An ES256 signature of msg: r||s, 32 bytes each.
     pub fn sign(&self, msg: &[u8]) -> Result<Vec<u8>, String> {
         self.pair
             .sign(&SystemRandom::new(), msg)
@@ -126,7 +123,7 @@ impl EcKey {
             .map_err(|_| "signing failed".to_string())
     }
 
-    /// jwkEncode: the public key as acmez writes it, members in order.
+    /// The public key as acmez writes it, members in order.
     pub fn jwk(&self) -> String {
         let p = self.pair.public_key().as_ref();
         format!(
@@ -136,12 +133,12 @@ impl EcKey {
         )
     }
 
-    /// jwkThumbprint (RFC 7638).
+    /// The JWK thumbprint (RFC 7638).
     pub fn thumbprint(&self) -> String {
         b64url(ring::digest::digest(&ring::digest::SHA256, self.jwk().as_bytes()).as_ref())
     }
 
-    /// generateCSR for one name: no subject, the name as a DNS or IP
+    /// A CSR for one name: no subject, the name as a DNS or IP
     /// subject alternative name.
     pub fn csr(&self, name: &str) -> Result<Vec<u8>, String> {
         let pkcs8 = self.pkcs8();
@@ -180,8 +177,8 @@ fn from_pkcs8(der: &[u8]) -> Option<(Vec<u8>, Vec<u8>)> {
     from_sec1(inner)
 }
 
-/// The private scalar and public point of a SEC 1 P-256 key (x509.
-/// ParseECPrivateKey for the keys Go writes: the public key is required).
+/// The private scalar and public point of a SEC 1 P-256 key (the public
+/// key is required).
 fn from_sec1(der: &[u8]) -> Option<(Vec<u8>, Vec<u8>)> {
     let (tag, body, rest) = read_tlv(der)?;
     if tag != 0x30 || !rest.is_empty() {
@@ -228,7 +225,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn keys_round_trip_as_go_writes_them() {
+    fn keys_round_trip() {
         let k = EcKey::generate().unwrap();
         let pem = k.to_pem();
         let text = String::from_utf8(pem.expose().to_vec()).unwrap();
@@ -236,7 +233,7 @@ mod tests {
         let back = EcKey::from_pem(pem.expose()).unwrap();
         assert_eq!(back.public(), k.public());
         assert_eq!(back.thumbprint(), k.thumbprint());
-        // PKCS#8 reads too, as Go's PEMDecodePrivateKey tries it.
+        // PKCS#8 reads too.
         let p8 = pem_encode("PRIVATE KEY", k.pkcs8().expose());
         assert_eq!(EcKey::from_pem(&p8).unwrap().public(), k.public());
         assert_eq!(

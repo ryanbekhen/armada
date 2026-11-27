@@ -1,7 +1,6 @@
-//! A pull as the Go driver does it (Driver.Pull with the supervisor
-//! backend's Images.Pull): normalize the reference, reuse a digest-pinned
-//! image on the node only under the same credentials, prove content this
-//! pull did not download (proveContent), fetch the node's platform with
+//! A pull: normalize the reference, reuse a digest-pinned image on the
+//! node only under the same credentials, prove content this pull did not
+//! download, fetch the node's platform with
 //! two fetches at a time, check every layer against its diff ID, record
 //! the image with who pulled it, and tell an image built for other
 //! platforms from other failures (PlatformError).
@@ -39,8 +38,7 @@ pub struct Document {
 /// validateMediaType: a document must be what its descriptor says.
 fn validate_media_type(b: &[u8], mt: &str) -> Result<Document, String> {
     let raw: serde_json::Value = serde_json::from_slice(b).map_err(|e| e.to_string())?;
-    // Go reads these fields as json.RawMessage: present at all (even null
-    // or empty) counts.
+    // Present at all (even null or empty) counts.
     let present = |k: &str| raw.get(k).is_some();
     if present("fsLayers") {
         return Err("media-type: schema 1 not supported".into());
@@ -449,7 +447,7 @@ impl Fetch<'_> {
 /// sort.SliceStable by the matcher's order, descriptors without a
 /// platform last.
 fn sort_by_platform(ds: &mut [Descriptor], m: &Matcher) {
-    // A stable insertion sort with Go's less, which is not a total order
+    // A stable insertion sort with `less`, which is not a total order
     // when platforms do not match: keep it exactly.
     for i in 1..ds.len() {
         let mut j = i;
@@ -789,7 +787,7 @@ mod tests {
     }
 
     #[test]
-    fn errors_as_go() {
+    fn errors_as_recorded() {
         let e = pull_error(
             "x",
             false,

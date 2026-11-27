@@ -1,12 +1,12 @@
-//! armada-server-parity: the control plane Go's scenario parity tests run
-//! as a program (internal/server, ARMADA_SERVER_BIN). Never packed.
+//! armada-server-parity: the control plane as a program the scenario
+//! replays drive. Never packed.
 //!
 //! The first line on stdin is the configuration (JSON): the etcd member
 //! (endpoint and dir, or etcdSocket for a member without TLS on a Unix
 //! socket) and the store's prefix, the CA, the server certificate,
 //! the master key, the test clock's start, and the server's settings
 //! (with `manualPasses`, a pass runs only on a `reconcile` request; with
-//! `predictableIds`, replica IDs count up as the Go side's do). The
+//! `predictableIds`, replica IDs count up as the recordings' do). The
 //! program answers `{"ready": {"api", "join", "joinLocal", "siteJoin",
 //! "siteJoinLocal"}}` once it serves, on the addresses it bound (with
 //! `meshJoin` the join listener, and with `siteJoin` the listener for
@@ -220,8 +220,7 @@ impl TxtResolver for ParityTxt {
 }
 
 /// What the stand-in stages for a control plane backup: one file,
-/// etcd.snapshot, holding `content`, or `fail` as the error (Go's
-/// cpStager in parity_watching2_test.go).
+/// etcd.snapshot, holding `content`, or `fail` as the error.
 #[derive(Default)]
 struct CpStage {
     content: Vec<u8>,
@@ -340,7 +339,7 @@ impl Setup {
 }
 
 /// The test's predictable replica IDs: the count of IDs made so far, in
-/// base 36 over the alphabet of random IDs (Go's parityID).
+/// base 36 over the alphabet of random IDs.
 fn predictable_id(k: u64, n: usize) -> String {
     const ALPHABET: &[u8] = b"abcdefghijklmnopqrstuvwxyz0123456789";
     let mut out = vec![b'a'; n];
@@ -367,7 +366,7 @@ async fn main() {
         Logger::discard()
     };
     // `etcdSocket`: a member of the test's own on a Unix socket, without
-    // TLS (the Rust scenario replay, server/tests/scenarios.rs).
+    // TLS (the scenario replay, server/tests/scenarios.rs).
     let client = match s(&cfg, "etcdSocket") {
         sock if !sock.is_empty() => Client::connect_unix(&PathBuf::from(sock)),
         _ => Client::connect(&s(&cfg, "endpoint"), &PathBuf::from(s(&cfg, "dir"))),
@@ -648,7 +647,7 @@ async fn main() {
     let _ = stop_tx.send(true);
 }
 
-/// One server on the unfenced store, as the Go tests build theirs.
+/// One server on the unfenced store, as the recorded scenarios had it.
 async fn serve(
     setup: Arc<Setup>,
     stop: watch::Receiver<bool>,

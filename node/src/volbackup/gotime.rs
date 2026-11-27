@@ -1,7 +1,7 @@
-//! The times volbackup writes and reads as Go's time package does: a
-//! manifest's time (RFC 3339 with nanoseconds, as time.Time marshals in
-//! JSON), a snapshot's ID ("20060102T150405.000Z", truncated to the
-//! millisecond), a bucket's LastModified, and selectKept's calendar.
+//! The times volbackup writes and reads: a manifest's time (RFC 3339 with
+//! up to nine digits of a second, trailing zeros left out), a snapshot's ID
+//! (YYYYMMDDTHHMMSS.mmmZ, truncated to the millisecond), a bucket's
+//! LastModified, and the calendar the keep policy counts in.
 
 /// Days since 1970-01-01 of a proleptic Gregorian date.
 pub fn days_from_civil(y: i64, m: u32, d: u32) -> i64 {
@@ -76,8 +76,8 @@ impl Instant {
         (y, mo, d, s / 3600, s / 60 % 60, s % 60)
     }
 
-    /// Format(time.RFC3339Nano) in UTC: trailing zeros of the fraction
-    /// left out.
+    /// RFC 3339 in UTC with up to nine digits of a second, trailing zeros
+    /// of the fraction left out.
     pub fn rfc3339_nano(&self) -> String {
         let (y, mo, d, h, mi, s) = self.parts();
         let mut out = format!("{y:04}-{mo:02}-{d:02}T{h:02}:{mi:02}:{s:02}");
@@ -90,7 +90,7 @@ impl Instant {
         out
     }
 
-    /// Format("20060102T150405.000Z").
+    /// The snapshot ID's time: YYYYMMDDTHHMMSS.mmmZ.
     pub fn snapshot_time(&self) -> String {
         let (y, mo, d, h, mi, s) = self.parts();
         format!(
@@ -123,8 +123,8 @@ fn instant(y: i64, mo: u32, d: u32, h: u32, mi: u32, s: u32, nsec: u32) -> Optio
     Some(Instant { sec, nsec })
 }
 
-/// time.Parse("20060102T150405.000Z", s): the snapshot ID's time, or None
-/// where Go's Parse fails.
+/// The time of a snapshot ID (YYYYMMDDTHHMMSS.mmmZ), or None when it is
+/// not one.
 pub fn parse_snapshot_time(s: &str) -> Option<Instant> {
     let b = s.as_bytes();
     if b.len() != 20 || b[8] != b'T' || b[15] != b'.' || b[19] != b'Z' {
@@ -142,7 +142,7 @@ pub fn parse_snapshot_time(s: &str) -> Option<Instant> {
     )
 }
 
-/// time.Time's UnmarshalJSON (RFC 3339, a fraction of any length, Z or an
+/// An RFC 3339 time (a fraction of any length, Z or an
 /// offset), as an instant.
 pub fn parse_rfc3339(s: &str) -> Option<Instant> {
     let b = s.as_bytes();
@@ -285,7 +285,7 @@ pub fn select_kept(times: &[Instant], keep: &Keep, zone: &Zone) -> Vec<bool> {
     kept
 }
 
-/// A string as Go's encoding/json writes it: <, >, &, U+2028, and U+2029
+/// A JSON string: <, >, &, U+2028, and U+2029
 /// escaped, each byte of invalid UTF-8 as �.
 pub fn json_string(out: &mut String, b: &[u8]) {
     out.push('"');
@@ -318,7 +318,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn formats_and_parses_as_go() {
+    fn formats_and_parses_times() {
         let t = Instant {
             sec: 1_700_000_000,
             nsec: 123_400_000,
@@ -345,7 +345,7 @@ mod tests {
     }
 
     #[test]
-    fn keeps_as_go() {
+    fn keeps_by_calendar() {
         // 2021-01-03 is a Sunday in ISO week 2020-53.
         let l = local(
             &[(i64::MIN, 0)],
@@ -371,7 +371,7 @@ mod tests {
     }
 
     #[test]
-    fn writes_json_strings_as_go() {
+    fn writes_json_strings() {
         let mut s = String::new();
         json_string(&mut s, b"a<b>&\x01\xff\xe2\x82\"");
         assert_eq!(

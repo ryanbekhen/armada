@@ -47,8 +47,8 @@ fn generate(root: &Path) -> io::Result<()> {
 
     // Armada's protocol: messages, clients, and servers. Timestamps are
     // armada-proto's own (src/timestamp.rs), whose JSON is protojson's. Maps are BTreeMaps,
-    // so the binary encoding writes their entries sorted by key, as Go's
-    // deterministic encoding does (the replica spec hash), and their
+    // so the binary encoding writes their entries sorted by key, a
+    // deterministic encoding (the replica spec hash), and their
     // protobuf JSON comes out in protojson's order.
     tonic_prost_build::configure()
         .build_client(true)

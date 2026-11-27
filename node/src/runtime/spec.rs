@@ -1,7 +1,7 @@
 //! The parts of the OCI runtime spec (opencontainers/runtime-spec v1.3.0,
 //! specs-go) Armada's containers use, in specs-go's field order and with
-//! its omitempty rules, so serialising one writes the bytes Go's
-//! encoding/json writes (see `to_go_json`).
+//! its omitempty rules, so serialising one writes the recorded bytes (see
+//! `to_go_json`).
 
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -29,7 +29,7 @@ pub struct Spec {
     pub hostname: String,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub mounts: Vec<Mount>,
-    /// None is Go's nil map; an empty map is omitted all the same.
+    /// None is no map; an empty map is omitted all the same.
     #[serde(skip_serializing_if = "map_empty")]
     pub annotations: Option<BTreeMap<String, String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -224,9 +224,9 @@ pub struct SeccompArg {
     pub op: String,
 }
 
-/// Writes v as Go's json.Marshal does: compact, with <, >, &, U+2028, and
-/// U+2029 escaped (serde_json already writes \b, \f, \n, \r, \t and the
-/// other control characters as \u00xx, as Go does since 1.22).
+/// Writes v as compact JSON, with <, >, &, U+2028, and U+2029 escaped as
+/// \u escapes (serde_json already writes \b, \f, \n, \r, \t and the other
+/// control characters as \u00xx).
 pub fn to_go_json<T: Serialize>(v: &T) -> Vec<u8> {
     let mut out = Vec::new();
     let mut ser = serde_json::Serializer::with_formatter(&mut out, GoFormatter);
@@ -265,7 +265,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn escapes_as_go() {
+    fn escapes_html_and_separators() {
         let m = Mount::new("/a<b>&\u{2028}", "", "x\u{8}\u{c}\u{1}", &[]);
         assert_eq!(
             String::from_utf8(to_go_json(&m)).unwrap(),

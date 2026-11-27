@@ -1,4 +1,4 @@
-//! armada version (Go's NewVersionCommand and serverVersions).
+//! armada version: this build and the servers' versions.
 
 use std::collections::BTreeMap;
 
@@ -10,7 +10,7 @@ use crate::config::json_string;
 use crate::{release, rpc};
 
 /// Build information: set at build time through ARMADA_VERSION,
-/// ARMADA_COMMIT, and ARMADA_DATE, as Go's -X flags set it.
+/// ARMADA_COMMIT, and ARMADA_DATE.
 pub struct Info {
     pub version: &'static str,
     pub commit: &'static str,
@@ -19,14 +19,14 @@ pub struct Info {
     pub platform: String,
 }
 
-/// version.Get.
+/// This build's information.
 pub fn get() -> Info {
     let arch = match std::env::consts::ARCH {
         "x86_64" => "amd64",
         "aarch64" => "arm64",
         a => a,
     };
-    // runtime.GOOS: Go names macOS darwin.
+    // The platform names Armada's releases use: macOS is darwin.
     let os = match std::env::consts::OS {
         "macos" => "darwin",
         o => o,
@@ -41,7 +41,7 @@ pub fn get() -> Info {
 }
 
 impl Info {
-    /// Info.String.
+    /// The line `armada version` prints for this build.
     pub fn string(&self) -> String {
         format!(
             "armada {} (commit {}, built {}, {}, {})",
@@ -49,8 +49,8 @@ impl Info {
         )
     }
 
-    /// The JSON Go's encoder writes, indented by two spaces. The toolchain
-    /// keeps Go's key, goVersion, which scripts may read.
+    /// The JSON, indented by two spaces. The toolchain keeps the key
+    /// goVersion, which scripts may read.
     pub fn json(&self) -> String {
         format!(
             "{{\n  \"version\": {},\n  \"commit\": {},\n  \"date\": {},\n  \"goVersion\": {},\n  \"platform\": {}\n}}\n",
@@ -98,7 +98,7 @@ fn run(ctx: &mut Ctx<'_>, _: &[String]) -> Result {
     }
 }
 
-/// serverVersions: the control plane's versions, when it is reached.
+/// The control plane's versions, when it is reached.
 fn server_versions(ctx: &mut Ctx<'_>) -> Vec<String> {
     let Ok(mut admin) = ctx.admin() else {
         return Vec::new();

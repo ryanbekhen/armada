@@ -1,29 +1,26 @@
-//! The daemon's parity cases recorded from Go (ADR 0055, item 20),
-//! replayed against this armadad.
+//! The daemon's recorded parity cases, replayed against this armadad.
 //!
-//! Go's TestDaemonParity, before the Go code was removed, ran every case of Go's
-//! daemon parity harness (the cases written for it, doctor's, the state
-//! commands', the commands that set a machine up, every example line and
-//! every command's help, and the units' cases) and wrote
-//! testdata/parity.jsonl.gz: each case's arguments and environment as the
-//! Rust armadad is run with them, its standard input, the case directory
-//! as prepared, the state it needs, and the outcome it must give (Go's
-//! through rustWants; for the paths of the Rust armadad alone, its own once
-//! the case's checks passed). Each case runs here against the armadad
+//! testdata/parity.jsonl.gz holds every case (the cases written for the
+//! harness, doctor's, the state commands', the commands that set a
+//! machine up, every example line and every command's help, and the
+//! units' cases): each case's arguments and environment as armadad is run
+//! with them, its standard input, the case directory as prepared, the
+//! state it needs, and the outcome it must give. Each case runs here
+//! against the armadad
 //! built with the test-hooks feature, with the same stand-ins first in
 //! PATH (systemctl, cosign, timedatectl, ufw), the control plane's bucket
 //! (bucket.rs), a server's running member where the case has one
 //! (member.rs, the pinned etcd of ARMADA_ETCD_DIR), and doctor's clock at
 //! the recorded time (ARMADA_DAEMON_TEST_NOW); its exit code, standard
-//! output and error, and every file left (described.rs's collect) are
-//! compared as compareDaemon compares them.
+//! output and error, and every file left (describe.rs's collect) are
+//! compared with the recording.
 //!
 //! This test is its own harness (`harness = false`): the cases run one
 //! after another, an argument (or ARMADA_PARITY_CASE) runs only those
 //! whose names contain it, ARMADA_PARITY_VERBOSE=1 prints each outcome.
 //! ARMADA_PARITY_UPDATE=1 writes the outcome of each case that differs into
 //! the recording as the one it must give: for a change of armadad's that is
-//! meant (the recording outlives Go's daemon), after reading every
+//! meant, after reading every
 //! difference it prints.
 //! Without ARMADA_ETCD_DIR the cases that need the pinned etcd are skipped.
 
@@ -45,7 +42,7 @@ const FIXTURE: &str = concat!(
     "/tests/testdata/parity.jsonl.gz"
 );
 
-/// The PATH after the stand-ins, the recording's (recordPath): what any
+/// The PATH after the stand-ins, the recording's: what any
 /// Linux machine has.
 const RECORD_PATH: &str = "/usr/bin:/bin";
 
@@ -89,7 +86,7 @@ fn flag(v: &Value, k: &str) -> bool {
     v.get(k).and_then(Value::as_bool).unwrap_or(false)
 }
 
-/// What differs between Go's recording and this run.
+/// What differs between the recording and this run.
 struct Places {
     pairs: Vec<(String, String)>,
     ports: Option<(u16, u16)>,
@@ -175,8 +172,7 @@ fn prepare(dir: &Path, tree: &[Value], blobs: &HashMap<String, Vec<u8>>, places:
     }
 }
 
-/// flock(LOCK_EX) on the member's database, as a running member holds it
-/// (Go's holdDB).
+/// flock(LOCK_EX) on the member's database, as a running member holds it.
 fn hold_db(dir: &Path) -> std::fs::File {
     use std::os::fd::AsRawFd;
     let f = std::fs::OpenOptions::new()
@@ -387,14 +383,14 @@ fn compare(want: &Value, got: &Outcome) -> Vec<String> {
     let mut d = Vec::new();
     let code = want.get("code").and_then(Value::as_i64).unwrap_or(0) as i32;
     if code != got.code {
-        d.push(format!("exit code: want {code}, Rust {}", got.code));
+        d.push(format!("exit code: want {code}, got {}", got.code));
     }
     for (name, w, g) in [
         ("stdout", s(want, "stdout"), &got.stdout),
         ("stderr", s(want, "stderr"), &got.stderr),
     ] {
         if describe::normalize(w) != describe::normalize(g) {
-            d.push(format!("{name} differs:\n--- want\n{w}--- Rust\n{g}"));
+            d.push(format!("{name} differs:\n--- want\n{w}--- got\n{g}"));
         }
     }
     let files: Vec<String> = want
@@ -408,7 +404,7 @@ fn compare(want: &Value, got: &Outcome) -> Vec<String> {
         .unwrap_or_default();
     if files != got.files {
         d.push(format!(
-            "files differ:\n--- want\n{}\n--- Rust\n{}",
+            "files differ:\n--- want\n{}\n--- got\n{}",
             files.join("\n"),
             got.files.join("\n")
         ));
@@ -446,7 +442,7 @@ fn run(filter: &str) -> i32 {
         .map(|(k, v)| (k.clone(), blobs[v.as_str().unwrap()].clone()))
         .collect();
 
-    // The recording machine's addresses as Go read them, for the armadad
+    // The recording machine's addresses, for the armadad
     // run and for this process's member certificates alike.
     let interfaces = s(&head, "interfaces").to_string();
     // SAFETY: no other thread runs yet.

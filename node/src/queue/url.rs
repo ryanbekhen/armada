@@ -1,6 +1,6 @@
-//! Go's net/url.Parse as the queue rules use it: which URLs it accepts,
-//! and the scheme, user, host, path, and query it reads from them.
-//! Strings are bytes as in Go: escapes may make them invalid UTF-8.
+//! URL parsing as the queue rules use it: which URLs are accepted, and the
+//! scheme, user, host, path, and query read from them. Strings are bytes:
+//! escapes may make them invalid UTF-8.
 
 use crate::net::addr::Addr;
 
@@ -145,7 +145,7 @@ fn valid_optional_port(p: &[u8]) -> bool {
 }
 
 fn valid_userinfo(s: &[u8]) -> bool {
-    // Go ranges over runes: any non-ASCII rune fails.
+    // Any non-ASCII character fails.
     s.iter().all(|&c| {
         c.is_ascii_alphanumeric()
             || matches!(
@@ -356,7 +356,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_as_go() {
+    fn parses_urls() {
         let u = parse("redis://us%40er:p%3Ass@[fd00::1]:6380/3?x=1#f").unwrap();
         assert_eq!(u.scheme, "redis");
         assert_eq!(u.user, Some((b"us@er".to_vec(), Some(b"p:ss".to_vec()))));

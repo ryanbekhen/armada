@@ -1,9 +1,8 @@
-//! The cluster network's iptables chains (clusternet_linux.go: Net.firewall,
-//! iptablesCmd, and the iptables part of Remove): which iptables commands
-//! run, in which order, decided from what earlier commands answered. The
-//! rules themselves come from rules.rs. The tool runs through `Tool`: the
-//! real program, or `Sim`, a model of it the parity test drives with the
-//! same state as Go's.
+//! The cluster network's iptables chains (the firewall pass and the
+//! iptables part of remove): which iptables commands run, in which order,
+//! decided from what earlier commands answered. The rules themselves come
+//! from rules.rs. The tool runs through `Tool`: the real program, or `Sim`,
+//! a model of it the tests drive with a given state.
 
 use super::addr::Addr;
 use super::plan::{INTERFACE, MODE_MESH, NEXT, Plan, SITE_INTERFACE};
@@ -15,9 +14,8 @@ pub const CHAIN_FWD: &str = "ARMADA-NET-FWD";
 pub const CHAIN_PRE: &str = "ARMADA-NET-PRE";
 pub const CHAIN_MSS: &str = "ARMADA-NET-MSS";
 
-/// What iptablesCmd.exec does: runs the tool with args and returns its
-/// output (with combined, standard error too), or the error Go reports
-/// for it, with that output.
+/// Runs the tool with args and returns its output (with combined,
+/// standard error too), or the error it failed with, with that output.
 pub trait Tool {
     fn exec(&mut self, combined: bool, args: &[String]) -> Result<String, (String, String)>;
 }
@@ -38,7 +36,7 @@ impl Tool for Program {
         if out.status.success() {
             return Ok(text);
         }
-        // Go's exec.ExitError text.
+        // A failed command's text: "exit status N" or the signal.
         let status = match out.status.code() {
             Some(code) => format!("exit status {code}"),
             None => {
@@ -160,7 +158,7 @@ pub struct Clean {
     pub site: bool,
 }
 
-/// Net.firewall: the cluster network's chains and jumps for plan p of a
+/// The cluster network's chains and jumps for plan p of a
 /// node at private_ip.
 pub fn firewall(
     ipt: &mut Iptables,
@@ -223,7 +221,7 @@ pub fn firewall(
     Ok(())
 }
 
-/// removeFirewall: the chains and jumps taken away, with what failed.
+/// The chains and jumps taken away, with what failed.
 pub fn remove_firewall(ipt: &mut Iptables) -> Vec<String> {
     let mut errs = Vec::new();
     for r in [

@@ -1,6 +1,6 @@
-//! What Go's daemon harness compares (internal/daemon/parity_test.go and
-//! parity_state_test.go): collect with describe, summarizeEtcd,
-//! realDescribeArchive, describeClientConfig, and normalizeDaemon.
+//! What the replay compares, in the recording's form: the case
+//! directory's files, the etcd keyspace's summary, archives, client
+//! configs, and the normalized output.
 
 use std::collections::BTreeMap;
 use std::io::Read;
@@ -12,7 +12,7 @@ use armada_daemon::manifest::{Created, Manifest};
 use armada_pki::ExtKeyUsage;
 use sha2::{Digest, Sha256};
 
-/// Bytes as Go's encoding/json turns them into a string: each byte that
+/// Bytes as a JSON string holds them: each byte that
 /// is not part of valid UTF-8 becomes U+FFFD (the recording is JSON).
 pub fn go_lossy(b: &[u8]) -> String {
     let mut out = String::new();
@@ -92,7 +92,8 @@ fn walk(dir: &Path, rel: &str, out: &mut Vec<String>, now: Now<'_>) {
     }
 }
 
-/// %v of []x509.ExtKeyUsage (its String names, Go 1.27).
+/// Extended key usages as the recording names them: in brackets,
+/// separated by spaces.
 fn usages(u: &[ExtKeyUsage]) -> String {
     let n: Vec<&str> = u
         .iter()
@@ -154,7 +155,6 @@ fn contains(b: &[u8], what: &[u8]) -> bool {
     b.windows(what.len()).any(|w| w == what)
 }
 
-/// summarizeEtcd.
 fn summarize_etcd(p: &Path) -> Option<String> {
     let md = std::fs::metadata(p.join("member/snap/db")).ok()?;
     if md.len() < 4096 {
@@ -173,7 +173,6 @@ fn summarize_etcd(p: &Path) -> Option<String> {
     ))
 }
 
-/// describeClientConfig.
 fn describe_client_config(b: &[u8]) -> String {
     let Ok(serde_json::Value::Object(cc)) = serde_json::from_slice::<serde_json::Value>(b) else {
         return String::from_utf8_lossy(b).into_owned();
@@ -202,7 +201,7 @@ fn describe_client_config(b: &[u8]) -> String {
     out
 }
 
-/// One tar header as Go's archive/tar reads it.
+/// One tar header as read.
 struct Hdr {
     name: String,
     mode: i64,
@@ -237,7 +236,7 @@ fn octal(b: &[u8]) -> i64 {
 }
 
 /// The entries of a tar stream (USTAR, PAX, GNU long names), with their
-/// data, and how the reading ended when not at the archive's end: Go's
+/// data, and how the reading ended when not at the archive's end: a
 /// `read: ...` or `read NAME: ...` line (a cut stream is unexpected EOF).
 fn read_tar(b: &[u8], cut: bool) -> (Vec<(Hdr, Vec<u8>)>, Option<String>) {
     let eof = "unexpected EOF";
@@ -350,7 +349,7 @@ fn read_tar(b: &[u8], cut: bool) -> (Vec<(Hdr, Vec<u8>)>, Option<String>) {
     }
 }
 
-/// json.Unmarshal into a backup.Manifest: unknown fields left out (the
+/// A manifest decoded loosely: unknown fields left out (the
 /// restore's own decoder refuses them, not this description).
 fn unmarshal(data: &[u8]) -> Result<Manifest, String> {
     const KNOWN: [&str; 8] = [
@@ -373,7 +372,8 @@ fn unmarshal(data: &[u8]) -> Result<Manifest, String> {
     }
 }
 
-/// Go's %q of a string of printable ASCII (what tar's names hold).
+/// A string of printable ASCII (what tar's names hold) in double quotes,
+/// " and \ escaped.
 fn quote(s: &str) -> String {
     serde_json::to_string(s).unwrap()
 }
@@ -393,13 +393,12 @@ pub fn unix_now() -> i64 {
 
 const FILE_STATE: &str = "etcd.snapshot";
 
-/// realDescribeArchive.
 pub fn describe_archive(b: &[u8], now: i64) -> String {
     if b.len() < 10 || b[0] != 0x1f || b[1] != 0x8b || b[2] != 8 {
         return "not a gzip stream: gzip: invalid header".to_string();
     }
     // As much as the stream holds: a cut stream gives what came before the
-    // cut, as Go's reader does, and tar's reads end there.
+    // cut, and tar's reads end there.
     let mut raw = Vec::new();
     let cut = flate2::read::MultiGzDecoder::new(b)
         .read_to_end(&mut raw)
@@ -475,7 +474,7 @@ fn boundary(s: &[u8], i: usize) -> bool {
     before != after
 }
 
-/// daemonToolchain: `\b(go[0-9][0-9.a-z]*|rust[0-9][0-9.a-z-]*)\b`.
+/// `\b(go[0-9][0-9.a-z]*|rust[0-9][0-9.a-z-]*)\b`.
 fn toolchain(s: &str) -> String {
     let b = s.as_bytes();
     let mut out = String::new();
@@ -520,7 +519,7 @@ fn toolchain(s: &str) -> String {
     out
 }
 
-/// stateTemp: `\.(backup|inspect|restore|etcd|etcd-start)-[0-9]+` →
+/// `\.(backup|inspect|restore|etcd|etcd-start)-[0-9]+` →
 /// `.$1-N`.
 fn state_temp(s: &str) -> String {
     let b = s.as_bytes();
@@ -618,7 +617,8 @@ fn elapsed(s: &str) -> String {
     out
 }
 
-/// normalizeDaemon, and the date a renewed certificate is valid until
+/// Output normalized as the recording is, and the date a renewed
+/// certificate is valid until
 /// (worked out from the machine's clock by the CA, which no hook moves).
 pub fn normalize(s: &str) -> String {
     let s = elapsed(&state_temp(&toolchain(s)));

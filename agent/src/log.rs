@@ -1,17 +1,16 @@
-//! A small structured logger in the shape of Go's log/slog text handler
-//! (armada-server's): `time=... level=INFO msg="..." key=value ...` on
-//! stderr. Values are quoted when they hold spaces, quotes, `=`, or control
-//! characters. Secrets are never passed to it.
+//! A small structured logger, in armada-server's format: `time=... level=INFO
+//! msg="..." key=value ...` on stderr. Values are quoted when they hold spaces,
+//! quotes, `=`, or control characters. Secrets are never passed to it.
 
 use std::io::Write;
 use std::sync::Arc;
 
-/// Where log lines go: stderr, or nowhere (Go's slog.DiscardHandler).
+/// Where log lines go: stderr, or nowhere.
 #[derive(Clone)]
 pub struct Logger {
     out: Option<Arc<std::sync::Mutex<()>>>,
     debug: bool,
-    /// Lines as Go's slog JSON handler writes them (--log-format json).
+    /// JSON lines (--log-format json).
     json: bool,
     attrs: Vec<(String, String)>,
 }
@@ -37,7 +36,7 @@ impl Logger {
         }
     }
 
-    /// A logger writing JSON lines to stderr (Go's slog.NewJSONHandler).
+    /// A logger writing JSON lines to stderr.
     pub fn stderr_json(debug: bool) -> Logger {
         Logger {
             json: true,
@@ -45,7 +44,7 @@ impl Logger {
         }
     }
 
-    /// Go's Logger.With.
+    /// The logger with one more attribute on every line.
     pub fn with(&self, k: &str, v: &str) -> Logger {
         let mut l = self.clone();
         l.attrs.push((k.to_string(), v.to_string()));

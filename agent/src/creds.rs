@@ -1,4 +1,4 @@
-//! The node's certificate and key, renewed in place (Go's credentials.go):
+//! The node's certificate and key, renewed in place:
 //! loaded from the data directory, checked against the cluster's CA and
 //! the node's own identity, and presented on every handshake as they are
 //! now, so a renewed certificate is used by the next connection.
@@ -66,7 +66,7 @@ fn promote_pending(dir: &Path, provider: &Arc<CryptoProvider>) -> Result<(), Str
     Ok(())
 }
 
-/// Go's tls.X509KeyPair: the chain and a key that matches its leaf.
+/// The certificate chain and a key that matches its leaf.
 fn key_pair(
     provider: &Arc<CryptoProvider>,
     cert_pem: &[u8],

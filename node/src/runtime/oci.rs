@@ -1,7 +1,7 @@
-//! The spec of a container as internal/runtime/containerd builds it:
-//! containerd's default Unix spec (oci.populateDefaultUnixSpec), then the
-//! driver's options in its order (argsOpts and appOpts in spec.go, or
-//! systemOpts), each a port of the containerd option it uses.
+//! The spec of a container: containerd's default Unix spec
+//! (oci.populateDefaultUnixSpec), then Armada's options in order (the
+//! command's, then an app container's or a system container's), each
+//! applied as the containerd option of the same purpose applies it.
 
 use super::gopath;
 use super::seccomp;
@@ -24,8 +24,8 @@ const DROPPED_CAPS: [&str; 3] = ["NET_RAW", "MKNOD", "AUDIT_WRITE"];
 /// runtime.LabelApp.
 const LABEL_APP: &str = "armada.app";
 
-/// cpuShares: 1024 per core, at least 2, at most 262144, in Go's int64
-/// arithmetic.
+/// cpuShares: 1024 per core, at least 2, at most 262144, in wrapping
+/// 64-bit arithmetic.
 pub fn cpu_shares(millis: i64) -> u64 {
     (millis.wrapping_mul(1024) / 1000).clamp(2, 262_144) as u64
 }
@@ -48,8 +48,8 @@ pub fn hostname(id: &str) -> String {
     s.trim_matches(['.', '-']).to_string()
 }
 
-/// Bytes as Go's encoding/json writes a string holding them: each byte of
-/// an invalid sequence as U+FFFD.
+/// Bytes as a JSON string holding them: each byte of an invalid UTF-8
+/// sequence as U+FFFD.
 fn go_string(mut b: &[u8]) -> String {
     let mut out = String::new();
     loop {
@@ -665,14 +665,14 @@ pub fn replace_or_append_env(defaults: &[String], overrides: &[String]) -> Vec<S
 }
 
 /// The spec of an app container (or an init container or sidecar):
-/// argsOpts then appOpts, on the default spec.
+/// The command's options, then an app container's, on the default spec.
 pub fn app_spec(r: &SpecRequest, s: &ContainerSpec, host: &Host) -> Result<Spec, String> {
     let mut b = Builder {
         s: default_spec(r.default_cgroups_path(), host.masked.clone()),
         rootfs_path: &r.rootfs,
         rootfs: None,
     };
-    // argsOpts.
+    // The command's options.
     if !s.entrypoint.is_empty() {
         b.image_config(&r.image, None)?;
         let mut a = s.entrypoint.clone();
@@ -683,7 +683,7 @@ pub fn app_spec(r: &SpecRequest, s: &ContainerSpec, host: &Host) -> Result<Spec,
     } else {
         b.image_config(&r.image, None)?;
     }
-    // appOpts.
+    // An app container's options.
     let ro = ["rbind", "ro", "nosuid", "nodev", "noexec"];
     let mut mounts = vec![
         Mount::new("/etc/resolv.conf", "bind", &r.files.resolv, &ro),
@@ -776,8 +776,8 @@ pub fn app_spec(r: &SpecRequest, s: &ContainerSpec, host: &Host) -> Result<Spec,
     Ok(b.s)
 }
 
-/// The spec of a system container: argsOpts with the command alone, then
-/// systemOpts.
+/// The spec of a system container: the command's options with the command
+/// alone, then a system container's.
 pub fn system_spec(r: &SpecRequest, s: &SystemSpec, host: &Host) -> Result<Spec, String> {
     let mut b = Builder {
         s: default_spec(r.default_cgroups_path(), host.masked.clone()),
@@ -867,7 +867,7 @@ mod tests {
     }
 
     #[test]
-    fn possible_cpus_as_go() {
+    fn possible_cpus_ranges() {
         assert_eq!(parse_possible_cpus("0-3,8"), Some(vec![0, 1, 2, 3, 8]));
         assert_eq!(parse_possible_cpus("3-1"), None);
         assert_eq!(parse_possible_cpus(""), None);

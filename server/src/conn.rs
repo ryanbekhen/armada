@@ -1,7 +1,7 @@
-//! Accepting connections: TLS over TCP, with the bounds Go's listeners
-//! have (connLimit, sourceFilter, grpc.ConnectionTimeout, and the join
-//! listener's idle limit), and the peer's address and verified certificate
-//! for every request (credentials.TLSInfo).
+//! Accepting connections: TLS over TCP, with bounds (connections in all
+//! and per source, the sources a listener accepts, the handshake's time,
+//! and the join listener's idle limit), and the peer's address and
+//! verified certificate for every request.
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -21,8 +21,8 @@ use tokio_rustls::TlsAcceptor;
 use tokio_rustls::server::TlsStream;
 use tonic::transport::server::Connected;
 
-/// What a request knows about its connection: Go's peer.Peer with
-/// credentials.TLSInfo.
+/// What a request knows about its connection: the peer's address and
+/// verified certificate.
 #[derive(Clone)]
 pub struct PeerInfo {
     pub addr: SocketAddr,
@@ -31,20 +31,19 @@ pub struct PeerInfo {
     pub cert: Option<Arc<Certificate>>,
 }
 
-/// How long a peer may take to finish the TLS handshake
-/// (grpc.ConnectionTimeout).
+/// How long a peer may take to finish the TLS handshake.
 pub const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Bounds of one listener's connections.
 #[derive(Clone, Default)]
 pub struct Limits {
-    /// connLimit: at most total connections, perSource from one address;
+    /// At most total connections, perSource from one address;
     /// zero means none.
     pub total: usize,
     pub per_source: usize,
     /// Closes a connection after this long with nothing read or written.
     pub idle: Option<Duration>,
-    /// sourceFilter: connections from addresses it refuses are closed
+    /// Connections from addresses it refuses are closed
     /// before TLS.
     pub allow: Option<Arc<dyn Fn(IpAddr) -> bool + Send + Sync>>,
 }

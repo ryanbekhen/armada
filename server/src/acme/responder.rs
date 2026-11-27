@@ -1,9 +1,9 @@
-//! The ACME HTTP-01 responder (Go's Serve: an http.Server with the
-//! manager's HTTPHandler on the ACME address, 7480 by default): every
+//! The ACME HTTP-01 responder (the manager's challenge handler on the
+//! ACME address, 7480 by default): every
 //! node's HAProxy forwards `/.well-known/acme-challenge/` from port 80 to
 //! the leader's responder, which answers a challenge's key authorization
 //! and 404 to anything else. HTTP/1.1, one request per connection, the
-//! request head read within 5 seconds (ReadHeaderTimeout) and at most
+//! request head read within 5 seconds and at most
 //! 1 MiB and 4 KiB long (DefaultMaxHeaderBytes).
 
 use std::sync::Arc;
@@ -146,7 +146,6 @@ async fn handle(mut conn: TcpStream, certs: Arc<dyn Certs>) {
             r.extend_from_slice(&body);
             r
         }
-        // http.NotFoundHandler.
         None => b"HTTP/1.1 404 Not Found\r\nContent-Type: text/plain; charset=utf-8\r\nX-Content-Type-Options: nosniff\r\nContent-Length: 19\r\nConnection: close\r\n\r\n404 page not found\n".to_vec(),
     };
     let _ = conn.write_all(&resp).await;

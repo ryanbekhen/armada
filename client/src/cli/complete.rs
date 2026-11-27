@@ -1,8 +1,8 @@
 //! Shell completion: the scripts cobra v1.10.2 generates for armada (bash,
 //! zsh, fish, powershell; Apache-2.0, kept as cobra writes them), the
 //! hidden `__complete` command those scripts call (cobra's
-//! getCompletions), and the names Tab completes from the cluster (Go's
-//! complete.go, ADR 0052).
+//! getCompletions), and the names Tab completes from the cluster (ADR
+//! 0052).
 
 use armada_proto::armada::v1::{
     ListAlertChannelsRequest, ListAppsRequest, ListDomainsRequest, ListJobRunsRequest,
@@ -231,7 +231,7 @@ fn placeholder_kind(noun: &str, verb: &str, word: &str) -> Option<Kind> {
     })
 }
 
-/// argKinds: the completer of each placeholder of a runnable leaf.
+/// The completer of each placeholder of a runnable leaf.
 fn arg_kinds(tree: &Tree, i: usize) -> Option<Vec<Option<Kind>>> {
     let n = tree.node(i);
     if !n.runnable() || tree.has_sub(i) || n.special != Special::None {
@@ -251,7 +251,7 @@ fn arg_kinds(tree: &Tree, i: usize) -> Option<Vec<Option<Kind>>> {
     Some(kinds)
 }
 
-/// flagKinds: the flags of command i that name something.
+/// The flags of command i that name something.
 fn flag_kind(tree: &Tree, i: usize, flag: &Flag) -> Option<Kind> {
     if flag.inherited {
         // Registered before the parents' flags were merged: never found.
@@ -381,7 +381,7 @@ fn completions(ctx: &mut Ctx<'_>, args: &[String]) -> (Vec<String>, i32, Option<
     } else {
         fs.args.clone()
     };
-    // enforceFlagGroupsForCompletion: a set flag of an exclusive group
+    // a set flag of an exclusive group
     // hides the others.
     let mut hidden: Vec<String> = Vec::new();
     for g in &node.exclusive {
@@ -510,7 +510,7 @@ fn help_completions(tree: &Tree, args: &[String], to: &str) -> (Vec<String>, i32
     (out, NO_FILE_COMP)
 }
 
-/// checkIfFlagCompletion: the flag whose value is being completed, the
+/// The flag whose value is being completed, the
 /// arguments without it, and the text to complete. The error's bool says
 /// whether it is cobra's flagCompError.
 #[allow(clippy::type_complexity)]

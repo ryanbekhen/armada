@@ -1,5 +1,5 @@
-//! Containers' root filesystems in the store (ADR 0054 step 4, fourth
-//! part): what the overlay snapshotter's Prepare and Remove do for a
+//! Containers' root filesystems in the store: what the overlay
+//! snapshotter's Prepare and Remove do for a
 //! container's active snapshot, on the store's unpacked layers.
 //!
 //!   <root>/active/<key>/fs/          the writable upper directory
@@ -16,8 +16,8 @@
 //! first), userxattr when the kernel needs it, and index=off where the
 //! overlay module has the parameter. A collection keeps every layer an
 //! active snapshot names, and every layer held under held/ for a
-//! container moved from Go's store whose chain one names (its overlay
-//! may still mount Go's directory of that layer).
+//! container moved from an earlier store whose chain one names (its
+//! overlay may still mount that store's directory of the layer).
 
 use super::digest::chain_ids;
 use super::reference;

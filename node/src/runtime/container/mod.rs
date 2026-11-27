@@ -1,10 +1,8 @@
-//! The supervisor runtime's container lifecycle (ADR 0054 step 4, fourth
-//! part): what internal/runtime/supervisor does below the driver for a
-//! container, on the image store of ../image, and since the fifth and
-//! sixth parts statistics, dials, and exec sessions. The Go driver
-//! still builds each container's spec and runs its network and logs; it
-//! hands the rest to these commands when agent.json says "runtimeAgent":
-//! "rust".
+//! The supervisor runtime's container lifecycle on the image store of
+//! ../image: root filesystems, bundles, shims, statistics, dials, and
+//! exec sessions. The agent builds each container's spec and runs its
+//! network and logs; it hands the rest to these commands (or calls them
+//! as a library).
 //!
 //!   armada-node runtime prepare ROOT
 //!       stdin: {"key", "image"}; stdout: {"mounts": [mount.Mount]}, the
@@ -34,7 +32,7 @@
 //!       stdin: {"dir", "shimDir", "cgroupRoot", "proc", "ids",
 //!       "timeoutMs"}; stdout: {"stats": [{"cpu", "memory", "egress",
 //!       "networkLost", "oomKills"} | {"notFound": true} | {"redo"}]},
-//!       one per ID: what Driver.Stats samples of each (stats.rs)
+//!       one per ID: what the agent samples of each (stats.rs)
 //!   armada-node runtime dial
 //!       stdin: {"dir", "shimDir", "id", "proc"} or {"netns"}, with
 //!       {"kind", "ip", "family", "port", "v6only", "timeoutMs"}; fd 3: a
@@ -47,16 +45,12 @@
 //!       "terminalDrainGraceMs", "consoleSocket"}; fd 4: a control
 //!       socket (JSON lines);
 //!       fds 5, 6, 7: the caller's input, output, and error output. Runs
-//!       the exec's session (ADR 0054 step 5, last part): writes
-//!       process.json as execProcess.Start does, starts the container's
+//!       the exec's session: writes process.json, starts the container's
 //!       OCI runtime's exec (`crun exec`, or `runc exec`: oci.rs) on
 //!       pipes or a terminal, copies, waits, and drains; answers
 //!       {"spawned"} (or {"execErrno"}, {"redo"}, {"error"}), then
 //!       {"started"} or {"notStarted"}, {"exit"}, {"drained"}; reads
 //!       {"resize"}, {"kill"}, {"abandon"} (exec.rs)
-//!
-//! Go's TestArmadaNode*MatchesGo tests (internal/runtime/supervisor)
-//! compare them with Go's Bundles, Shims, and the overlay snapshotter.
 
 pub mod bundle;
 pub mod dial;

@@ -3,7 +3,7 @@ version: 2
 
 project_name: armada
 
-# Nothing here needs Go (ADR 0055, item 20): armada-pack (pack/) builds the
+# armada-pack (pack/) builds the
 # runtime pack from pack/lock.json and collects the license files of the
 # Go modules the pack's etcd programs link and crun's license texts
 # (licenses/runtime), and crun's complete corresponding source

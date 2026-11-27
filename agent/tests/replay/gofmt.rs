@@ -1,10 +1,11 @@
-//! What the transcripts write as Go's harness wrote them: strconv.Quote,
-//! time.Duration's String, fs.FileMode's String, FNV-1a, base64, and the
-//! canonical form transcripts are compared in.
+//! How the transcripts write values, as the recordings do: quoted strings,
+//! durations, file modes, FNV-1a, base64, and the canonical form
+//! transcripts are compared in.
 
 use serde_json::Value;
 
-/// Go's strconv.Quote of bytes taken as a string.
+/// Bytes taken as a string, quoted: `"` and `\` escaped, `\a\b\f\n\r\t\v`,
+/// other non-printable runes and invalid bytes as `\x`, `\u`, or `\U`.
 pub fn quote(b: &[u8]) -> String {
     let mut out = String::from("\"");
     let mut i = 0;
@@ -45,7 +46,7 @@ pub fn quote(b: &[u8]) -> String {
     out
 }
 
-/// Go's time.Duration String.
+/// A duration in nanoseconds as text ("0s", "1.5s", "1m4s", "2h0m0s").
 pub fn duration(ns: i64) -> String {
     if ns == 0 {
         return "0s".into();
@@ -96,7 +97,8 @@ fn frac(v: u64, div: u64) -> String {
     format!("{whole}.{digits}")
 }
 
-/// Go's fs.FileMode String for what the agent writes.
+/// A file's mode as `ls` shows it (`drwx------`, `-rw-------`), for what
+/// the agent writes; `L` for a symbolic link.
 pub fn mode(meta: &std::fs::Metadata) -> String {
     use std::os::unix::fs::PermissionsExt;
     let ft = meta.file_type();
@@ -116,7 +118,7 @@ pub fn mode(meta: &std::fs::Metadata) -> String {
     s
 }
 
-/// FNV-1a, 32 bits, as Go's hash/fnv.
+/// FNV-1a, 32 bits.
 pub fn fnv32a(s: &str) -> i64 {
     let mut h: u32 = 0x811c9dc5;
     for b in s.bytes() {
@@ -222,7 +224,7 @@ pub fn canon_call(s: &str) -> String {
 }
 
 /// A transcript line in canonical form: JSON in any key order, and a
-/// step's calls sorted with equal pulls once, as Go's harness takes them.
+/// step's calls sorted with equal pulls once.
 pub fn canon_line(l: &str) -> String {
     let (kind, rest) = l.split_once(' ').unwrap_or((l, ""));
     match kind {

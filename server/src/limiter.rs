@@ -1,4 +1,4 @@
-//! Token buckets (Go's limiter and keyedLimiter in nodes.go).
+//! Token buckets.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use armada_spec::gotime::Time;
 
-/// maxLimiterKeys: a keyed limiter that holds this many keys starts over,
+/// A keyed limiter that holds this many keys starts over,
 /// which only ever makes it more lenient.
 const MAX_KEYS: usize = 4096;
 
@@ -75,9 +75,8 @@ impl Keyed {
     }
 }
 
-/// A token bucket per key read on the server's clock (Go's keyedLimiter
-/// given s.now(): the wake limit). As Go's, a new bucket starts full at
-/// the wall clock's time, and refills only once the given time passes it.
+/// A token bucket per key read on the server's clock (the wake limit). A
+/// new bucket starts full at the wall clock's time, and refills only once the given time passes it.
 pub struct ClockKeyed {
     burst: f64,
     refill_nanos: f64,

@@ -1,6 +1,4 @@
-//! This server's etcd member as `armadad etcd` works it out (Go's
-//! etcdConfig and memberConfig in internal/daemon/state.go, and prepare,
-//! ensureCert, fileConfig, and WriteConfigFile in internal/etcd): its name,
+//! This server's etcd member as `armadad etcd` works it out: its name,
 //! data, addresses, certificate, and the configuration file the pack's
 //! etcd runs with (ADR 0055).
 
@@ -30,7 +28,7 @@ pub const CLUSTER_TOKEN: &str = "armada";
 const CERT_RENEW: Duration = Duration::from_secs(30 * 24 * 3600);
 const MAX_TXN_OPS: u64 = 4096;
 
-/// etcd.Config, the parts the file needs.
+/// The member's settings the configuration file needs.
 pub struct Config {
     pub dir: PathBuf,
     pub name: String,
@@ -42,7 +40,7 @@ pub struct Config {
     pub initial_cluster: String,
 }
 
-/// memberConfig: where data_dir's member lives and listens.
+/// Where data_dir's member lives and listens.
 pub fn member_config(data_dir: &str) -> Config {
     let dd = Path::new(data_dir);
     let mut cfg = Config {
@@ -54,7 +52,7 @@ pub fn member_config(data_dir: &str) -> Config {
         ca: None,
         initial_cluster: String::new(),
     };
-    // The parity tests' etcdAddrOverride and etcdPorts: a member on
+    // The replays' address and ports: a member on
     // loopback ports of their own (test hooks only).
     let addr_override: Option<IpAddr> = crate::hooks::get("ETCD_ADDR").and_then(|a| a.parse().ok());
     if let Some((c, p)) = crate::hooks::get("ETCD_PORTS").and_then(|v| {
@@ -77,7 +75,7 @@ pub fn member_config(data_dir: &str) -> Config {
     cfg
 }
 
-/// etcdConfig: the member described from the data directory, named by the
+/// The member described from the data directory, named by the
 /// server certificate's identity.
 pub fn etcd_config(data_dir: &str) -> Result<Config, String> {
     let dd = Path::new(data_dir);
@@ -132,7 +130,7 @@ fn addr_key(a: &IpAddr) -> (u8, [u8; 16]) {
     }
 }
 
-/// certAddrs: the listen address and every other private address of the
+/// The listen address and every other private address of the
 /// machine, sorted, once each.
 fn cert_addrs(addr: &IpAddr) -> Vec<IpAddr> {
     let mut v = vec![*addr];
@@ -147,7 +145,6 @@ fn write_ca(cfg: &Config, ca: &Ca) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
-/// certFits.
 fn cert_fits(c: &armada_pki::Certificate, ca: &Ca, addr: &IpAddr) -> bool {
     let now = SystemTime::now();
     let left = c.not_after - unix(now);
@@ -168,7 +165,7 @@ fn unix(t: SystemTime) -> i64 {
         .unwrap_or(0)
 }
 
-/// ensureCert: the member certificate issued when missing, for another
+/// The member certificate issued when missing, for another
 /// identity or addresses, or within a month of its end.
 fn ensure_cert(cfg: &Config, ca: &Ca, addr: &IpAddr) -> Result<(), String> {
     let cert_path = cfg.dir.join(FILE_CERT);
@@ -198,7 +195,7 @@ fn ensure_cert(cfg: &Config, ca: &Ca, addr: &IpAddr) -> Result<(), String> {
     write_ca(cfg, ca)
 }
 
-/// wal.Exist: a directory holding a file named *.wal.
+/// A directory holding a file named *.wal.
 fn wal_exists(dir: &Path) -> bool {
     fs::read_dir(dir).is_ok_and(|rd| {
         rd.flatten()
@@ -253,7 +250,7 @@ fn prepare(cfg: &mut Config) -> Result<MemberSpec, String> {
     Ok(s)
 }
 
-/// fileConfig: etcdFile as go-yaml's Marshal writes it.
+/// etcd's configuration file as YAML.
 fn file_config(s: &MemberSpec) -> Result<Vec<u8>, String> {
     let mut e = Encoder::new();
     e.document_start()?;
@@ -307,7 +304,7 @@ fn file_config(s: &MemberSpec) -> Result<Vec<u8>, String> {
 }
 
 /// A member to start: its client URL and the configuration file's
-/// content, the member prepared (Go's Start begins with prepare too).
+/// content, the member prepared.
 pub struct Prepared {
     pub dir: PathBuf,
     pub client_url: String,
@@ -315,8 +312,8 @@ pub struct Prepared {
     pub file: Vec<u8>,
 }
 
-/// prepare and fileConfig, for a member this process starts and stops
-/// (Go's Start, which embeds one).
+/// The member prepared and its configuration file, for a member this
+/// process starts and stops.
 pub fn prepare_start(cfg: &mut Config) -> Result<Prepared, String> {
     let s = prepare(cfg)?;
     Ok(Prepared {

@@ -4,11 +4,10 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "The armada client: commands that talk to the control plane's API, as Go's internal/cli does (ADR 0055)"
+description = "The armada client: commands that talk to the control plane's API"
 
-# The client is its own program (ADR 0027, ADR 0055): it never links what a
-# machine runs (armada-server, armada-store, armada-node, etcd), as Go's
-# TestClientDependencies keeps internal/cli apart; tests/dependencies.rs
+# The client is its own program (ADR 0027): it never links what a machine
+# runs (armada-server, armada-store, armada-node, etcd); tests/dependencies.rs
 # checks this list.
 [dependencies]
 armada-fsutil = { path = "../fsutil" }
@@ -37,10 +36,10 @@ path = "src/main.rs"
 
 [features]
 # ARMADA_CLIENT_TEST_NOW moves the client's clock (lib.rs clock_offset) for
-# the parity cases recorded from Go (tests/parity.rs): never in a release.
+# the recorded parity cases (tests/parity.rs): never in a release.
 test-hooks = []
 
-# The parity cases recorded from Go's client (ADR 0055, item 20), replayed
+# The recorded parity cases, replayed
 # against this armada and a stand-in AdminService (tonic's server, mTLS).
 [dev-dependencies]
 flate2.workspace = true
