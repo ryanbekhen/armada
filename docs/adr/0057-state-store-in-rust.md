@@ -1,6 +1,6 @@
 # 0057. The control plane's state in Armada's own store
 
-- Status: Proposed
+- Status: Accepted; step 1 (a single-member `armada-kv`) built, Raft and the move to come
 - Date: 2026-11-27
 
 ## Context
