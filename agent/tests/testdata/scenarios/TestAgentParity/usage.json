@@ -23,9 +23,6 @@
   {
    "op": "fake",
    "script": {
-    "agentStatus": {
-     "runcContainers": 0
-    },
     "checks": {},
     "digests": {},
     "execCodes": {},
@@ -147,9 +144,6 @@
   {
    "op": "fake",
    "script": {
-    "agentStatus": {
-     "runcContainers": 0
-    },
     "checks": {},
     "digests": {},
     "execCodes": {},
@@ -206,7 +200,7 @@
   },
   {
    "expect": [
-    "usage first: no rate yet {\"runtime\":{}}",
+    "usage first: no rate yet {}",
     "calls list {\"labels\":{\"armada.managed\":\"true\"}}\nstats {\"id\":\"armada-web-r1-a-1\"}\nstats {\"id\":\"armada-web-r1-b-1\"}"
    ],
    "name": "first: no rate yet",
@@ -219,9 +213,6 @@
   {
    "op": "fake",
    "script": {
-    "agentStatus": {
-     "runcContainers": 0
-    },
     "checks": {},
     "digests": {},
     "execCodes": {},
@@ -278,7 +269,7 @@
   },
   {
    "expect": [
-    "usage second: rates, the lost network asks for a restart {\"replicas\":[{\"id\":\"web-r1-a\",\"cpuMillis\":\"200\",\"memoryBytes\":\"150\",\"egressBytes\":\"20\",\"oomKills\":\"1\"}],\"runtime\":{}}",
+    "usage second: rates, the lost network asks for a restart {\"replicas\":[{\"id\":\"web-r1-a\",\"cpuMillis\":\"200\",\"memoryBytes\":\"150\",\"egressBytes\":\"20\",\"oomKills\":\"1\"}]}",
     "calls list {\"labels\":{\"armada.managed\":\"true\"}}\nstats {\"id\":\"armada-web-r1-a-1\"}\nstats {\"id\":\"armada-web-r1-b-1\"}"
    ],
    "name": "second: rates, the lost network asks for a restart",

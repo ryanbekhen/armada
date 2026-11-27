@@ -34,7 +34,7 @@ EOF
 done
 
 cp "${SHIM_BIN:-/root/armada-shim}" /usr/local/bin/armada-shim
-setsid /usr/local/bin/armada-shim serve $SOCK $STATE $BIN/runc $BIN/armada-log </dev/null >/root/shim.out 2>&1 &
+setsid /usr/local/bin/armada-shim serve $SOCK $STATE $BIN/crun $BIN/armada-log </dev/null >/root/shim.out 2>&1 &
 sleep 0.5
 SHIM=$(pgrep -x armada-shim)
 for i in 1 2 3; do
@@ -64,7 +64,7 @@ echo "unknown: $(req state nope)"
 echo "bad id: $(req create ../x /a /b)"
 for i in 1 2 3; do echo "delete c$i: $(req delete c$i)"; done
 echo "list: $(req list)"
-echo "runc list: $($BIN/runc --root $STATE/runc list -q | wc -l) containers left"
+echo "crun list: $($BIN/crun --root $STATE/crun list -q | wc -l) containers left"
 echo "armada-log left: $(pgrep -P "$SHIM" -x armada-log | wc -l)"
 # shellcheck disable=SC2009 # the state of the shim's children, not a process search
 echo "zombies under shim: $(ps -o stat= --ppid "$SHIM" | grep -c Z || true)"

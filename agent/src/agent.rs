@@ -196,8 +196,9 @@ pub(crate) struct State {
     pub network_failed: String,
     /// This node's containers in the node subnet (unpublished only).
     pub local: Option<Clients>,
-    /// The move of runc's containers to crun (ADR 0056).
-    pub crun: crate::crunmove::CrunMove,
+    /// Containers runc created, ended and created again on crun (ADR
+    /// 0056).
+    pub runc: crate::runcleft::RuncLeft,
 }
 
 /// The stream of the current session, if one is open.
@@ -511,6 +512,7 @@ impl<R: Runtime> Inner<R> {
             return Ok(None);
         };
         let containers = self.rt.list(&managed()).await?;
+        self.forget_ended(&containers);
 
         let mut by_replica: BTreeMap<String, Container> = BTreeMap::new();
         let mut strays = Vec::new();
@@ -542,8 +544,6 @@ impl<R: Runtime> Inner<R> {
             );
             self.remove(&c.id).await;
         }
-
-        let crun = self.crun_plan(&desired, &by_replica);
 
         let mut settled: Vec<pb::ReplicaState> = Vec::new();
         let mut running: Vec<Running> = Vec::new();
@@ -638,20 +638,11 @@ impl<R: Runtime> Inner<R> {
                     ok = false;
                 }
             }
-            if ok && !stopped(&c.state) && crun.draining.as_deref() == Some(id.as_str()) {
-                // runc created it (ADR 0056): out of service while the
-                // proxies learn it, its container still running.
-                settled.push(self.crun_draining(id, &c));
-                continue;
-            }
-            if ok && !stopped(&c.state) && crun.move_now.as_deref() == Some(id.as_str()) {
-                // Then created again on crun, as for a new spec.
-                self.log.info(
-                    "recreating replica on crun",
-                    &[("replica", id.clone()), ("container", c.id.clone())],
-                );
-                self.begin_crun_move(id);
-                self.remove(&c.id).await;
+            if ok && c.on_runc() {
+                // runc created it, and the runtime pack has no runc (ADR
+                // 0056): ended through its cgroup, then created again on
+                // crun, reported starting meanwhile.
+                self.end_runc_replica(id, &c).await;
                 ok = false;
             }
             if ok && (stopped(&c.state) || !crate::containers::member_down(spec, &c).is_empty()) {
@@ -720,7 +711,7 @@ impl<R: Runtime> Inner<R> {
         }
         self.apply_network().await;
         self.apply_proxy().await;
-        self.move_proxy_to_crun(crun.replicas_done);
+        self.move_proxy_to_crun();
         Ok(Some(report))
     }
 
@@ -859,7 +850,7 @@ impl<R: Runtime> Inner<R> {
 
     /// A replica whose container is being recreated: starting, not ready,
     /// no address, the old container's ID.
-    fn recreating(&self, p: &PendingStart) -> pb::ReplicaState {
+    pub(crate) fn recreating(&self, p: &PendingStart) -> pb::ReplicaState {
         let msg = lock(&self.st)
             .notes
             .get(&p.id)

@@ -1,6 +1,6 @@
 //! Commands in a running container through `armada-node runtime exec`,
-//! which becomes the parent of the container's OCI runtime (crun, or runc
-//! for a container runc created: ADR 0056) and copies its output: a
+//! which becomes the parent of the container's OCI runtime (crun: ADR
+//! 0056) and copies its output: a
 //! probe's command (output dropped after the drain's grace) and a system
 //! container's command (its whole output). The
 //! request goes on descriptor 3, the control socket is descriptor 4, and
@@ -14,7 +14,6 @@ use std::path::Path;
 use std::process::Stdio;
 use std::time::Duration;
 
-use armada_node::runtime::container::oci::OciRuntime;
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -23,8 +22,7 @@ pub struct ExecRequest<'a> {
     pub bundle: &'a str,
     pub dir: &'a str,
     pub root: &'a str,
-    /// The container's OCI runtime and its program.
-    pub runtime: OciRuntime,
+    /// crun, the OCI runtime's program.
     pub program: &'a str,
     pub id: &'a str,
     pub args: &'a [String],
@@ -118,7 +116,7 @@ pub fn run(node: &Path, r: &ExecRequest<'_>) -> Result<(i64, Vec<u8>), String> {
         "stdin": false, "stdout": r.output, "stderr": r.output,
         "drainGraceMs": grace,
         "terminalDrainGraceMs": TERMINAL_DRAIN_GRACE.as_millis() as u64,
-        "consoleSocket": console_socket(r.runtime),
+        "consoleSocket": true,
     });
     let (req_r, req_w) = pipe().map_err(|e| e.to_string())?;
     let (ctl, ctl_child) = UnixStream::pair().map_err(|e| e.to_string())?;
@@ -153,7 +151,7 @@ pub fn run(node: &Path, r: &ExecRequest<'_>) -> Result<(i64, Vec<u8>), String> {
         out
     });
     let mut control = KillOnDrop(Some(ctl.try_clone().map_err(|e| e.to_string())?));
-    let res = answers(BufReader::new(ctl), r.runtime, r.program);
+    let res = answers(BufReader::new(ctl), r.program);
     if res.is_ok() {
         // Done: nothing to kill.
         control.0 = None;
@@ -166,7 +164,7 @@ pub fn run(node: &Path, r: &ExecRequest<'_>) -> Result<(i64, Vec<u8>), String> {
 }
 
 /// The agent's side of the control socket until the session ends.
-fn answers(mut ctl: BufReader<UnixStream>, rt: OciRuntime, program: &str) -> Result<i64, String> {
+fn answers(mut ctl: BufReader<UnixStream>, program: &str) -> Result<i64, String> {
     let mut code = None;
     let mut first = true;
     let mut line = String::new();
@@ -184,8 +182,7 @@ fn answers(mut ctl: BufReader<UnixStream>, rt: OciRuntime, program: &str) -> Res
                 (true, ..) => {}
                 (_, Some(n), ..) => {
                     return Err(format!(
-                        "exec: {} exec: fork/exec {program}: {}",
-                        rt.name(),
+                        "exec: crun exec: fork/exec {program}: {}",
                         armada_node::runtime::container::errno_text(n)
                     ));
                 }
@@ -196,7 +193,7 @@ fn answers(mut ctl: BufReader<UnixStream>, rt: OciRuntime, program: &str) -> Res
             continue;
         }
         if a.not_started {
-            return Err(not_started(rt));
+            return Err(NOT_STARTED.into());
         }
         if let Some(c) = a.exit {
             code = Some(c);
@@ -211,17 +208,8 @@ fn answers(mut ctl: BufReader<UnixStream>, rt: OciRuntime, program: &str) -> Res
     code.ok_or_else(|| "exec: armada-node: ended the exec session".to_string())
 }
 
-/// Whether a terminal comes over a console socket: crun's (ADR 0056),
-/// whose own copy would leave the container's terminal without output
-/// translation; runc keeps its own copy, as before.
-fn console_socket(rt: OciRuntime) -> bool {
-    rt == OciRuntime::Crun
-}
-
-/// The error once the runtime wrote no pid in time, the runtime named.
-fn not_started(rt: OciRuntime) -> String {
-    format!("exec: {} exec did not start the process", rt.name())
-}
+/// The error once the runtime wrote no pid in time.
+const NOT_STARTED: &str = "exec: crun exec did not start the process";
 
 /// The bound on killing a process the call left running.
 pub const CLEANUP_TIMEOUT: Duration = Duration::from_secs(5);
@@ -231,8 +219,7 @@ pub struct SessionRequest {
     pub bundle: String,
     pub dir: String,
     pub root: String,
-    /// The container's OCI runtime and its program.
-    pub runtime: OciRuntime,
+    /// crun, the OCI runtime's program.
     pub program: String,
     pub id: String,
     pub args: Vec<String>,
@@ -350,7 +337,7 @@ pub async fn session(
         "stdin": opts.stdin.is_some(), "stdout": want_out, "stderr": want_out && !r.tty,
         "drainGraceMs": DRAIN_GRACE.as_millis() as u64,
         "terminalDrainGraceMs": TERMINAL_DRAIN_GRACE.as_millis() as u64,
-        "consoleSocket": console_socket(r.runtime),
+        "consoleSocket": true,
     });
     let io = |e: std::io::Error| format!("exec: armada-node: {e}");
     let (req_r, req_w) = pipe().map_err(io)?;
@@ -435,8 +422,7 @@ pub async fn session(
         Some(Some(a)) if a.exec_errno.is_some() => {
             c.exited = true;
             return Err(format!(
-                "exec: {} exec: fork/exec {}: {}",
-                r.runtime.name(),
+                "exec: crun exec: fork/exec {}: {}",
                 r.program,
                 armada_node::runtime::container::errno_text(a.exec_errno.unwrap_or_default())
             ));
@@ -498,7 +484,7 @@ pub async fn session(
         match c.next().await {
             None => return Err("exec: armada-node: ended the exec session".into()),
             Some(Some(a)) if a.not_started => {
-                return Err(not_started(r.runtime));
+                return Err(NOT_STARTED.into());
             }
             Some(Some(a)) if a.started => break,
             Some(_) => {}
@@ -574,8 +560,7 @@ mod tests {
             bundle: "/b",
             dir: "/d",
             root: "/r",
-            runtime: OciRuntime::Runc,
-            program: "/runc",
+            program: "/crun",
             id: "hap",
             args: &args,
             output: true,
@@ -588,19 +573,11 @@ mod tests {
         assert_eq!(req["args"], serde_json::json!(["haproxy", "-c"]));
         assert_eq!(req["drainGraceMs"], 0);
         assert_eq!(req["stdout"], true);
-        // runc copies its own terminal; crun hands the container's over a
-        // console socket (ADR 0056).
-        assert_eq!(req["consoleSocket"], false);
+        // crun hands the container's terminal over a console socket (ADR
+        // 0056).
+        assert_eq!(req["consoleSocket"], true);
         let bin = stand_in(&dir, "echo '{\"execErrno\":2}' >&4");
-        assert_eq!(
-            run(&bin, &r).unwrap_err(),
-            "exec: runc exec: fork/exec /runc: no such file or directory"
-        );
-        let crun = ExecRequest {
-            runtime: OciRuntime::Crun,
-            program: "/crun",
-            ..r
-        };
+        let crun = r;
         assert_eq!(
             run(&bin, &crun).unwrap_err(),
             "exec: crun exec: fork/exec /crun: no such file or directory"

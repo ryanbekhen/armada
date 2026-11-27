@@ -2,8 +2,8 @@
 //! copied, and its output drained. The process spec is the container's own
 //! (its config.json) with the arguments, terminal, and console size the
 //! exec sets, written 0600 as process.json in a directory of its own;
-//! the container's OCI runtime's exec (crun's, or runc's for a container
-//! runc created: oci.rs; called runc below) runs on a
+//! the OCI runtime's exec (crun's: oci.rs; called runc below, as the
+//! process the session waits for) runs on a
 //! pseudo-terminal (its controlling terminal, in a session of its own) or
 //! on pipes, and this process copies between them and the agent's
 //! streams, waits for runc,
@@ -47,9 +47,7 @@ pub struct ExecRequest {
     pub bundle: String,
     pub dir: String,
     pub root: String,
-    /// The container's OCI runtime (oci.rs): crun, or runc for a container
-    /// it created. Both take the same arguments (`oci_args`).
-    #[serde(alias = "runc")]
+    /// The OCI runtime's program (oci.rs): crun.
     pub runtime: String,
     pub id: String,
     #[serde(deserialize_with = "crate::runtime::nullable")]
@@ -72,7 +70,7 @@ pub struct ExecRequest {
     /// over a console socket instead of copying through one of its own
     /// (crun, ADR 0056: its own copy leaves the container's terminal
     /// without output translation and this side in raw mode, so "\n"
-    /// would reach the caller without "\r"). runc keeps its own copy.
+    /// would reach the caller without "\r").
     #[serde(rename = "consoleSocket")]
     pub console_socket: bool,
 }
@@ -216,7 +214,7 @@ pub fn process_json(config: &[u8], r: &ExecRequest) -> Result<Vec<u8>, String> {
 }
 
 /// The OCI runtime's arguments, as execProcess.Start gives them. crun
-/// and runc read them alike: the process from process.json (its terminal
+/// reads the process from process.json (its terminal
 /// and console size included; `--tty` changes nothing then), the pid
 /// written to the pid file once the process runs, and, with a terminal
 /// and no console socket, a terminal of the runtime's own whose output
@@ -1309,9 +1307,6 @@ mod tests {
         );
         console.terminal = false;
         assert_eq!(oci_args(&console).len(), 8);
-        // A request of the agent before ADR 0056 names runc by its key.
-        let r: ExecRequest = serde_json::from_str(r#"{"runc": "/bin/runc", "id": "c1"}"#).unwrap();
-        assert_eq!(r.runtime, "/bin/runc");
     }
 
     #[test]

@@ -39,7 +39,8 @@ pub const STATE_DEAD: &str = "dead";
 pub const STATE_STARTING: &str = "starting";
 
 /// The OCI runtimes a container may have been created with (ADR 0056):
-/// crun for every new one, runc for those created before.
+/// crun, and runc under a release that still carried it (such a container
+/// is ended and created again: runcleft.rs).
 pub const OCI_RUNC: &str = "runc";
 pub const OCI_CRUN: &str = "crun";
 
@@ -214,7 +215,8 @@ impl Container {
     }
 
     /// Whether runc created it or one of its init containers and
-    /// sidecars (ADR 0056): the agent moves it to crun.
+    /// sidecars (ADR 0056): the agent ends it and creates it again on
+    /// crun.
     pub fn on_runc(&self) -> bool {
         self.oci_runtime == OCI_RUNC || self.members.iter().any(|m| m.oci_runtime == OCI_RUNC)
     }
@@ -234,15 +236,6 @@ pub struct Stats {
     pub egress_bytes: i64,
     pub network_lost: bool,
     pub oom_kills: i64,
-}
-
-/// How a node runs containers.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct AgentStatus {
-    /// Containers runc created that are still on the node (ADR 0056):
-    /// app containers, their init containers and sidecars, job attempts,
-    /// and system containers.
-    pub runc_containers: i64,
 }
 
 /// A container runtime as the agent uses it. Every method may be cancelled
@@ -318,11 +311,6 @@ pub trait Runtime: Send + Sync + 'static {
         _keep: &[String],
         _grace: Duration,
     ) -> impl Future<Output = Option<Result<Vec<String>>>> + Send {
-        async { None }
-    }
-    /// How the node runs containers; None when it
-    /// does not say.
-    fn runtime_agent(&self) -> impl Future<Output = Option<AgentStatus>> + Send {
         async { None }
     }
     /// Whether it keeps network sandboxes.

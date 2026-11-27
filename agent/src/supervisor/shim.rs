@@ -27,11 +27,11 @@ pub struct Shims {
     pub dir: PathBuf,
     /// The programs a shim runs.
     pub bin: String,
-    /// The OCI runtimes (ADR 0056): crun for new containers, runc for
-    /// those it created before.
-    pub runc: String,
+    /// The OCI runtime (ADR 0056).
     pub crun: String,
     pub logger: String,
+    /// Where cgroup v2 is mounted; "" for /sys/fs/cgroup.
+    pub cgroup_root: String,
     /// The programs systemd is reached through; "" for systemd-run and
     /// systemctl (tests name stand-ins).
     pub systemd_run: String,
@@ -94,9 +94,9 @@ impl Shims {
         Request {
             dir: self.dir.display().to_string(),
             bin: self.bin.clone(),
-            runc: self.runc.clone(),
             crun: self.crun.clone(),
             logger: self.logger.clone(),
+            cgroup_root: self.cgroup_root.clone(),
             group: group.to_string(),
             systemd_run: self.systemd_run.clone(),
             systemctl: self.systemctl.clone(),
@@ -116,14 +116,6 @@ impl Shims {
         rt.root(&self.dir.join(shim::shim_name(group)))
     }
 
-    /// The OCI runtime's program.
-    pub fn program(&self, rt: OciRuntime) -> &str {
-        match rt {
-            OciRuntime::Runc => &self.runc,
-            OciRuntime::Crun => &self.crun,
-        }
-    }
-
     /// One request; the words after "ok".
     pub async fn call(&self, group: &str, words: &[&str]) -> Result<String, CallError> {
         let socket = self.socket(group);
@@ -139,6 +131,14 @@ impl Shims {
         tokio::task::spawn_blocking(move || r.start())
             .await
             .map_err(|e| e.to_string())?
+    }
+
+    /// The group's shim stopped: one of an older release left holding
+    /// only containers runc created, which it cannot delete. A failure is
+    /// ignored: the shim then only lingers, holding nothing that runs.
+    pub async fn stop(&self, group: &str) {
+        let r = self.request(group, Vec::new());
+        let _ = tokio::task::spawn_blocking(move || r.stop()).await;
     }
 
     /// Whether the shim was gone, its containers ended.
@@ -174,21 +174,18 @@ impl Shims {
         Ok(states)
     }
 
-    /// The container made from its bundle by the OCI
-    /// runtime rt, not started; its output goes to armada-log in logs. Its
-    /// process ID. runc is asked for as before ADR 0056 (no runtime word).
+    /// The container made from its bundle by crun, not started; its
+    /// output goes to armada-log in logs. Its process ID. The create names
+    /// crun, which a shim of an older release would otherwise not take for
+    /// granted.
     pub async fn create(
         &self,
         group: &str,
         id: &str,
         bundle: &str,
         logs: &str,
-        rt: OciRuntime,
     ) -> Result<i64, String> {
-        let mut words = vec!["create", id, bundle, logs];
-        if rt != OciRuntime::Runc {
-            words.push(rt.name());
-        }
+        let words = ["create", id, bundle, logs, OciRuntime::Crun.name()];
         let out = self.call(group, &words).await.map_err(|e| text(&e))?;
         atoi(&out).ok_or_else(|| format!("invalid number {}", armada_pki::go_quote(&out)))
     }

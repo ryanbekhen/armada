@@ -17526,9 +17526,6 @@ impl serde::Serialize for NodeStatus {
         if self.relay_pinned {
             len += 1;
         }
-        if self.runtime.is_some() {
-            len += 1;
-        }
         let mut struct_ser = serializer.serialize_struct("armada.v1.NodeStatus", len)?;
         if !self.id.is_empty() {
             struct_ser.serialize_field("id", &self.id)?;
@@ -17585,9 +17582,6 @@ impl serde::Serialize for NodeStatus {
         if self.relay_pinned {
             struct_ser.serialize_field("relayPinned", &self.relay_pinned)?;
         }
-        if let Some(v) = self.runtime.as_ref() {
-            struct_ser.serialize_field("runtime", v)?;
-        }
         struct_ser.end()
     }
 }
@@ -17622,7 +17616,6 @@ impl<'de> serde::Deserialize<'de> for NodeStatus {
             "relay",
             "relay_pinned",
             "relayPinned",
-            "runtime",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -17644,7 +17637,6 @@ impl<'de> serde::Deserialize<'de> for NodeStatus {
             BehindNat,
             Relay,
             RelayPinned,
-            Runtime,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -17683,7 +17675,6 @@ impl<'de> serde::Deserialize<'de> for NodeStatus {
                             "behindNat" | "behind_nat" => Ok(GeneratedField::BehindNat),
                             "relay" => Ok(GeneratedField::Relay),
                             "relayPinned" | "relay_pinned" => Ok(GeneratedField::RelayPinned),
-                            "runtime" => Ok(GeneratedField::Runtime),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -17720,7 +17711,6 @@ impl<'de> serde::Deserialize<'de> for NodeStatus {
                 let mut behind_nat__ = None;
                 let mut relay__ = None;
                 let mut relay_pinned__ = None;
-                let mut runtime__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Id => {
@@ -17833,12 +17823,6 @@ impl<'de> serde::Deserialize<'de> for NodeStatus {
                             }
                             relay_pinned__ = Some(map_.next_value()?);
                         }
-                        GeneratedField::Runtime => {
-                            if runtime__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("runtime"));
-                            }
-                            runtime__ = map_.next_value()?;
-                        }
                     }
                 }
                 Ok(NodeStatus {
@@ -17859,7 +17843,6 @@ impl<'de> serde::Deserialize<'de> for NodeStatus {
                     behind_nat: behind_nat__.unwrap_or_default(),
                     relay: relay__.unwrap_or_default(),
                     relay_pinned: relay_pinned__.unwrap_or_default(),
-                    runtime: runtime__,
                 })
             }
         }
@@ -25460,100 +25443,6 @@ impl<'de> serde::Deserialize<'de> for RunJobResponse {
         deserializer.deserialize_struct("armada.v1.RunJobResponse", FIELDS, GeneratedVisitor)
     }
 }
-impl serde::Serialize for RuntimeStatus {
-    #[allow(deprecated)]
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        use serde::ser::SerializeStruct;
-        let mut len = 0;
-        if self.runc_containers != 0 {
-            len += 1;
-        }
-        let mut struct_ser = serializer.serialize_struct("armada.v1.RuntimeStatus", len)?;
-        if self.runc_containers != 0 {
-            struct_ser.serialize_field("runcContainers", &self.runc_containers)?;
-        }
-        struct_ser.end()
-    }
-}
-impl<'de> serde::Deserialize<'de> for RuntimeStatus {
-    #[allow(deprecated)]
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        const FIELDS: &[&str] = &[
-            "runc_containers",
-            "runcContainers",
-        ];
-
-        #[allow(clippy::enum_variant_names)]
-        enum GeneratedField {
-            RuncContainers,
-        }
-        impl<'de> serde::Deserialize<'de> for GeneratedField {
-            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
-            where
-                D: serde::Deserializer<'de>,
-            {
-                struct GeneratedVisitor;
-
-                impl serde::de::Visitor<'_> for GeneratedVisitor {
-                    type Value = GeneratedField;
-
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                        write!(formatter, "expected one of: {:?}", &FIELDS)
-                    }
-
-                    #[allow(unused_variables)]
-                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
-                    where
-                        E: serde::de::Error,
-                    {
-                        match value {
-                            "runcContainers" | "runc_containers" => Ok(GeneratedField::RuncContainers),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
-                        }
-                    }
-                }
-                deserializer.deserialize_identifier(GeneratedVisitor)
-            }
-        }
-        struct GeneratedVisitor;
-        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = RuntimeStatus;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct armada.v1.RuntimeStatus")
-            }
-
-            fn visit_map<V>(self, mut map_: V) -> std::result::Result<RuntimeStatus, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
-            {
-                let mut runc_containers__ = None;
-                while let Some(k) = map_.next_key()? {
-                    match k {
-                        GeneratedField::RuncContainers => {
-                            if runc_containers__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("runcContainers"));
-                            }
-                            runc_containers__ = 
-                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
-                        }
-                    }
-                }
-                Ok(RuntimeStatus {
-                    runc_containers: runc_containers__.unwrap_or_default(),
-                })
-            }
-        }
-        deserializer.deserialize_struct("armada.v1.RuntimeStatus", FIELDS, GeneratedVisitor)
-    }
-}
 impl serde::Serialize for SandboxQueue {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -29713,9 +29602,6 @@ impl serde::Serialize for UsageReport {
         if !self.unreachable_peers.is_empty() {
             len += 1;
         }
-        if self.runtime.is_some() {
-            len += 1;
-        }
         let mut struct_ser = serializer.serialize_struct("armada.v1.UsageReport", len)?;
         if !self.replicas.is_empty() {
             struct_ser.serialize_field("replicas", &self.replicas)?;
@@ -29763,9 +29649,6 @@ impl serde::Serialize for UsageReport {
         if !self.unreachable_peers.is_empty() {
             struct_ser.serialize_field("unreachablePeers", &self.unreachable_peers)?;
         }
-        if let Some(v) = self.runtime.as_ref() {
-            struct_ser.serialize_field("runtime", v)?;
-        }
         struct_ser.end()
     }
 }
@@ -29799,7 +29682,6 @@ impl<'de> serde::Deserialize<'de> for UsageReport {
             "peersChecked",
             "unreachable_peers",
             "unreachablePeers",
-            "runtime",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -29818,7 +29700,6 @@ impl<'de> serde::Deserialize<'de> for UsageReport {
             NetworkSwitch,
             PeersChecked,
             UnreachablePeers,
-            Runtime,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -29854,7 +29735,6 @@ impl<'de> serde::Deserialize<'de> for UsageReport {
                             "networkSwitch" | "network_switch" => Ok(GeneratedField::NetworkSwitch),
                             "peersChecked" | "peers_checked" => Ok(GeneratedField::PeersChecked),
                             "unreachablePeers" | "unreachable_peers" => Ok(GeneratedField::UnreachablePeers),
-                            "runtime" => Ok(GeneratedField::Runtime),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -29888,7 +29768,6 @@ impl<'de> serde::Deserialize<'de> for UsageReport {
                 let mut network_switch__ = None;
                 let mut peers_checked__ = None;
                 let mut unreachable_peers__ = None;
-                let mut runtime__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Replicas => {
@@ -29979,12 +29858,6 @@ impl<'de> serde::Deserialize<'de> for UsageReport {
                             }
                             unreachable_peers__ = Some(map_.next_value()?);
                         }
-                        GeneratedField::Runtime => {
-                            if runtime__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("runtime"));
-                            }
-                            runtime__ = map_.next_value()?;
-                        }
                     }
                 }
                 Ok(UsageReport {
@@ -30002,7 +29875,6 @@ impl<'de> serde::Deserialize<'de> for UsageReport {
                     network_switch: network_switch__,
                     peers_checked: peers_checked__.unwrap_or_default(),
                     unreachable_peers: unreachable_peers__.unwrap_or_default(),
-                    runtime: runtime__,
                 })
             }
         }

@@ -39,6 +39,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use armada_node::runtime::container::bundle::{self, Record};
+use armada_node::runtime::container::cgroup;
 use armada_node::runtime::container::mount::Mount;
 use armada_node::runtime::container::oci::OciRuntime;
 use armada_node::runtime::container::shim::CallError;
@@ -51,10 +52,10 @@ use tokio::sync::watch;
 use crate::haproxy::engine::{SystemRunner, SystemSpec};
 use crate::log::Logger;
 use crate::runtime::{
-    self, AgentStatus, Container, ContainerSpec, Error, Image, LABEL_APP, LABEL_CONTAINER,
-    LABEL_REPLICA, LABEL_REVISION, LABEL_ROLE, LABEL_SYSTEM, Member, MemberSpec, ROLE_INIT,
-    ROLE_SIDECAR, RegistryAuth, Runtime, STATE_CREATED, STATE_DEAD, STATE_EXITED, STATE_RUNNING,
-    STATE_STARTING, Stats,
+    self, Container, ContainerSpec, Error, Image, LABEL_APP, LABEL_CONTAINER, LABEL_REPLICA,
+    LABEL_REVISION, LABEL_ROLE, LABEL_SYSTEM, Member, MemberSpec, ROLE_INIT, ROLE_SIDECAR,
+    RegistryAuth, Runtime, STATE_CREATED, STATE_DEAD, STATE_EXITED, STATE_RUNNING, STATE_STARTING,
+    Stats,
 };
 use host::Host;
 use shim::{Shims, TaskState};
@@ -198,6 +199,25 @@ fn other(e: impl Into<String>) -> Error {
 }
 
 /// Random bytes as hex.
+/// Whether runc created the container (its record names runc, or no
+/// runtime: ADR 0056). An unknown name is not runc's.
+fn is_runc(rec: &Record) -> bool {
+    OciRuntime::of_record(&rec.runtime) == Ok(OciRuntime::Runc)
+}
+
+/// crun, the container's runtime; an error for one runc created, which
+/// nothing but its end and removal reach (ADR 0056).
+fn crun_of(rec: &Record) -> Result<OciRuntime, String> {
+    match OciRuntime::of_record(&rec.runtime) {
+        Ok(OciRuntime::Crun) => Ok(OciRuntime::Crun),
+        Ok(OciRuntime::Runc) => Err(format!(
+            "container {} was created by runc, which this release does not carry; the agent creates it again on crun",
+            rec.id
+        )),
+        Err(e) => Err(format!("container {}: {e}", rec.id)),
+    }
+}
+
 fn random_hex(n: usize) -> String {
     let mut b = vec![0u8; n];
     let mut got = 0;
@@ -497,9 +517,13 @@ impl Supervisor {
         let shims = Shims {
             dir: cfg.run_dir.join("shim"),
             bin: bin.join("armada-shim").display().to_string(),
-            runc: bin.join("runc").display().to_string(),
             crun: bin.join("crun").display().to_string(),
             logger: logger.display().to_string(),
+            cgroup_root: if cfg.cgroup_root.as_os_str().is_empty() {
+                String::new()
+            } else {
+                cfg.cgroup_root.display().to_string()
+            },
             systemd_run: cfg.systemd_run.clone(),
             systemctl: cfg.systemctl.clone(),
         };
@@ -898,7 +922,7 @@ impl Inner {
             labels: labels.clone(),
             spec: raw,
             mounts,
-            runtime: OciRuntime::NEW.record_value(),
+            runtime: OciRuntime::Crun.name().to_string(),
         };
         let host = self.cfg.host.clone();
         match bundle::create_with(&req, &|m: &[Mount], t: &Path| host.mount_all(m, t)) {
@@ -1026,8 +1050,7 @@ impl Inner {
     /// The process created in the group's shim, not
     /// started.
     async fn new_task(&self, rec: &Record) -> Result<i64, String> {
-        let rt = OciRuntime::of_record(&rec.runtime)
-            .map_err(|e| format!("create task: container {}: {e}", rec.id))?;
+        crun_of(rec).map_err(|e| format!("create task: {e}"))?;
         self.shims.start(&rec.group).await?;
         self.shims
             .create(
@@ -1035,7 +1058,6 @@ impl Inner {
                 &rec.id,
                 &self.bundle_dir(&rec.id).display().to_string(),
                 &self.logs().display().to_string(),
-                rt,
             )
             .await
             .map_err(|e| format!("create task: {e}"))
@@ -1083,6 +1105,32 @@ impl Inner {
         }
     }
 
+    /// SIGKILL to every process of the container: `kill --all` through
+    /// its shim on crun, and through its cgroup for a container runc
+    /// created (ADR 0056), as the pack has no runc.
+    async fn kill_all(&self, rec: &Record) -> Result<(), KillError> {
+        if is_runc(rec) {
+            return self.end_runc(rec).await.map_err(KillError::Other);
+        }
+        self.kill(rec, libc::SIGKILL, true).await
+    }
+
+    /// A container runc created (ADR 0056) ended without runc: every
+    /// process in its cgroup (the spec's cgroupsPath, else Armada's own
+    /// /armada/<ID>) killed and the cgroup removed (cgroup.rs).
+    async fn end_runc(&self, rec: &Record) -> Result<(), String> {
+        let config = fs::read(self.bundle_dir(&rec.id).join("config.json")).unwrap_or_default();
+        let path = cgroup::spec_cgroups_path(&config)
+            .unwrap_or_else(|| format!("{CGROUP_PARENT}/{}", rec.id));
+        let root = self.cgroup_root();
+        let id = rec.id.clone();
+        tokio::task::spawn_blocking(move || cgroup::end(&root, &path, cgroup::END_WAIT))
+            .await
+            .map_err(|e| e.to_string())?
+            .map(|_| ())
+            .map_err(|e| format!("end container {id} runc created: {e}"))
+    }
+
     /// containerd's WithProcessKill: SIGKILL to every process, then the
     /// exit awaited.
     async fn kill_and_wait(&self, rec: &Record) -> Result<(), String> {
@@ -1093,7 +1141,7 @@ impl Inner {
         if first.is_ok() {
             return Ok(());
         }
-        match self.kill(rec, libc::SIGKILL, true).await {
+        match self.kill_all(rec).await {
             Ok(()) | Err(KillError::NotFound) => {
                 let _ = wait.await;
                 Ok(())
@@ -1643,6 +1691,9 @@ impl Inner {
     /// SIGTERM, SIGKILL after grace; a task created but
     /// never started is deleted.
     async fn stop_container(&self, rec: &Record, grace: Duration) -> Result<(), String> {
+        if is_runc(rec) {
+            return self.stop_runc_container(rec, grace).await;
+        }
         let Some(st) = self.task(rec).await? else {
             return Ok(());
         };
@@ -1665,12 +1716,31 @@ impl Inner {
         if tokio::time::timeout(grace, &mut wait).await.is_ok() {
             return Ok(());
         }
-        match self.kill(rec, libc::SIGKILL, true).await {
+        match self.kill_all(rec).await {
             Ok(()) | Err(KillError::NotFound) => {}
             Err(KillError::Precondition(e) | KillError::Other(e)) => return Err(e),
         }
         let _ = wait.await;
         Ok(())
+    }
+
+    /// A container runc created (ADR 0056) stopped without runc: SIGTERM
+    /// through its shim (which signals the process itself) while it
+    /// runs, then, after grace, every process ended through its cgroup.
+    async fn stop_runc_container(&self, rec: &Record, grace: Duration) -> Result<(), String> {
+        if !grace.is_zero()
+            && let Ok(Some(st)) = self.task(rec).await
+            && st.status == "running"
+        {
+            let wait = self.shims.wait(&rec.group, &rec.id);
+            tokio::pin!(wait);
+            if self.kill(rec, libc::SIGTERM, false).await.is_ok()
+                && tokio::time::timeout(grace, &mut wait).await.is_ok()
+            {
+                return Ok(());
+            }
+        }
+        self.end_runc(rec).await
     }
 
     async fn stop(&self, id: &str, grace: Duration) -> Result<(), Error> {
@@ -1703,6 +1773,9 @@ impl Inner {
     /// and logs.
     async fn remove_container(self: &Arc<Self>, rec: &Record) -> Result<(), Error> {
         let id = &rec.id;
+        if is_runc(rec) {
+            return self.remove_runc_container(rec).await;
+        }
         if let Some(st) = self.task(rec).await.map_err(other)? {
             let kill = st.status != "exited";
             let mut res = self.delete_task(rec, kill, st.pid).await;
@@ -1727,6 +1800,52 @@ impl Inner {
                 .await
                 .map_err(|e| other(format!("container network: {e}")))?;
         }
+        self.remove_files(rec).await
+    }
+
+    /// A container runc created (ADR 0056), removed without runc: its
+    /// processes ended through its cgroup, its shim asked to forget it
+    /// (an older release's shim then fails to run runc, and is stopped
+    /// once its group has no container left), runc's state of it
+    /// removed, then its network, bundle, root filesystem, files, and
+    /// logs as for any container.
+    async fn remove_runc_container(self: &Arc<Self>, rec: &Record) -> Result<(), Error> {
+        let id = &rec.id;
+        self.end_runc(rec).await.map_err(other)?;
+        let mut shim_left = false;
+        if let Ok(Some(_)) = self.task(rec).await
+            && let Err(Some(_)) = self.delete_task(rec, false, 0).await
+        {
+            shim_left = true;
+        }
+        let state = self.shims.root(&rec.group, OciRuntime::Runc).join(id);
+        match fs::remove_dir_all(&state) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                return Err(other(os_err("unlinkat", &state, &e)));
+            }
+            _ => {}
+        }
+        if label(&rec.labels, LABEL_KIND) == KIND_APP {
+            self.net
+                .teardown(
+                    id,
+                    label(&rec.labels, LABEL_NETNS),
+                    mapping(&rec.labels).as_ref(),
+                )
+                .await
+                .map_err(|e| other(format!("container network: {e}")))?;
+        }
+        self.remove_files(rec).await?;
+        if shim_left && !self.records().await?.iter().any(|r| r.group == rec.group) {
+            self.shims.stop(&rec.group).await;
+        }
+        Ok(())
+    }
+
+    /// The bundle, root filesystem, SELinux label, files, and logs of a
+    /// container whose task is gone.
+    async fn remove_files(self: &Arc<Self>, rec: &Record) -> Result<(), Error> {
+        let id = &rec.id;
         let spec = fs::read(self.bundle_dir(id).join("config.json")).unwrap_or_default();
         self.delete_container(id).await.map_err(other)?;
         // An init container or sidecar has its replica's label, which the
@@ -1898,14 +2017,12 @@ impl Inner {
         if self.task(&rec).await.map_err(other)?.is_none() {
             return Err(Error::NotFound);
         }
-        let rt = OciRuntime::of_record(&rec.runtime)
-            .map_err(|e| other(format!("container {id}: {e}")))?;
+        let rt = crun_of(&rec).map_err(other)?;
         let req = exec::SessionRequest {
             bundle: self.bundle_dir(&rec.id).display().to_string(),
             dir: self.exec_dir(&rec).display().to_string(),
             root: self.shims.root(&rec.group, rt).display().to_string(),
-            runtime: rt,
-            program: self.shims.program(rt).to_string(),
+            program: self.shims.crun.clone(),
             id: rec.id.clone(),
             args: opts.cmd.clone(),
             tty: opts.tty,
@@ -1927,15 +2044,14 @@ impl Inner {
         if self.task(rec).await.map_err(other)?.is_none() {
             return Err(Error::NotFound);
         }
-        let rt = OciRuntime::of_record(&rec.runtime)
-            .map_err(|e| other(format!("container {}: {e}", rec.id)))?;
+        let rt = crun_of(rec).map_err(other)?;
         let dir = self.exec_dir(rec);
         let node = self.bin.join("armada-node");
         let (bundle, dir, root, program, id, args) = (
             self.bundle_dir(&rec.id).display().to_string(),
             dir.display().to_string(),
             self.shims.root(&rec.group, rt).display().to_string(),
-            self.shims.program(rt).to_string(),
+            self.shims.crun.clone(),
             rec.id.clone(),
             cmd.to_vec(),
         );
@@ -1946,7 +2062,6 @@ impl Inner {
                     bundle: &bundle,
                     dir: &dir,
                     root: &root,
-                    runtime: rt,
                     program: &program,
                     id: &id,
                     args: &args,
@@ -2294,19 +2409,6 @@ impl Runtime for Supervisor {
         grace: Duration,
     ) -> Option<runtime::Result<Vec<String>>> {
         Some(self.inner.prune(keep, grace).await)
-    }
-
-    async fn runtime_agent(&self) -> Option<AgentStatus> {
-        let mut st = AgentStatus::default();
-        // What runc created and the agent has not moved to crun yet (ADR
-        // 0056); a listing that fails counts none.
-        if let Ok(recs) = self.inner.records().await {
-            st.runc_containers = recs
-                .iter()
-                .filter(|r| OciRuntime::of_record(&r.runtime) == Ok(OciRuntime::Runc))
-                .count() as i64;
-        }
-        Some(st)
     }
 }
 

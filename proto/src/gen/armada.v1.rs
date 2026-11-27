@@ -1657,10 +1657,6 @@ pub struct NodeStatus {
     pub relay: bool,
     #[prost(bool, tag = "17")]
     pub relay_pinned: bool,
-    /// How the node runs containers, from its latest report; unset without
-    /// a recent one.
-    #[prost(message, optional, tag = "18")]
-    pub runtime: ::core::option::Option<RuntimeStatus>,
 }
 #[allow(clippy::all)]
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
@@ -2088,19 +2084,6 @@ pub struct UsageReport {
     pub peers_checked: bool,
     #[prost(string, repeated, tag = "14")]
     pub unreachable_peers: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
-    /// How the node runs containers.
-    #[prost(message, optional, tag = "16")]
-    pub runtime: ::core::option::Option<RuntimeStatus>,
-}
-/// RuntimeStatus is how a node runs containers.
-#[allow(clippy::all)]
-#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct RuntimeStatus {
-    /// Containers runc created that are still on the node (ADR 0056): the
-    /// agent moves them to crun one replica at a time, HAProxy last; job
-    /// attempts end on runc and leave with their history.
-    #[prost(int32, tag = "6")]
-    pub runc_containers: i32,
 }
 /// NetworkSwitchStatus is a node's side of a switch between the plain and
 /// wireguard modes (ADR 0050).

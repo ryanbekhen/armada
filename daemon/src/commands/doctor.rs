@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, UNIX_EPOCH};
 
-use armada_agent::runtime::{AgentStatus, Runtime};
+use armada_agent::runtime::Runtime;
 use armada_agent::supervisor::selinux::{Selinux, State as SelinuxState};
 use armada_agent::supervisor::{self, Supervisor, host::LinuxHost};
 use armada_client::cli::{Ctx, Error, Result};
@@ -333,9 +333,6 @@ async fn check_runtime(env: &Env) -> Vec<Check> {
             "supervisor runtime ready (armada-shim, no containerd)",
         )),
     }
-    if let Some(st) = rt.runtime_agent().await {
-        out.extend(runc_check(&st));
-    }
     out.push(bridge_check(
         rt.bridge().gateway,
         &rt.bridge().subnet.to_string(),
@@ -360,22 +357,6 @@ fn containerd_check(env: &Env) -> Vec<Check> {
         )];
     }
     vec![check("runtime", FAIL, agentconfig::CONTAINERD_NODE)]
-}
-
-/// The containers runc created that the agent has not moved to crun yet
-/// (ADR 0056).
-pub fn runc_check(st: &AgentStatus) -> Vec<Check> {
-    if st.runc_containers <= 0 {
-        return Vec::new();
-    }
-    vec![check(
-        "runc",
-        WARN,
-        format!(
-            "{} containers still run on runc; the agent moves them to crun (ADR 0056): replicas one at a time, the proxy last, job attempts once they end and leave the history. The next release's runtime pack has no runc: upgrade to it once this check is gone",
-            st.runc_containers
-        ),
-    )]
 }
 
 /// The container bridge's gateway must be private.
@@ -1300,22 +1281,6 @@ fn check_release(env: &Env) -> Option<Check> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn runc_containers_warn() {
-        let one = |n: i64| {
-            runc_check(&AgentStatus { runc_containers: n })
-                .into_iter()
-                .map(|c| format!("{} {}", c.status, c.detail))
-                .collect::<Vec<_>>()
-        };
-        assert!(one(0).is_empty());
-        let r = one(3);
-        assert_eq!(r.len(), 1);
-        assert!(
-            r[0].starts_with("warn 3 containers still run on runc; the agent moves them to crun")
-        );
-    }
 
     #[test]
     fn bridges_must_be_private() {

@@ -505,14 +505,6 @@ impl Fake {
                 );
                 Ok(Value::Null)
             }
-            "runtimeAgent" => {
-                let a = &sc["agentStatus"];
-                Ok(if a.is_object() {
-                    json!({"runcContainers": int(&a["runcContainers"])})
-                } else {
-                    Value::Null
-                })
-            }
             _ => self.answer_more(st, &sc, method, c),
         }
     }
