@@ -52,7 +52,7 @@ scale:
   to. CPU is a percentage of the replica's CPU reservation, and memory a
   percentage of its memory limit.
 - **Requests.** The agent also reads its proxy every 10 seconds through the
-  optional `proxy.LoadReader`. HAProxy reports this through the Runtime API
+  proxy driver. HAProxy reports this through the Runtime API
   as `show stat`: current sessions plus the queue, per server slot, mapped
   back to replicas.
   - The agent sends these counts for every replica its proxy routes to, in

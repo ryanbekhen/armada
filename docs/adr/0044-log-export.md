@@ -42,7 +42,7 @@ endpoint the cluster names, as well as keeping it on disk.
 
 ### On the node
 
-- The runtime (`runtime.LogTailer`, embedded: `embedded.TailLogs`) reads
+- The runtime reads
   what app containers wrote since the last round, from the same files the
   history keeps, and remembers per container where it stopped (inode and
   offset, and the time of the last entry) in
@@ -68,18 +68,16 @@ endpoint the cluster names, as well as keeping it on disk.
   `host.name` (node), `container.name`, and the same names under
   `armada.*`; each line has `log.iostream`. No severity is guessed.
 - The runtime pack's `armada-log` (ADR 0011) reads and renders the
-  output: `embedded.TailLogsWith` works out where each container's output
-  starts, as above, and runs `armada-log export` (`logger/src/export.rs`)
+  output: the agent works out where each container's output starts, as
+  above, and runs `armada-log export` (`logger/src/export.rs`)
   once per round with those files, the budget, and the format; it reads
-  the lines and writes each request's JSON, and armadad compresses and
+  the lines and writes each request's JSON, and the agent compresses and
   sends them, then moves the cursors to where it says it stopped. On 19
-  MiB of JSON output lines, reading and rendering take about 0.17 s
-  instead of 0.7 to 0.9 s in Go (OTLP alike); a JSON string as the
-  writers store it is copied as it is instead of decoded and encoded
-  again. Go's `embedded.TailLogs` and `logexport.Encode` stay the
-  reference, and a Go test (`TestArmadaLogExportMatchesGo`) compares the
-  requests byte for byte and the cursors; Go reads and renders when the
-  pack has no `armada-log` or it fails.
+  MiB of JSON output lines, reading and rendering take about 0.17 s (OTLP
+  alike); a JSON string as the writers store it is copied as it is
+  instead of decoded and encoded again. The agent reads and renders
+  itself (`agent/src/side/logexport.rs`) when the pack has no
+  `armada-log` or it fails.
 - System containers (HAProxy) have no meta file and are not sent.
 - Usage reports carry `LogExportStatus`; the leader records a
   `LogExportFailing` condition event per node with the reason (never the

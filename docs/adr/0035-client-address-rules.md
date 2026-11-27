@@ -89,12 +89,12 @@ on every request:
    frontend on their node's addresses, from the cluster CIDR (or the default
    bridge subnet, `10.121.0.0/24`, on a cluster without a cluster network).
    The leader takes those addresses out of the trusted prefixes before they
-   reach the proxies (`proxy.ExcludePrefixes`), so a broad range such as
+   reach the proxies, so a broad range such as
    `10.0.0.0/8` trusts the load balancers in it but no container. A prefix
    that holds only container addresses is refused.
 8. **Apps get it as `X-Real-IP`.** The frontend removes `X-Real-IP` from
-   every request, a trusted proxy's included, and sets it to `txn.client`
-   (`proxy.ClientIPHeader`), so an app reads one header instead of working
+   every request, a trusted proxy's included, and sets it to `txn.client`,
+   so an app reads one header instead of working
    out `X-Forwarded-For` itself, and what it reads is the address the rules
    judge. An unknown client (point 5) leaves no `X-Real-IP`. The internal
    frontend sets none: its callers are containers.

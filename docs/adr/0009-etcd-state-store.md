@@ -1,4 +1,4 @@
-# 0009. Embedded etcd as the state store
+# 0009. etcd as the state store
 
 - Status: Accepted
 - Date: 2026-10-31
@@ -6,8 +6,8 @@
 
 ## Context
 
-The control plane needs a state store that ships inside the Armada binary
-(no external database to install) and does not need CGO. A single control
+The control plane needs a state store that ships with Armada (no external
+database to install). A single control
 plane is a single point of failure: when its machine is gone, nothing can
 be deployed, scaled, or rescheduled until it is restored from a backup. The
 goal is a platform that can run with one server and survive the loss of a
@@ -17,15 +17,16 @@ partition and never accept two different histories.
 
 ## Decision
 
-The state lives in **etcd, embedded in `armadad server`** (`go.etcd.io/etcd`
-v3.7), behind the `store.Store` interface.
+The state lives in **etcd** (v3.7), pinned in the runtime pack and run by
+`armadad` as `armada-etcd.service` on server machines (ADR 0055), behind
+the store crate (`store/`).
 
 - etcd is a widely deployed Raft-replicated key-value store with a watch
   API, consistent snapshots, and membership changes, and a single member is
   fast enough for the control plane. Writing and maintaining our own Raft
   layer would be the riskiest code in the space.
-- Embedded, not a separate service: `armadad` runs it, so there is nothing
-  else to install. The member lives in `<data-dir>/etcd/` (`0700`).
+- Shipped with Armada, not installed separately: `armadad` carries it in
+  its runtime pack and runs it, so there is nothing else to install. The member lives in `<data-dir>/etcd/` (`0700`).
 - One server runs a single-member cluster; three (or five) servers form an
   HA cluster that tolerates the loss of one (or two). One server is
   supported; three are recommended for production.

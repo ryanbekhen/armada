@@ -24,7 +24,7 @@ verification, ACME issuance and renewal, the HTTP-01 responder, and the
 promotion of joining members. The others only run their etcd member and
 their node's agent; their API port is closed.
 
-- A new term starts with a fresh `server.Server`: in-memory state (agent
+- A new term starts with a fresh server (`armada-server`'s `Server`): in-memory state (agent
   sessions, rollout progress) never crosses terms.
 - Nodes recorded as ready but not connected to the new leader are set to
   `unknown`, last seen at the start of the term. A node that died together
@@ -98,8 +98,8 @@ nothing.
 - etcd listens on the server's private IP (client 2379, peer 2380) from
   the first server on, so a cluster can grow without restarting the first
   member. A member whose address changed updates its peer URL on start.
-- Every member certificate carries one shared identity, `etcd:member`
-  (`pki.EtcdMember`), and etcd accepts only that common name from the
+- Every member certificate carries one shared identity, `etcd:member`,
+  and etcd accepts only that common name from the
   cluster CA. A new server therefore needs no change on the existing
   members. The Armada API never authorizes this identity.
 - etcd checks that a peer connects from an address its certificate names.
@@ -109,11 +109,11 @@ nothing.
 
 ### Certificates in etcd
 
-certmagic's storage (ACME account, certificates, keys, challenge tokens,
+The certificate storage (ACME account, certificates, keys, challenge tokens,
 locks) moves from `<data-dir>/certs` into etcd under `/armada-acme/`
-(`certs.EtcdStorage`), with locks as lease-backed etcd mutexes. A new
+(`server/src/certs.rs`), with locks as lease-backed etcd mutexes. A new
 leader serves and renews the same certificates without issuing new ones,
-and backups (etcd snapshots) contain them. Only the leader runs certmagic;
+and backups (etcd snapshots) contain them. Only the leader runs the certificate manager;
 a node that loses leadership stops its certificate cache.
 
 ## Alternatives considered

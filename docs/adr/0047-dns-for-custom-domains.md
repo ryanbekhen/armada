@@ -41,18 +41,17 @@ ingress:
   rollback brings the old one back. It never reaches the app: `envFrom:
   secrets` leaves it out.
 - On each pass the leader opens the token the active revision pins
-  (`Server.appDNS`, through the revision cache that keeps opened secrets in
+  (through the revision cache that keeps opened secrets in
   memory only) and hands every verified custom domain of the app to the
-  certificate manager with it (`certs.Manager.Manage(..., dns)`). The
+  certificate manager with it. The
   app's host under the root domain keeps the cluster's provider. When two
   apps of a space serve one domain, the first that names credentials for
   it is used.
 - The certificate manager makes one DNS-01 solver per distinct token
-  (`certs.Options.NewProvider`, keyed by a SHA-256 of provider and token,
-  `certs.DNS.Key`), shared by the names that use it and kept while any
+  (keyed by a SHA-256 of provider and token), shared by the names that use it and kept while any
   does. A name whose credentials change starts over with the new ones;
   issued certificates stay valid. A name whose provider cannot be made
-  keeps HTTP-01. `certs.DNS` redacts its token when printed or logged.
+  keeps HTTP-01. The credentials redact their token when printed or logged.
 - A token the leader cannot open is a `DNSTokenUnavailable` condition on
   the app; its domains keep HTTP-01.
 - Ownership is unchanged: a custom domain is routed and gets a certificate

@@ -41,7 +41,7 @@ SMTP. Nothing runs besides Armada, and agents are unchanged.
 
 ### What is sent
 
-- A channel gets the events whose reason needs a person (`alert.Warning`:
+- A channel gets the events whose reason needs a person (warnings:
   `Lost`, `Crashed`, `OutOfMemory`, `Failed`, `Unschedulable`,
   `MostUnreachable`, `ReconcileFailed`, `ProxyNotUpdated`, `AddressConflict`,
   `RouteConflict`, `DNSTokenUnavailable`,

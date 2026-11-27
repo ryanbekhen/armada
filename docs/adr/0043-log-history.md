@@ -6,7 +6,7 @@
 ## Context
 
 Each container's output is stored on its node as JSON lines, rotated at
-`runtime.LogMaxSize` × `LogMaxFiles` (ADR 0011). `armada app logs` reads the
+10 MB × 3 files (ADR 0011). `armada app logs` reads the
 containers that still exist. A container recreated by a deploy, a crash, a
 probe, or a move takes its output with it, and a busy container keeps only
 its last 30 MB. Finding what an app printed when something went wrong an
@@ -29,7 +29,7 @@ app logs` searches it across the cluster. No database is added.
   `armadad runtime-log`; ADR 0011) moves it into
   history as `<id>.<unix nanoseconds>.log` instead of deleting it. When a
   container with a meta file is removed, its live files move there too.
-- The agent prunes history every minute (`runtime.LogPruner`): files older
+- The agent prunes history every minute: files older
   than the retention go first, then the oldest files until history fits its
   size; a meta file goes once no log file of its container is left and the
   container is gone. Retention defaults to 7 days; the size to 10% of the
@@ -45,18 +45,16 @@ app logs` searches it across the cluster. No database is added.
   entries in the window (`LogRequest.query`). `--grep` matches plain text,
   ignoring case; it is never a regular expression.
 - Each node reads its history and live files of the app's containers
-  (`runtime.LogSearcher`), keeps the newest `limit` matching entries, and
+  (`agent/src/supervisor/history.rs`), keeps the newest `limit` matching entries, and
   sends them oldest first with their time and replica. A node reads at
-  most `maxSearchBytes` (1 GiB) per search, and stops after 30 seconds;
+  most `MAX_SEARCH_BYTES` (1 GiB) per search, and stops after 30 seconds;
   either way it says so in a final notice. It runs at most 2 searches at
   once and answers more with a notice. The agent picks the files; the
   runtime pack's `armada-log search` reads them (`logger/src/search.rs`,
   standard library only), deciding most lines outside the window from
-  the time at their end, and armadad's own reader does when the pack has
-  none, the grep is not ASCII, or the program fails. A Go test compares
-  both on the same files. Measured on 256 MiB of one app's output: the
-  whole file in 0.3–0.5 s instead of 2.3 s, and the last minutes of it in
-  0.1–0.15 s instead of 2 s.
+  the time at their end, and the agent's own reader does when the pack has
+  none, the grep is not ASCII, or the program fails. Measured on 256 MiB of one app's output: the
+  whole file in 0.3–0.5 s, and the last minutes of it in 0.1–0.15 s.
 - The leader merges the answers by time and sends the newest `limit`
   (default 500, at most 5000). With `--follow`, it then streams live
   output as before. It runs at most 4 searches at once, 2 per caller
@@ -75,11 +73,11 @@ app logs` searches it across the cluster. No database is added.
   longer returned by a search (live replicas are checked against the
   replica records themselves).
 - Live logs (no `--since`) are bounded like searches: the leader serves
-  at most 128 `Logs` calls at once, 8 per caller (`callerSlots`, the same
+  at most 128 `Logs` calls at once, 8 per caller (`CallerSlots`, the same
   type as the search slots; more are refused with `ResourceExhausted`),
-  each node streams at most 32 at once and answers more with a notice
-  (`maxLiveLogs`), and the embedded runtime keeps at most 4 MiB of a tail
-  in memory (`maxTailBytes`, oldest entries dropped first), whatever
+  each node streams at most 32 at once and answers more with a notice,
+  and the runtime keeps at most 4 MiB of a tail
+  in memory (`MAX_TAIL_BYTES`, oldest entries dropped first), whatever
   `--tail` asks for.
 - Access is the same as for logs today: a viewer of the app's space.
   The app must exist; history of a deleted app expires with retention.

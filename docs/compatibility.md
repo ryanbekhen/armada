@@ -54,7 +54,7 @@ behaviour the documentation does not describe.
 ## Versions side by side
 
 A cluster is upgraded one machine at a time, so versions mix for a while
-([operations guide](operations.md#upgrades)):
+([operations guide](operations.md#where-an-upgrade-starts)).
 
 - **Servers and agents.** Agents of the release before the servers' keep
   running their replicas and taking new ones; the agent protocol only
@@ -81,19 +81,8 @@ A cluster is upgraded one machine at a time, so versions mix for a while
   restarts Armada's own services; containers keep running and are adopted
   by the new agent. A change that needs containers recreated (a new
   runtime, a new network mode) is a separate step a person takes, one
-  node or app at a time. An upgrade may move work between Armada's own
-  programs on a machine: supervisor nodes move to `armada-node`, whose
-  agent converts the node's image store at its start without pulling
-  images again or stopping containers
-  ([operations guide](operations.md#containers-in-armada-node)).
-  One exception, for the containerd runtime's removal below: the leader
-  moves nodes still on containerd (running v0.1.0-alpha.42) to the
-  supervisor runtime by itself, one node at a time, draining each first
-  so its apps keep serving elsewhere
-  ([operations guide](operations.md#container-runtimes)).
-  `armada cluster update --runtime-move=false` turns that off, but a
-  node left on containerd cannot be upgraded.
-  Another exception, for runc's removal below: after the upgrade to the
+  node or app at a time.
+  One exception, for runc's removal below: after the upgrade to the
   release that brought crun's move (ADR 0056), each node's agent
   recreates the replicas runc created on crun, one replica at a time,
   the next only once the one before is ready again, and HAProxy's
@@ -102,24 +91,19 @@ A cluster is upgraded one machine at a time, so versions mix for a while
   about its start time, and HAProxy's replacement may cut connections
   still open after 30 seconds
   ([operations guide](operations.md#crun-and-runc)).
-- No setting changes. The container runtime (but for the move above), the
+- No setting changes. The container runtime, the
   network mode, spaces, roles, secrets, and specs stay as they were; new
   defaults apply to what is created after the upgrade.
 - No downgrade. A binary refuses state written by a newer release instead
   of misreading it, and `armadad upgrade` refuses older releases. The way
   back is the backup taken before the upgrade (`armadad backup`, or the
   scheduled one in the bucket).
-- One exception: v0.1.0-alpha.42, the last release of Go's `armadad`, is a
-  rollback target for the release that moved Armada to Rust (ADR 0055).
-  `sudo armadad upgrade --version v0.1.0-alpha.42` rolls one machine back
-  in place: it stops `armada-server`, `armada-agent`, and `armada-etcd`,
-  removes the units that release lacks, installs it, and starts its
-  service; the state, the containers, and the images stay
-  ([operations guide](operations.md#rolling-back-to-the-last-go-release)).
-  Since crun runs new containers (ADR 0056), drain the machine and remove
-  its containers with `armadad runtime reset` first: v0.1.0-alpha.42 has
-  no crun and cannot adopt the containers crun created.
-  No other older release is a rollback target.
+- Where an upgrade starts. This release accepts upgrades only from
+  v0.1.0-alpha.44, the last alpha. A machine on an older release upgrades
+  to v0.1.0-alpha.44 first (`sudo armadad upgrade --version
+  v0.1.0-alpha.44`), and a node still on the containerd runtime moves to
+  the supervisor runtime there, before it takes this release
+  ([operations guide](operations.md#where-an-upgrade-starts)).
 
 ## Deprecation
 
@@ -155,17 +139,29 @@ Removed:
 
 - **The containerd runtime** (`--runtime embedded`), deprecated since the
   supervisor runtime became the default
-  ([ADR 0046](adr/0046-runtime-supervisor.md)), left the runtime pack
-  with the release after v0.1.0-alpha.42 (ADR 0055): `armadad init`,
-  `join`, and `server join` refuse `--runtime embedded`, and `armadad
-  runtime migrate` is gone. Move every node still on containerd to the
-  supervisor runtime **before** upgrading it: with the servers upgraded
-  first, the leader moves nodes that still run v0.1.0-alpha.42 by itself,
-  one at a time, or run v0.1.0-alpha.42's `armadad runtime migrate --to
-  supervisor` on the node ([operations guide](operations.md#container-runtimes)).
-  On a node upgraded while still on containerd, the agent starts and
-  removes nothing and `armadad doctor` fails; roll it back to
-  v0.1.0-alpha.42 and move it, or remove it and join it again.
+  ([ADR 0046](adr/0046-runtime-supervisor.md)), has left the runtime
+  pack: `embedded` is not a valid `--runtime` value, and `armadad runtime
+  migrate` is gone. Move every node still on containerd to the supervisor
+  runtime with v0.1.0-alpha.44 **before** upgrading it
+  ([operations guide](operations.md#container-runtimes)). On a node that
+  is still on containerd, the agent starts and removes nothing and
+  `armadad doctor` fails, both saying to upgrade through v0.1.0-alpha.44
+  first.
+- **The leader's automatic move of containerd nodes** (`armada cluster
+  update --runtime-move`, its lines in `armada cluster status`, and the
+  `RuntimeMove*` events and alert reason), which only served nodes still
+  on containerd.
+- **The one downgrade `armadad upgrade --version` allowed**: every
+  downgrade is refused.
+- **The `runtimeAgent`, `netAgent`, and `volumeAgent` settings** of
+  `agent.json`: ignored if present; armada-node does that work on every
+  node.
+- **The hidden `armadad server` flags** `--agent`, `--proxy`,
+  `--secrets-dir`, `--internal-dns`, and `--etcd-member`: the server
+  refuses to start with any of them, so remove them from
+  `/etc/armada/server.env` before upgrading. The agent's flags belong in
+  `/etc/armada/agent.env` (`ARMADA_AGENT_FLAGS`), and etcd always runs as
+  `armada-etcd.service`.
 
 ## Platforms
 

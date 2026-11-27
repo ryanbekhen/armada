@@ -81,7 +81,8 @@ with `ingress.ipAllow`.
 
 `/etc/armada/server.env` keeps only what belongs to one machine
 (`--acme-listen`, `--join-listen`, `--metrics-listen` for another address,
-`--proxy`, `--internal-dns`, `--secrets-dir`, `--log-format`). A cluster
+`--log-format`); the agent's own flags (`--proxy`, `--internal-dns`,
+`--secrets-dir`) go in `/etc/armada/agent.env`. A cluster
 from before these settings existed moves the flags its leader was started
 with into the cluster's state once; after that the cluster's value wins, a
 server whose flags disagree logs it, and `armadad doctor` points at such
@@ -187,19 +188,19 @@ sudo umount -R /var/lib/armada/volumes           # the agent mounts it onto itse
 sudo rm -rf /var/lib/armada
 ```
 
-On a node still on containerd, this release's `runtime reset` refuses;
-wipe it without that step, or reset it with v0.1.0-alpha.42 first.
+On a node still on containerd, `runtime reset` refuses; wipe it without
+that step.
 
 ## What is in the data directory
 
 | File | What it is | Without it |
 | --- | --- | --- |
-| `etcd/` | This server's etcd member, run by `armada-etcd` (its data, member certificate, and `etcd.yaml`): apps, revisions, replicas, nodes, domains, encrypted secrets, the ACME account and certificates. `etcd/data.before-unit` is the copy of the member taken before its first start under the unit (the way back; the next release removes it) | No cluster (unless other servers have it) |
+| `etcd/` | This server's etcd member, run by `armada-etcd` (its data, member certificate, and `etcd.yaml`): apps, revisions, replicas, nodes, domains, encrypted secrets, the ACME account and certificates. | No cluster (unless other servers have it) |
 | `master.key` | Encrypts every secret in the state | Secrets are unrecoverable |
 | `ca.crt`, `ca.key` | Cluster CA: signs node, admin, and server certificates, and lets each server renew its own | Every node must join again; every admin config is invalid |
 | `server.crt`, `server.key` | Control plane TLS identity | Re-issuable from the CA |
 | `node.crt`, `node.key`, `agent.json` | Identity of the agent on the control plane node, and its container runtime | The node must join again |
-| `runtime/`, `node/`, `supervisor/`, `containers/`, `logs/` | The container runtime: the extracted runtime pack, images and containers (`node/`; `supervisor/` until a node's first start on this release moves it), per-container files, container output | Recreated: the binaries are extracted again, images pulled again, and the agent recreates its containers |
+| `runtime/`, `node/`, `supervisor/`, `containers/`, `logs/` | The container runtime: the extracted runtime pack, images (`node/`), the containers' bundles (`supervisor/`), per-container files, container output | Recreated: the binaries are extracted again, images pulled again, and the agent recreates its containers |
 | `volumes/` | App volumes held by this node (on every node, not only servers) | The apps' data, unless backed up with `armada volume backup` |
 
 `armadad backup` includes all of these except the runtime directories and volumes (the state as an etcd snapshot; the
@@ -424,24 +425,16 @@ upgrades without asking.
    then `armada-etcd`, `armada-server`, and `armada-agent`, each where it
    runs; `armada-agent` (and `armada-etcd` on a server) installs the new
    runtime pack (crun, runc, `armada-shim`, `armada-log`, ...) at its start, and
-   containers keep running. On a server machine whose `armada-server` is enabled it
-   also enables `armada-etcd` and `armada-agent` where they are not yet
-   (the first upgrade from v0.1.0-alpha.42, run by its Go `armadad`,
-   installs them without enabling them; see below).
+   containers keep running.
    It prints each step as it happens (each download with its size and
    time, the signature and checksum, every file installed, and each restart
    with how long the service took to run again) and ends with
    `Upgraded to vX (from vY)`; a step that fails says `failed` before the
    error. `--no-restart` restarts nothing; `armadad doctor` then warns
    (`runtime-pack`) until `armada-agent` is restarted. It refuses to go
-   back to an older release, but for the rollback to the last Go release
-   ([below](#rolling-back-to-the-last-go-release)). On a
-   machine that cannot reach GitHub, set `ARMADA_DOWNLOAD_BASE` to a
-   mirror of the release files (`https://` or `file://`). On a supervisor
-   node whose containers Go's code ran, the restarted agent first converts
-   the image store for `armada-node` (no image is pulled again; see
-   [Containers in armada-node](#containers-in-armada-node));
-   `armada cluster status` shows how far the cluster got.
+   back to an older release. On a machine that cannot reach GitHub, set
+   `ARMADA_DOWNLOAD_BASE` to a mirror of the release files (`https://` or
+   `file://`).
 
    When a release changes the layout of the state (the release notes say
    so), upgraded servers stand by and the servers still on the old version
@@ -489,86 +482,44 @@ upgrades without asking.
    Linux and in WSL 2 on Windows). `armadad upgrade` already replaced the
    client on the cluster's own machines.
 
-A node still on containerd cannot be upgraded to this release: once the
-servers are upgraded, the leader moves such nodes (running
-v0.1.0-alpha.42) to the supervisor runtime by itself, one node at a time;
-upgrade them after that ([Container runtimes](#container-runtimes)).
+### Where an upgrade starts
 
-### Upgrading from v0.1.0-alpha.42
+This release accepts upgrades only from v0.1.0-alpha.44, the last alpha.
+A machine on an older release upgrades to v0.1.0-alpha.44 first, with the
+steps above (`sudo armadad upgrade --version v0.1.0-alpha.44`), and the
+whole cluster runs v0.1.0-alpha.44 before any machine takes this release.
+Commands, flags, specs, configuration files, the data directory, ports,
+and the units' names stay as they were, and running apps see nothing.
 
-v0.1.0-alpha.42 is the last release whose `armadad` and `armada` are Go
-programs; the release after it builds both from Rust (ADR 0055). Commands,
-flags, specs, configuration files, the data directory, ports, and the
-units' names stay as they were, and running apps see nothing: no container
-is recreated and no image is pulled again. What changes is how a server
-machine runs: v0.1.0-alpha.42's `armadad server` embeds the server's etcd
-member and runs the node's agent in its own process; from this release a
-server machine runs three units, `armada-etcd`, `armada-server`, and
-`armada-agent` (the same agent unit nodes run).
+Before upgrading from v0.1.0-alpha.44:
 
-Upgrade as above, servers first (the leader's machine last), then the
-nodes, with the `armadad upgrade` v0.1.0-alpha.42 has. On a server machine
-it installs the new units, among them `armada-etcd.service`, reloads
-systemd, and restarts `armada-server`: systemd stops the Go server (a
-leader hands over; its embedded member closes its write-ahead log), then
-starts `armada-etcd` and `armada-agent`, which the new `armada-server.service`
-wants, and the new server after them. The member starts again as itself on
-the same data (same member ID, nothing joins again); before its first
-start under the unit, `armadad etcd` copies it once to
-`/var/lib/armada/etcd/data.before-unit`. The agent takes the data
-directory's lock, adopts every container, takes over the running HAProxy
-without a reload, and connects to the leader. A server holds no lock and
-runs no agent. On a node, the Go agent stops and the new one adopts its
-containers.
-
-Before upgrading a server machine:
-
-- **Agent flags in `server.env`.** `armada-agent` reads
-  `/etc/armada/agent.env` (`ARMADA_AGENT_FLAGS`) on every machine, servers
-  included, never `server.env`. If a server's `ARMADA_SERVER_FLAGS` sets
-  `--proxy`, `--secrets-dir`, or `--internal-dns` for its embedded agent,
-  put them in `ARMADA_AGENT_FLAGS` in `/etc/armada/agent.env`. The new
-  server still accepts them (and `--agent`) so the file keeps working, but
-  logs that they are ignored.
-- **`--agent=false`.** A server that ran no agent gets one, since
-  `armada-server.service` wants `armada-agent.service`. To keep it off,
-  `sudo systemctl mask armada-agent` before the upgrade.
-- **`--etcd-member`.** The member always runs as `armada-etcd`:
-  `--etcd-member unit` is the default, and `--etcd-member embedded` is
-  refused. Remove the flag from `server.env`.
 - **Containerd nodes.** This release runs containers on the supervisor
-  runtime only, and containerd is no longer in its runtime pack. Move
-  every node still on containerd first, with v0.1.0-alpha.42 (by its
-  leader or by hand; [Container runtimes](#container-runtimes)); on a
+  runtime only. Every node still on containerd moves to the supervisor
+  runtime on v0.1.0-alpha.44 first (its documentation says how). On a
   containerd node this release's agent starts and removes nothing,
-  `armada-runtime` fails, and `armadad doctor` fails its runtime check.
+  `armada-runtime` fails, and `armadad doctor` fails its runtime check,
+  each saying to upgrade through v0.1.0-alpha.44 first.
+- **Flags in `server.env`.** `armadad server` no longer takes `--agent`,
+  `--proxy`, `--secrets-dir`, `--internal-dns`, or `--etcd-member`, and
+  refuses to start with an unknown flag. Remove them from
+  `ARMADA_SERVER_FLAGS` in `/etc/armada/server.env` on every server
+  machine before upgrading it. The agent's flags belong in
+  `ARMADA_AGENT_FLAGS` in `/etc/armada/agent.env`, which `armada-agent`
+  reads on every machine, servers included; etcd always runs as
+  `armada-etcd.service`. To keep a server machine without an agent,
+  `sudo systemctl mask armada-agent`.
+- **`agent.json`.** The `runtimeAgent`, `netAgent`, and `volumeAgent`
+  settings are ignored: armada-node does that work on every node. They
+  may stay in the file.
 
-After the upgrade, enable the two new units on every server machine:
-
-```sh
-sudo systemctl enable armada-etcd armada-agent
-```
-
-The upgrade is run by v0.1.0-alpha.42's `armadad`, which installs the
-units but does not know to enable them, so `systemctl is-enabled
-armada-etcd armada-agent` answers `disabled`. They still start with
-`armada-server`, which wants them, so nothing stops; but disabled, the
-agent does not start at boot on its own when `armada-server` fails to,
-and the machine's containers run unwatched until the server starts.
-Every later `armadad upgrade` is the new one, which enables them itself.
-
-Then `systemctl status armada-etcd armada-server
+After the upgrade, `systemctl status armada-etcd armada-server
 armada-agent` shows all three running on a server, and `armadad doctor`
-checks the member (`etcd`). If etcd does not start under the unit, the
-server waits a minute for it and exits, and systemd tries again; the other
-servers keep the quorum. Read `journalctl -u armada-etcd` and `armadad
-doctor`, and roll the machine back (below).
+checks the member (`etcd`).
 
-Releases before `armadad upgrade` existed upgrade once with the installer
-instead: `sudo ARMADA_VERSION=v0.2.0 sh install.sh`, then `sudo systemctl
-restart armada-runtime armada-server` (or `armada-agent`). Upgrading from v0.1.0-alpha.1
-also turns the machine commands (`init`, `join`, `doctor`, `backup`,
-`restore`, `runtime reset`) into `armadad` commands (ADR 0027).
+Releases before `armadad upgrade` existed reach v0.1.0-alpha.44 with the
+installer instead: `sudo ARMADA_VERSION=v0.1.0-alpha.44 sh install.sh`,
+then `sudo systemctl restart armada-runtime armada-server` (or
+`armada-agent`).
 
 ### Rolling back an upgrade
 
@@ -580,67 +531,7 @@ newer layout, instead of misreading it. To go back:
   older version, and restore the backup taken before the upgrade. Changes
   made since the upgrade are lost.
 
-`armadad upgrade` refuses older releases, with one exception below.
-
-### Rolling back to the last Go release
-
-v0.1.0-alpha.42, the last release of Go's `armadad`, is the one older
-release `armadad upgrade` installs, as a rollback (the release after it
-changes no state layout, so its state is the one alpha.42 reads). Roll a
-machine back when its etcd member, server, or agent fails after the
-upgrade, one machine at a time:
-
-```bash
-sudo armadad upgrade --version v0.1.0-alpha.42
-```
-
-It downloads and verifies the release as any upgrade, then:
-
-1. stops `armada-server` (a leader hands over first), `armada-agent`
-   (containers keep running), and `armada-etcd`;
-2. on a server machine, disables `armada-agent`: Go's `armadad server`
-   runs the node's agent itself;
-3. disables and removes the units v0.1.0-alpha.42 does not have
-   (`armada-etcd.service`);
-4. installs v0.1.0-alpha.42's `armadad`, `armada`, and units, and reloads
-   systemd;
-5. restarts `armada-runtime` where it runs, and starts `armada-server` on
-   a server machine, `armada-agent` on a node.
-
-Go's server embeds the same member on the same data directory, and Go's
-agent adopts the containers: their bundles, records, root filesystems,
-and armada-node's image store are in the layouts v0.1.0-alpha.42 reads.
-Since crun runs new containers ([ADR 0056](adr/0056-crun.md)),
-v0.1.0-alpha.42 cannot adopt every container: it has no crun in its
-runtime pack and reads every container as runc's, so it could neither
-stop the containers crun created nor run commands in them. Empty the
-machine first, with this release's `armadad`, then roll back:
-
-```bash
-armada node drain NODE                         # its replicas start on other nodes
-sudo systemctl stop armada-agent               # containers keep running until the reset
-sudo armadad runtime reset                     # removes every container (the proxy's too) and the cluster network
-sudo armadad upgrade --version v0.1.0-alpha.42
-armada node resume NODE
-```
-
-The machine's own proxy goes with the reset until v0.1.0-alpha.42's agent
-starts it again: take the machine out of DNS or a load balancer first when
-public traffic reaches it directly.
-
-`--no-restart` still stops the services and removes the units (Go's
-server must not meet a member `armada-etcd` runs), but starts nothing.
-Rolling back to any release older than v0.1.0-alpha.42 is not supported.
-
-By hand, the same steps on a server machine (on a node, only the agent):
-
-```bash
-sudo systemctl stop armada-server armada-agent armada-etcd
-sudo systemctl disable armada-agent armada-etcd     # armada-agent on servers only
-sudo rm /etc/systemd/system/armada-etcd.service
-curl -fsSL https://raw.githubusercontent.com/ryanbekhen/armada/v0.1.0-alpha.42/install.sh | sudo ARMADA_VERSION=v0.1.0-alpha.42 sh
-sudo systemctl start armada-server                  # armada-agent on a node
-```
+`armadad upgrade` refuses older releases.
 
 ## Certificates
 
@@ -986,106 +877,19 @@ It is the only runtime this release carries: Armada's embedded containerd
 `join`, and `server join` refuse `--runtime embedded` (`--runtime
 supervisor` is still accepted).
 
-The setting is in `agent.json` (`"runtime"`). Nodes set up on containerd
-with an earlier release must move to the supervisor runtime **before**
-they are upgraded to this release: on such a node this release's agent
-starts and removes nothing, `armada-runtime` fails, and `armadad doctor`
-fails its runtime check. The move is done by v0.1.0-alpha.42's agent on
-the node, either told by the cluster's leader (servers of v0.1.0-alpha.42
-or of this release both do it) or by hand.
-
-The leader moves containerd nodes by itself, one node at a time, while
-their agents run v0.1.0-alpha.42 (ADR 0054). Upgrade the servers first,
-let the move finish (`armada cluster status` shows it), then upgrade the
-other nodes:
-
-1. It picks a containerd node the other nodes have room for (machines that
-   run no control plane first, then servers, the leader's own machine
-   last) and drains it like a cordon: the node takes no new replicas, and
-   its replicas start on other nodes and serve there before they leave it.
-   Job attempts running there are left to end.
-2. Once nothing is left on it, the node first pulls its proxy's image
-   for the supervisor runtime while its proxy still serves, then removes
-   every container Armada runs there, its proxy's too, records the
-   supervisor in `agent.json`, stops containerd, and restarts its service
-   (`armada-agent`, or `armada-server` on a control plane server), which
-   comes back on the supervisor runtime, starts its proxy from the image
-   it pulled, and pulls other images again as replicas need them.
-3. Once the node reports the supervisor runtime, it takes replicas again,
-   and the next node moves.
-
-```bash
-armada cluster status   # runtime move: moving lab2 to the supervisor runtime, ...
-armada cluster events   # RuntimeMoveStarted, RuntimeMoveDraining, RuntimeMoveMigrating, RuntimeMoveDone
-sudo armadad doctor     # on a containerd node: what the cluster will do with it, and why
-```
-
-While a node moves, connections to its own public address fail from the
-moment its proxy goes until the agent starts it again on the supervisor,
-usually seconds: the service's restart, the agent's first assignment from
-the leader (on a control plane server after its control plane's restart,
-on the leader's own machine after an election), and the proxy's start
-from the image pulled before (when that pull failed, the restarted agent
-pulls the image first, which adds its time). The node holds no replicas
-by then, so requests that arrive through other nodes are not affected,
-but a DNS record or a load balancer that sends clients to every node's
-address should health-check the nodes (or leave the moving node out). Moving a control
-plane server restarts its control plane too: a cluster of three servers
-keeps working, and the leader's own machine moves last, after which
-another server leads (one election). A cluster with a single server has
-no API for the seconds its server restarts; containers keep running and
-serving on the other nodes.
-
-A step that takes too long gives the move up: draining for 15 minutes
-(replicas that cannot start elsewhere, a job attempt that runs on), or the
-node not back on the supervisor 10 minutes after it was asked. The node
-then takes replicas again, stays on containerd, and is tried again an hour
-later; `RuntimeMoveGivenUp` (an [alert](guides/alerts.md) warning) says
-why, and `armada node show NODE` shows what the node said. Nothing starts
-while a node is away or lost, or while the cluster network switches its
-mode.
-
-Some nodes wait for their operator, and `armada cluster status` and the
-node's doctor say so:
-
-- **A cluster's only node** (or a node every other node of which is
-  cordoned): draining it would stop everything.
-- **A node holding volumes**: an app with volumes runs only on its
-  volume's node, so draining never moves it and the move would stop the
-  app. Move the node by hand in a quiet moment (below): the app stops
-  until the node runs again, and its volume stays where it is.
-- **A node whose agent is older** than the move: upgrade it to
-  v0.1.0-alpha.42 first.
-
-`armada cluster update --runtime-move=false` turns the move off (a node
-already told to move finishes, one being drained takes replicas again);
-nodes it leaves on containerd cannot be upgraded past v0.1.0-alpha.42.
-
-To move a node by hand, on v0.1.0-alpha.42, drain it and stop its service,
-migrate, then start and resume it:
-
-```bash
-armada node drain NODE
-sudo systemctl stop armada-agent              # armada-server on a control plane server
-sudo armadad runtime migrate --to supervisor  # v0.1.0-alpha.42's armadad: removes the node's containers, stops containerd
-sudo systemctl start armada-agent
-armada node resume NODE
-```
-
-The node pulls its images again. Draining moves the apps' replicas, but
-the node's own proxy is removed with its other containers until the agent
-starts it again, usually under a minute: when public traffic reaches the
-node directly (a DNS record or a load balancer naming it), take it out
-first and put it back once `curl --resolve` to the node answers. Move one
-node at a time. This release has no `armadad runtime migrate`. Moving to
-the supervisor, by hand or by the leader, leaves containerd's data in
+The setting is in `agent.json` (`"runtime"`). A node set up on containerd
+by an earlier release (`"runtime": "embedded"`, or no runtime) moves to the
+supervisor runtime on v0.1.0-alpha.44 **before** it takes this release
+([Where an upgrade starts](#where-an-upgrade-starts)): on such a node this
+release's agent starts and removes nothing, `armada-runtime` fails, and
+`armadad doctor` fails its runtime check, each saying to upgrade through
+v0.1.0-alpha.44 first. A node already upgraded while on containerd has two
+ways out: install v0.1.0-alpha.44 on it again (`sudo
+ARMADA_VERSION=v0.1.0-alpha.44 sh install.sh`), move it there, and
+upgrade; or remove it (`armada node delete NODE`, then [wipe
+it](#wiping-a-machine)) and join it again, which sets it up on the
+supervisor runtime. A node that moved leaves containerd's data in
 `/var/lib/armada/containerd`; remove it once the node runs.
-
-A node already upgraded while on containerd has two ways out: roll it back
-to v0.1.0-alpha.42 (`sudo armadad upgrade --version v0.1.0-alpha.42`,
-[below](#rolling-back-to-the-last-go-release)) and move it there, or remove
-it (`armada node delete NODE`, then [wipe it](#wiping-a-machine)) and join
-it again, which sets it up on the supervisor runtime.
 
 Each `armada-shim` is a systemd unit of its own (`armada-shim-*`), so
 restarting the agent leaves it and its containers running. If one ends, its
@@ -1406,45 +1210,8 @@ the replica's or the job's network namespace, starts the processes
 mounts and unmounts NFS volumes, and keeps the connection tracking limit
 raised. The agent keeps building each container, running its network and
 logs, carrying the input and output of every exec, and resolving a
-broker's name. Nodes still on containerd run none of this release
+broker's name. Nodes still on containerd run none of this
 ([Container runtimes](#container-runtimes), above).
-
-**Upgrading** a supervisor node whose agent kept the images in its own
-store (releases before armada-node ran containers, or a node kept on Go's
-code with `"runtimeAgent": "go"`) needs nothing more than the upgrade. When the
-agent starts, it moves the node's image store
-(`/var/lib/armada/supervisor/images`) into armada-node's before it starts
-anything: blobs are linked and unpacked layers moved on the same file
-system, so no image is pulled again, and the root filesystem of every
-container on the node (the proxy's included, running or not) moves as it
-is, so no container restarts and nothing they wrote is lost. The old
-store is then removed, and the node counts as moved at once. The agent
-logs the result (with how many images were converted and left out and
-how many root filesystems moved) and records it in
-`/var/lib/armada/node/converted.json`. An image it cannot convert (a blob
-or layer missing) is logged with the reason and pulled again when a
-replica needs it; a container whose root filesystem cannot move (its
-layer is gone) is logged too and keeps the old store until it is
-replaced. A move cut short (a crash, a power cut) runs again at the next
-start and picks up where it stopped.
-
-Where the cluster stands:
-
-```bash
-armada cluster status      # runtime: 3 of 4 nodes on armada-node; lab4 on containerd
-armada node show NODE      # Runtime: supervisor, armada-node (or what is left)
-sudo armadad doctor        # runtime-agent: ok, or what to do
-```
-
-A node is counted once nothing of the old store is left and no image left
-out of the conversion is still to be pulled again. `armadad doctor`'s
-`runtime-agent` check warns on containerd nodes, on a conversion that has
-not run or failed, and while images left out are not pulled again.
-
-`"netAgent"`, `"runtimeAgent"`, and `"volumeAgent"` in `agent.json`,
-which kept a node on the agent's own Go code up to v0.1.0-alpha.42, are
-ignored; `armadad doctor` warns about `"runtimeAgent": "go"` until the
-line is removed.
 
 ### Volume archives and backups in armada-node
 
@@ -1454,8 +1221,7 @@ volume sizes nodes report every minute, are made by the runtime pack's
 node and the client. Volume backups to a bucket (`volumes[].backup`,
 `armada snapshot create`, `armada snapshot list`, `armada volume restore
 --snapshot`) are made, listed, pruned, and restored by `armada-node` the
-same way, in the repository format of earlier releases: backups made
-before can be listed and restored. An operation that fails says why and
+same way. An operation that fails says why and
 can be run again. The control plane's own backups (`cluster update
 --backup-url`) are made by the leader.
 

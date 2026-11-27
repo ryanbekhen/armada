@@ -123,11 +123,11 @@ volumes:
   the app runs. With `--stop` the agent stops the app's container for the
   backup and starts it again afterwards. The archive keeps owners, modes,
   times, and symbolic links, and leaves out sockets, devices, and pipes.
-  The agent walks the volume through a handle on its directory (`os.Root`),
+  The agent walks the volume through a handle on its directory (openat2 beneath it),
   so links are stored, never followed, even when the running app swaps an
   entry for a link during the backup. It opens every file and directory
   without blocking and reads it only when the opened entry is the same one
-  it just looked up, of the same type (`volbackup.Walk`, `OpenFile`): an
+  it just looked up, of the same type: an
   entry the app replaces meanwhile, a pipe in particular, which would
   otherwise hold the backup until a writer appeared, fails the backup with
   an error that names it (quoted), and a backup with `--stop` avoids that.

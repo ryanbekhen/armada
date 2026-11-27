@@ -12,7 +12,7 @@ Zero-downtime rolling updates need a way to add, drain, and remove servers from 
 - HAProxy runs as a system container with a digest-pinned image, host network, and master-worker mode.
 - Structural changes (new app/domain/route): render the file → `haproxy -c` → atomic rename → reload. If validation fails, the old file stays in use.
 - Deploy/scale/drain/certificates: Runtime API over a `0600` Unix socket, using pre-allocated `server-template` slots.
-- This logic lives behind `proxy.Driver` so Nginx can be added in v0.2.
+- This logic lives behind the agent's `Proxy` interface (`agent/src/proxy.rs`).
 
 ## Alternatives considered
 
