@@ -47,12 +47,12 @@ on a maintainer's machine.
      (ADR 0056): under `source/runtime/`, crun's complete corresponding
      source (its release tarball and the build files of its static
      programs) and the source of every library the pack's static programs
-     (crun, runc, tini) link, as their builds used it, in
+     (crun, tini) link, as their builds used it, in
      `libs/<name>-<version>/` (the source tarball, the patches, and the
      build files), with `SOURCES.txt` naming each file's SHA-256 and
      address (`make runtime-sources`, which writes
      `build/runtime-sources.tar.gz`; GoReleaser uploads it under that name
-     and lists it in `checksums.txt`; about 63 MB). libgcc's source is not
+     and lists it in `checksums.txt`; about 42 MB). libgcc's source is not
      carried: the GCC Runtime Library Exception waives it.
    - `checksums.txt` (SHA-256),
    - an SPDX SBOM per archive (syft),
@@ -181,7 +181,7 @@ gh attestation verify armada_${VERSION#v}_linux_amd64.tar.gz --repo ryanbekhen/a
   in `Cargo.lock` (builds use `--locked`); `cargo deny check advisories`
   checks them against RustSec's advisories on every change of code.
 - The HAProxy system image is pinned by digest in the code.
-- The bundled runtime binaries (crun, runc, CNI plugins, tini, etcd)
+- The bundled runtime binaries (crun, CNI plugins, tini, etcd)
   are pinned by version and SHA-256 in `pack/lock.json`; `make
   runtime-bundle` downloads them over HTTPS only and refuses any checksum
   mismatch. Dependabot and `cargo deny` do not see them, so the
@@ -193,7 +193,7 @@ gh attestation verify armada_${VERSION#v}_linux_amd64.tar.gz --repo ryanbekhen/a
   the latest stable release of the GitHub repository its URL names, and
   looks up the advisories known for the pinned version: the repository's
   GitHub security advisories for every program, and OSV for the Go
-  programs (runc, the CNI plugins, etcd): their own module, every module
+  programs (the CNI plugins, etcd): their own module, every module
   their build information names, and the Go release they were built with
   (read from the pinned binaries, downloaded and checked as `make
   runtime-bundle` does, never run). It splits the advisories into those
@@ -214,7 +214,7 @@ gh attestation verify armada_${VERSION#v}_linux_amd64.tar.gz --repo ryanbekhen/a
 
 1. Pick the new upstream release and read its notes.
 2. Download the artifact for both architectures. Where upstream signs it
-   (crun, runc, tini: detached GPG signatures), verify the signature
+   (crun, tini: detached GPG signatures), verify the signature
    against the maintainers' published keys; for crun also compare with the
    release's `CHECKSUMS` (crun: the `-disable-systemd` programs, ADR
    0056), for the CNI plugins with the `.sha256` and `.sha512` files on the GitHub
@@ -229,7 +229,7 @@ gh attestation verify armada_${VERSION#v}_linux_amd64.tar.gz --repo ryanbekhen/a
    the paths of `COPYING` and `COPYING.libcrun` in it) and the build files
    of the new tag (`flake.nix`, `flake.lock`, `nix/*.nix`), each by
    SHA-256. A program of the pack that is statically linked with C
-   libraries (crun, runc, tini) names them in `linked` (name, version,
+   libraries (crun, tini) names them in `linked` (name, version,
    architectures), and each library is pinned once in `libraries`
    (license, and its source under `libs/<name>-<version>/`), or with
    `noSource` naming the license exception that waives its source
@@ -244,7 +244,7 @@ gh attestation verify armada_${VERSION#v}_linux_amd64.tar.gz --repo ryanbekhen/a
    patches nixpkgs applies, and its nixpkgs expressions (from
    `raw.githubusercontent.com/NixOS/nixpkgs/<revision>/`, under
    `nixpkgs/` at their paths). For a program built in a Debian or Ubuntu
-   image (runc, tini), the package versions its build installed on the
+   image (tini), the package versions its build installed on the
    day it was built (snapshot.debian.org's `dists/` at that time;
    Launchpad's publishing history for Ubuntu), pinned as the package's
    `.orig.tar.xz`, `.debian.tar.xz`, and `.dsc` (check each against the

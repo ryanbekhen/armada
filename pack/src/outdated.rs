@@ -150,7 +150,7 @@ pub struct OsvRange {
 /// One Go program of an artifact, as its build information describes it.
 #[derive(Debug, Clone)]
 pub struct GoProgram {
-    /// Its name in the pack ("runc", "cni/bridge").
+    /// Its name in the pack ("crun", "cni/bridge").
     pub name: String,
     pub info: BuildInfo,
 }
@@ -182,7 +182,7 @@ pub struct Finding {
     pub id: String,
     pub aliases: BTreeSet<String>,
     pub severity: String,
-    /// Where, by what: "runc 1.5.2", "github.com/x/y v1.2.3", "Go
+    /// Where, by what: "etcd 3.7.4", "github.com/x/y v1.2.3", "Go
     /// standard library go1.26.11".
     pub affects: BTreeMap<String, Affect>,
     pub fixed: String,
@@ -819,7 +819,7 @@ impl Report {
         }
         s.push_str(
             "\nGitHub's security advisories of each program's repository are checked for \
-             every program; the Go programs (runc, the CNI plugins, etcd) also through OSV, \
+             every program; the Go programs (the CNI plugins, etcd) also through OSV, \
              for their own module, every module their build information names, and the Go \
              standard library they were built with. An advisory in a module or in the \
              standard library may not reach code the program runs: read it before acting. \

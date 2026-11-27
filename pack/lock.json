@@ -98,47 +98,6 @@
       ]
     },
     {
-      "name": "runc",
-      "version": "1.5.3",
-      "url": "https://github.com/opencontainers/runc/releases/download/v1.5.3/runc.{arch}",
-      "sha256": {
-        "amd64": "50dcc0b257d724fe07f3852c2dda52340223f038227c7572644eec870741223e",
-        "arm64": "07b52aee923cc432c38fe4fb6809a08fc6471994efed650af3635350588a20be"
-      },
-      "linked": [
-        {
-          "name": "glibc",
-          "version": "2.41-12+deb13u4",
-          "arches": [
-            "amd64"
-          ]
-        },
-        {
-          "name": "glibc",
-          "version": "2.41-11",
-          "arches": [
-            "arm64"
-          ]
-        },
-        {
-          "name": "libgcc",
-          "version": "14.2.0-19",
-          "arches": [
-            "amd64",
-            "arm64"
-          ]
-        },
-        {
-          "name": "libseccomp",
-          "version": "2.6.1",
-          "arches": [
-            "amd64",
-            "arm64"
-          ]
-        }
-      ]
-    },
-    {
       "name": "cni-plugins",
       "version": "1.10.0",
       "url": "https://github.com/containernetworking/plugins/releases/download/v1.10.0/cni-plugins-linux-{arch}-v1.10.0.tgz",
@@ -297,60 +256,6 @@
     },
     {
       "name": "glibc",
-      "version": "2.41-12+deb13u4",
-      "license": "LGPL-2.1-or-later",
-      "sources": [
-        {
-          "url": "https://snapshot.debian.org/archive/debian/20261112T070000Z/pool/main/g/glibc/glibc_2.41.orig.tar.xz",
-          "sha256": "f24aa441021121a79266f0d75242706cab8843a47901fefe74527491807f1998",
-          "file": "glibc_2.41.orig.tar.xz"
-        },
-        {
-          "url": "https://snapshot.debian.org/archive/debian/20261112T070000Z/pool/main/g/glibc/glibc_2.41-12%2Bdeb13u4.debian.tar.xz",
-          "sha256": "dda4153511bfd543502d18e5bc9323110996fe9c531f14ae3fad6eb17f027c7d",
-          "file": "glibc_2.41-12+deb13u4.debian.tar.xz"
-        },
-        {
-          "url": "https://snapshot.debian.org/archive/debian/20261112T070000Z/pool/main/g/glibc/glibc_2.41-12%2Bdeb13u4.dsc",
-          "sha256": "0915324aa646bb99abfaa9aa6ecb734b30babd28454a3e51f3152912370fbd3e",
-          "file": "glibc_2.41-12+deb13u4.dsc"
-        }
-      ]
-    },
-    {
-      "name": "glibc",
-      "version": "2.41-11",
-      "license": "LGPL-2.1-or-later",
-      "sources": [
-        {
-          "url": "https://snapshot.debian.org/archive/debian/20261112T070000Z/pool/main/g/glibc/glibc_2.41.orig.tar.xz",
-          "sha256": "f24aa441021121a79266f0d75242706cab8843a47901fefe74527491807f1998",
-          "file": "glibc_2.41.orig.tar.xz"
-        },
-        {
-          "url": "https://snapshot.debian.org/archive/debian/20261112T070000Z/pool/main/g/glibc/glibc_2.41-11.debian.tar.xz",
-          "sha256": "8931fe5a287262e8d0adcbdde28d08cefbe955edf7abf4c32540a5ad7f0e470d",
-          "file": "glibc_2.41-11.debian.tar.xz"
-        },
-        {
-          "url": "https://snapshot.debian.org/archive/debian/20261112T070000Z/pool/main/g/glibc/glibc_2.41-11.dsc",
-          "sha256": "07b4bbd9b93343a90e89e64ae1227286884ca6e04b8a40553edc5a1aba158ed0",
-          "file": "glibc_2.41-11.dsc"
-        },
-        {
-          "url": "https://snapshot.debian.org/archive/debian/20261112T070000Z/pool/main/c/cross-toolchain-base/cross-toolchain-base_77.tar.xz",
-          "sha256": "23a15a64a339a3ea1b67cbfe453079150b86748d24a9ec137f1e96f2e3e74308",
-          "file": "cross-toolchain-base_77.tar.xz"
-        },
-        {
-          "url": "https://snapshot.debian.org/archive/debian/20261112T070000Z/pool/main/c/cross-toolchain-base/cross-toolchain-base_77.dsc",
-          "sha256": "c2a04058c7f12e5a1323008aea44af768c6895b4199dce5c6a4989daae82c686",
-          "file": "cross-toolchain-base_77.dsc"
-        }
-      ]
-    },
-    {
-      "name": "glibc",
       "version": "2.23-0ubuntu11",
       "license": "LGPL-2.1-or-later",
       "sources": [
@@ -411,12 +316,6 @@
     },
     {
       "name": "libgcc",
-      "version": "14.2.0-19",
-      "license": "GPL-3.0-or-later WITH GCC-exception-3.1",
-      "noSource": "GCC-exception-3.1: the GCC Runtime Library Exception lets a program compiled with GCC carry libgcc without its source"
-    },
-    {
-      "name": "libgcc",
       "version": "5.4.0-6ubuntu1~16.04.12",
       "license": "GPL-3.0-or-later WITH GCC-exception-3.1",
       "noSource": "GCC-exception-3.1: the GCC Runtime Library Exception lets a program compiled with GCC carry libgcc without its source"
@@ -441,16 +340,6 @@
           "url": "https://raw.githubusercontent.com/NixOS/nixpkgs/1d060086d60cb76a40cf37109f979d88a5bd6396/pkgs/by-name/li/libseccomp/package.nix",
           "sha256": "d88036a861ce8e5e2c4c6d634e4d89222de39ec5a966399fdccbda207d609625",
           "file": "nixpkgs/pkgs/by-name/li/libseccomp/package.nix"
-        },
-        {
-          "url": "https://raw.githubusercontent.com/opencontainers/runc/v1.5.3/script/build-seccomp.sh",
-          "sha256": "487d70d95fcebe535c8d517fabd54a8f32a12c47cb54f17bd0064f691448295f",
-          "file": "runc/script/build-seccomp.sh"
-        },
-        {
-          "url": "https://raw.githubusercontent.com/opencontainers/runc/v1.5.3/script/lib.sh",
-          "sha256": "8e263407acdec23bc257ad7730de0877ecfb099a448e7b3f628acd3d62d27068",
-          "file": "runc/script/lib.sh"
         }
       ]
     },

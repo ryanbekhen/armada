@@ -1,8 +1,8 @@
 //! The pins (`pack/lock.json`): every upstream artifact that contributes
 //! files to the runtime pack.
 //!
-//! When bumping a version: verify the upstream signature first (crun,
-//! runc, and tini publish GPG signatures; crun and the CNI plugins publish
+//! When bumping a version: verify the upstream signature first (crun
+//! and tini publish GPG signatures; crun and the CNI plugins publish
 //! checksums with the release, etcd SHA256SUMS), then record the SHA-256
 //! of both architectures. The hash, not the URL, is what the pack trusts.
 //!

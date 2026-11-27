@@ -23,4 +23,4 @@ In the pinned programs, or in the Go modules and the Go release their current up
 
 None known.
 
-GitHub's security advisories of each program's repository are checked for every program; the Go programs (runc, the CNI plugins, etcd) also through OSV, for their own module, every module their build information names, and the Go standard library they were built with. An advisory in a module or in the standard library may not reach code the program runs: read it before acting. A fix in a module or in Go reaches the pack with an upstream release built with it.
+GitHub's security advisories of each program's repository are checked for every program; the Go programs (the CNI plugins, etcd) also through OSV, for their own module, every module their build information names, and the Go standard library they were built with. An advisory in a module or in the standard library may not reach code the program runs: read it before acting. A fix in a module or in Go reaches the pack with an upstream release built with it.

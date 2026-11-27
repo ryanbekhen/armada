@@ -49,14 +49,12 @@ fn lock_pins_every_program() {
             assert!(files.insert(f.clone()), "{f} in the pack twice");
         }
     }
-    // crun runs new containers, runc those it created before ADR 0056
-    // until they are recreated: both stay in the pack until a later
-    // release removes runc.
-    for f in ["crun", "runc", "tini", "etcd", "etcdutl"] {
+    // crun runs every container (ADR 0056).
+    for f in ["crun", "tini", "etcd", "etcdutl"] {
         assert!(files.contains(f), "{f} is not in the pack");
     }
-    for f in ["containerd", "containerd-shim-runc-v2"] {
-        assert!(!files.contains(f), "{f} left the pack (ADR 0046)");
+    for f in ["containerd", "containerd-shim-runc-v2", "runc"] {
+        assert!(!files.contains(f), "{f} left the pack (ADR 0046, ADR 0056)");
     }
     // Armada's own four programs join them.
     assert!(
@@ -182,8 +180,7 @@ fn linked_libraries_ship_their_source() {
         }
     }
     // What each static program of the pack links (crun: its
-    // nix/derivation.nix and flake.nix at its tag; runc: its Dockerfile
-    // and script/build-seccomp.sh; tini: its Dockerfile and
+    // nix/derivation.nix and flake.nix at its tag; tini: its Dockerfile and
     // ci/install_deps.sh; each checked with strings on the programs).
     for (program, want) in [
         (
@@ -198,7 +195,6 @@ fn linked_libraries_ship_their_source() {
                 "protobuf-c",
             ][..],
         ),
-        ("runc", &["glibc", "libgcc", "libseccomp"][..]),
         ("tini", &["glibc", "libgcc"][..]),
     ] {
         let a = lock.artifact(program).expect(program);
