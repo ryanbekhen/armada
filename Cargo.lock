@@ -99,6 +99,22 @@ name = "armada-fsutil"
 version = "0.1.0"
 
 [[package]]
+name = "armada-kv"
+version = "0.1.0"
+dependencies = [
+ "armada-proto",
+ "hyper-util",
+ "prost",
+ "redb",
+ "ring",
+ "sha2",
+ "tokio",
+ "tokio-stream",
+ "tonic",
+ "tower",
+]
+
+[[package]]
 name = "armada-node"
 version = "0.1.0"
 dependencies = [
@@ -196,6 +212,7 @@ dependencies = [
 name = "armada-store"
 version = "0.1.0"
 dependencies = [
+ "armada-kv",
  "armada-pki",
  "armada-proto",
  "armada-secrets",
@@ -967,6 +984,15 @@ dependencies = [
  "time",
  "x509-parser",
  "yasna",
+]
+
+[[package]]
+name = "redb"
+version = "5.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "11175cc688ba1b9d3cec4fe582fd82cb97e2a82e28ccc8101b7b8030a8003280"
+dependencies = [
+ "libc",
 ]
 
 [[package]]

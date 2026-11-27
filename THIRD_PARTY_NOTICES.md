@@ -362,6 +362,23 @@ etcd's `concurrency` package (`go.etcd.io/etcd/client/v3/concurrency`,
 v3.7.4, under the [Apache License 2.0](proto/vendor/etcd/LICENSE)). Source:
 <https://github.com/etcd-io/etcd/tree/v3.7.4/client/v3/concurrency>.
 
+## armada-kv
+
+`armada-kv` (`kv/`, Apache-2.0) is Armada's own state store (ADR 0057):
+the subset of etcd's v3 API armada-store uses, served with tonic's server
+on a multi-version key space. Besides armada-proto, prost, ring, sha2,
+tokio, tokio-stream, tonic, and tower (above), it is built with this
+crate:
+
+| Crate | License |
+| --- | --- |
+| redb | MIT or Apache-2.0 |
+
+It serves etcd's messages (`proto/vendor/etcd`, under the
+[Apache License 2.0](proto/vendor/etcd/LICENSE)) and follows etcd's
+behaviour as the store's recorded replays show it; it contains no code of
+etcd's.
+
 ## armada-server
 
 `armada-server` (`server/`, Apache-2.0) is the control plane in Rust

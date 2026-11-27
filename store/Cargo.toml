@@ -34,8 +34,13 @@ parity = []
 name = "armada-store-parity"
 required-features = ["parity"]
 
+# The store's recordings replayed on armada-kv as well
+# (ARMADA_STORE_BACKEND=kv, ADR 0057): a member in the test's process.
+[dev-dependencies]
+armada-kv = { path = "../kv" }
+
 # The store's recordings, replayed against armada-store-parity
-# on the pinned etcd (make store-replay).
+# on the pinned etcd (make store-replay), or on armada-kv.
 [[test]]
 name = "replay"
 required-features = ["parity"]

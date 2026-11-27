@@ -17,7 +17,8 @@ VERSION_ENV = ARMADA_VERSION=$(VERSION) ARMADA_COMMIT=$(COMMIT) ARMADA_DATE=$(DA
 # armada-agent-parity).
 TEST_FEATURES = armada-node/test-hooks,$(REPLAY_FEATURES)
 
-# The replays: recorded behaviour replayed against the code. The recordings under
+# The replays: recorded behaviour replayed against the code (the store's
+# also on armada-kv, ADR 0057). The recordings under
 # each crate's tests/testdata are goldens: nothing writes them again, so a
 # change of behaviour changes them by hand. `make replays` runs them all in
 # one cargo run, so each crate is built once with one set of features;
@@ -117,14 +118,17 @@ replays:
 		$(foreach r,$(REPLAYS),-p armada-$(r)) \
 		--features $(subst $(space),$(comma),$(strip $(foreach r,$(REPLAYS),$(REPLAY_FEATURE_$(r))))) \
 		$(addprefix --test ,$(sort $(foreach r,$(REPLAYS),$(REPLAY_TESTS_$(r)))))
+	$(if $(filter store,$(REPLAYS)),ARMADA_STORE_BACKEND=kv cargo test --locked -p armada-store --features armada-store/parity --test replay)
 
 # Each replay alone.
 
 # The store's calls, answers, and keyspaces on the pinned etcd, with the
-# Rust-only checks of two stores at once.
+# Rust-only checks of two stores at once; then the same on armada-kv
+# (ADR 0057), whose behaviour must be etcd's.
 store-replay:
 	sh scripts/etcd-cache.sh
 	ARMADA_ETCD_DIR=$(CURDIR)/.cache/etcd cargo test --locked -p armada-store --features armada-store/parity --test replay
+	ARMADA_STORE_BACKEND=kv cargo test --locked -p armada-store --features armada-store/parity --test replay
 
 # The control plane's scenarios against the server on the pinned etcd.
 server-scenarios:

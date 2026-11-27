@@ -5,6 +5,10 @@
 //! ARMADA_ETCD_DIR names it), and after each call its answer (normalized)
 //! and its whole keyspace must equal the recorded ones.
 //!
+//! With ARMADA_STORE_BACKEND=kv the same cases run on armada-kv (ADR 0057)
+//! instead, a member started in this process on a Unix socket: the
+//! recordings are etcd's behaviour, so any difference is armada-kv's bug.
+//!
 //! What two servers do on one keyspace (two writers, stores fenced to the
 //! other's term, one election and one lock) has nothing to record;
 //! `shared_keyspace` checks it with two handles on one member instead.
@@ -21,18 +25,50 @@ use armada_store::Client;
 use armada_store::client::op;
 use serde_json::{Value, json};
 
-/// The pinned etcd on Unix sockets in a directory of the build's, without
-/// TLS, as `armadad backup` runs a scratch member.
+/// The member the replay runs on: the pinned etcd as a process, or an
+/// armada-kv member on a thread of its own.
+enum Backend {
+    Etcd(Child),
+    Kv {
+        stop: Option<tokio::sync::oneshot::Sender<()>>,
+        thread: Option<std::thread::JoinHandle<()>>,
+    },
+}
+
+/// A member on Unix sockets in a directory of the build's, without TLS, as
+/// `armadad backup` runs a scratch member.
 struct Member {
-    child: Child,
+    backend: Backend,
     dir: PathBuf,
 }
 
 impl Drop for Member {
     fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        match &mut self.backend {
+            Backend::Etcd(child) => {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+            Backend::Kv { stop, thread } => {
+                if let Some(s) = stop.take() {
+                    let _ = s.send(());
+                }
+                if let Some(t) = thread.take() {
+                    let _ = t.join();
+                }
+            }
+        }
         let _ = std::fs::remove_dir_all(&self.dir);
+    }
+}
+
+/// Whether the replay runs on armada-kv (ARMADA_STORE_BACKEND=kv) rather
+/// than etcd (unset or `etcd`).
+fn on_kv() -> bool {
+    match std::env::var("ARMADA_STORE_BACKEND").as_deref() {
+        Ok("kv") => true,
+        Ok("etcd") | Ok("") | Err(_) => false,
+        Ok(other) => panic!("ARMADA_STORE_BACKEND={other}: kv or etcd"),
     }
 }
 
@@ -56,6 +92,9 @@ impl Member {
             .join(format!("store-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("mkdir");
+        if on_kv() {
+            return Member::start_kv(dir);
+        }
         let peer = "https://127.0.0.1:2380";
         // Relative paths: a socket's address holds at most 108 bytes.
         let child = Command::new(etcd_program())
@@ -76,7 +115,44 @@ impl Member {
             .stderr(Stdio::inherit())
             .spawn()
             .expect("start etcd");
-        Member { child, dir }
+        Member {
+            backend: Backend::Etcd(child),
+            dir,
+        }
+    }
+
+    /// An armada-kv member in dir/data, served on dir/client.sock until
+    /// the member is dropped.
+    fn start_kv(dir: PathBuf) -> Member {
+        let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
+        let d = dir.clone();
+        let thread = std::thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(2)
+                .enable_all()
+                .build()
+                .expect("runtime");
+            rt.block_on(async move {
+                let opts = armada_kv::Options {
+                    name: "replay".to_string(),
+                    ..Default::default()
+                };
+                let node = armada_kv::Node::open(&d.join("data"), opts).expect("open armada-kv");
+                armada_kv::serve_unix(node.clone(), &d.join("client.sock"), async {
+                    let _ = stopped.await;
+                })
+                .await
+                .expect("serve armada-kv");
+                node.close();
+            });
+        });
+        Member {
+            backend: Backend::Kv {
+                stop: Some(stop),
+                thread: Some(thread),
+            },
+            dir,
+        }
     }
 
     fn socket(&self) -> PathBuf {
@@ -86,8 +162,18 @@ impl Member {
     async fn ready(&mut self) -> Client {
         let deadline = Instant::now() + Duration::from_secs(60);
         loop {
-            if let Ok(Some(st)) = self.child.try_wait() {
-                panic!("etcd exited: {st}");
+            match &mut self.backend {
+                Backend::Etcd(child) => {
+                    if let Ok(Some(st)) = child.try_wait() {
+                        panic!("etcd exited: {st}");
+                    }
+                }
+                Backend::Kv { thread, .. } => {
+                    assert!(
+                        !thread.as_ref().is_some_and(|t| t.is_finished()),
+                        "armada-kv stopped"
+                    );
+                }
             }
             if self.socket().exists() {
                 let c = Client::connect_unix(&self.socket()).expect("connect");
@@ -97,7 +183,7 @@ impl Member {
             }
             assert!(
                 Instant::now() < deadline,
-                "etcd did not become ready within a minute"
+                "the member did not become ready within a minute"
             );
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
@@ -463,7 +549,11 @@ fn recordings_replay() {
         failed.join("\n\n")
     );
     assert!(calls >= 400, "only {calls} calls replayed");
-    eprintln!("replayed {calls} calls of {} recordings", files.len());
+    eprintln!(
+        "replayed {calls} calls of {} recordings on {}",
+        files.len(),
+        if on_kv() { "armada-kv" } else { "etcd" }
+    );
 }
 
 fn texts() -> Value {

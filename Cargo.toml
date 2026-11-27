@@ -7,7 +7,7 @@
 # petgraph), which the workspace's lock file must not hold.
 [workspace]
 resolver = "3"
-members = ["node", "proto", "fsutil", "pki", "secrets", "spec", "store", "server", "client", "agent", "daemon", "pack"]
+members = ["node", "proto", "fsutil", "pki", "secrets", "spec", "store", "kv", "server", "client", "agent", "daemon", "pack"]
 exclude = ["logger", "shim", "dns"]
 
 [workspace.package]
@@ -57,6 +57,10 @@ tokio = { version = "1", default-features = false, features = ["rt", "rt-multi-t
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring"] }
 tokio-stream = { version = "0.1", default-features = false }
 tower = { version = "0.5", default-features = false, features = ["util"] }
+
+# Armada's own state store (kv/, ADR 0057): its database, an embedded
+# copy-on-write B-tree store with no dependencies of its own.
+redb = "5"
 
 # Debug builds (tests, clippy's builds, the replays) keep only line tables:
 # backtraces still name files and lines, and builds and links are faster

@@ -1,0 +1,29 @@
+[package]
+name = "armada-kv"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Armada's own state store (ADR 0057): the subset of etcd's v3 API armada-store uses, on a multi-version key space in redb"
+
+[dependencies]
+armada-proto = { path = "../proto" }
+# The state machine's commands are protobuf messages (the log's entries).
+prost.workspace = true
+# The key space, the leases, and the member's identity: one database file,
+# every commit durable before it is answered.
+redb.workspace = true
+# Lease and member IDs.
+ring.workspace = true
+# The snapshot's checksum.
+sha2.workspace = true
+tokio.workspace = true
+tokio-stream.workspace = true
+# etcd's services (armada-proto's servers) over tonic's server, with no
+# router: one service dispatches by path.
+tonic = { workspace = true, features = ["server"] }
+tower.workspace = true
+
+[dev-dependencies]
+tonic = { workspace = true, features = ["channel"] }
+hyper-util.workspace = true
