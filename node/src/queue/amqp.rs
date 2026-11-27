@@ -15,7 +15,7 @@ use super::{
     Answer, Dialer, ERR_AUTH, ERR_DIAL, ERR_MECHANISM, ERR_MISSING, ERR_NO_MECHANISM, ERR_REPLY,
     ERR_TIMEOUT, ERR_URL, ERR_VHOST, MAX_LENGTH, Stream, url,
 };
-use crate::gostr;
+use crate::textutil;
 
 const FRAME_METHOD: u8 = 1;
 const FRAME_HEADER: u8 = 2;
@@ -65,7 +65,7 @@ fn parse_uri(raw: &str) -> Option<Uri> {
     let port = if u.port().is_empty() {
         default_port
     } else {
-        gostr::parse_int(u.port(), 32).ok()?
+        textutil::parse_int(u.port(), 32).ok()?
     };
     let (mut username, mut password) = (b"guest".to_vec(), b"guest".to_vec());
     if let Some((name, pass)) = &u.user {
@@ -93,14 +93,14 @@ fn parse_uri(raw: &str) -> Option<Uri> {
     let text = |v: Vec<u8>| String::from_utf8(v).unwrap_or_else(|_| "\u{fffd}".into());
     let heartbeat = match get(b"heartbeat") {
         None => None,
-        Some(v) => Some(gostr::parse_uint(&text(v), 16).ok()? as u32),
+        Some(v) => Some(textutil::parse_uint(&text(v), 16).ok()? as u32),
     };
     if let Some(v) = get(b"connection_timeout") {
-        gostr::atoi(&text(v)).ok()?;
+        textutil::atoi(&text(v)).ok()?;
     }
     let channel_max = match get(b"channel_max") {
         None => 0,
-        Some(v) => gostr::parse_uint(&text(v), 16).ok()? as u16,
+        Some(v) => textutil::parse_uint(&text(v), 16).ok()? as u16,
     };
     Some(Uri {
         tls,

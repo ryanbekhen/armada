@@ -338,7 +338,7 @@ pub fn mounted_source(info: &[u8], target: &str) -> (String, bool, Option<String
         if line.last() == Some(&b'\r') {
             line = &line[..line.len() - 1];
         }
-        let fields = crate::gostr::fields(line);
+        let fields = crate::textutil::fields(line);
         if fields.len() < 10 || unescape_mount(fields[4]) != target.as_bytes() {
             continue;
         }

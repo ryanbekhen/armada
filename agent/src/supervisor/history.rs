@@ -216,7 +216,7 @@ fn parse_history_name(name: &str) -> Option<(String, i64)> {
     if i == 0 {
         return None;
     }
-    let seq: i64 = armada_node::gostr::parse_int(&base.as_bytes()[i + 1..], 64).ok()?;
+    let seq: i64 = armada_node::textutil::parse_int(&base.as_bytes()[i + 1..], 64).ok()?;
     valid_id(&base[..i]).then(|| (base[..i].to_string(), seq))
 }
 

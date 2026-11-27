@@ -566,10 +566,10 @@ fn exec_pid(dir: &str) -> u32 {
     let Ok(b) = std::fs::read(Path::new(dir).join("pid")) else {
         return 0;
     };
-    let t = crate::gostr::trim_space(&b);
+    let t = crate::textutil::trim_space(&b);
     std::str::from_utf8(t)
         .ok()
-        .and_then(|s| crate::gostr::parse_uint(s, 32).ok())
+        .and_then(|s| crate::textutil::parse_uint(s, 32).ok())
         .map_or(0, |n| n as u32)
 }
 

@@ -16,7 +16,6 @@
 //!                              backups to S3-compatible buckets (src/volbackup)
 
 mod conntrack;
-mod gostr;
 mod hooks;
 mod names;
 mod net;
@@ -24,6 +23,7 @@ mod nfs;
 mod proxy;
 mod queue;
 mod runtime;
+mod textutil;
 mod volbackup;
 mod volume;
 

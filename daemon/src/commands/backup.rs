@@ -100,7 +100,7 @@ fn read_secret_file(ctx: &mut Ctx<'_>, flag: &str, arg: &str) -> Result<Vec<u8>>
     } else {
         armada_fsutil::read_private_file(Path::new(arg)).map_err(|e| msg(format!("{flag}: {e}")))?
     };
-    Ok(armada_node::gostr::trim_space(&b).to_vec())
+    Ok(armada_node::textutil::trim_space(&b).to_vec())
 }
 
 fn open_repo(ctx: &mut Ctx<'_>) -> Result<Repo> {
