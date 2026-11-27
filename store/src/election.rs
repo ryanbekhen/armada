@@ -1,9 +1,9 @@
 //! Leader election and locks, the recipes of etcd's `concurrency` package
-//! (v3.7.4) as `internal/etcd` (Campaign, Leader) and the ACME storage
-//! (Mutex) use them: a key `<prefix>/<lease ID in hex>` under the session's
-//! lease, the holder being the key with the lowest creation revision, each
-//! waiter watching the deletion of the key created just before its own. Go
-//! and Rust servers campaign in one election.
+//! (v3.7.4) as the control plane's leadership (Campaign, Leader) and the
+//! ACME storage (Mutex) use them: a key `<prefix>/<lease ID in hex>` under
+//! the session's lease, the holder being the key with the lowest creation
+//! revision, each waiter watching the deletion of the key created just
+//! before its own. Servers of every release campaign in one election.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -223,7 +223,7 @@ impl Election {
     }
 }
 
-/// Leadership of the control plane (internal/etcd's Campaign).
+/// Leadership of the control plane.
 pub struct Leadership {
     session: Arc<Session>,
     key: String,
@@ -231,7 +231,7 @@ pub struct Leadership {
 }
 
 impl Leadership {
-    /// Campaign blocks until this node leads (internal/etcd.Campaign),
+    /// Campaign blocks until this node leads,
     /// with a session of ttl seconds.
     pub async fn campaign(c: &Client, ttl: Duration, name: &str) -> Result<Leadership> {
         let session = Arc::new(
@@ -282,7 +282,7 @@ impl Leadership {
 }
 
 /// Leader returns the name of the current leader, "" without one
-/// (internal/etcd.Leader, which reads ELECTION_PREFIX itself).
+/// (read under ELECTION_PREFIX).
 pub async fn leader(c: &Client) -> Result<String> {
     Ok(first_created(c, ELECTION_PREFIX)
         .await?

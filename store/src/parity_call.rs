@@ -1,6 +1,6 @@
 //! What only the parity programs use (feature `parity`): every store
-//! method called by name with its arguments as Go's tests write them
-//! (Go's field names), answered with Go's field names. The store's parity
+//! method called by name with its arguments as the recordings write them,
+//! answered with the recordings' field names. The store's parity
 //! program (`armada-store-parity`) and the server's scenario replay
 //! (`server/tests/scenarios.rs`) both call it.
 
@@ -207,7 +207,7 @@ pub fn ok<T: Serialize>(v: T) -> Result<Value> {
     Ok(serde_json::to_value(v).expect("answers encode"))
 }
 
-/// One store method with its arguments as the Go test sends them.
+/// One store method with its arguments as the recordings send them.
 pub async fn call(st: &Etcd, method: &str, a: &Value) -> Result<Value> {
     match method {
         "GetMeta" => ok(st.get_meta(&s(a, "key")).await?),

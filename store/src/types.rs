@@ -1,6 +1,5 @@
-//! What the store's methods take and return: Go's store types. They
-//! serialize with Go's field names (for the parity program's answers,
-//! which Go reads into its own types).
+//! What the store's methods take and return. They serialize with the
+//! recordings' field names (for the parity program's answers).
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -76,7 +75,8 @@ pub struct Node {
     pub version: String,
     #[serde(with = "time_text")]
     pub cert_not_after: Time,
-    /// None is Go's nil map: UpsertNode then keeps the recorded labels.
+    /// None (no map, unlike an empty one): UpsertNode then keeps the
+    /// recorded labels.
     pub labels: Option<BTreeMap<String, String>>,
     #[serde(rename = "OS")]
     pub os: String,

@@ -90,8 +90,8 @@ pub fn check_grant(g: &Grant) -> Result<()> {
 }
 
 /// CheckLabels validates the node label values a principal's apps may
-/// require. Go ranges over a map, so with several invalid labels the one
-/// named is the first in key order here.
+/// require. With several invalid labels the one named is the first in key
+/// order.
 pub fn check_labels(labels: &BTreeMap<String, Vec<String>>) -> Result<()> {
     if labels.len() > MAX_NODE_LABELS {
         return Err(other!("at most {MAX_NODE_LABELS} label keys"));

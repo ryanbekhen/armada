@@ -1,6 +1,6 @@
-//! The records under the store's prefix, field for field as Go's record
-//! types declare them (names, order, omitempty), so either side reads and
-//! rewrites what the other wrote byte for byte.
+//! The records under the store's prefix, field for field in the
+//! keyspace's format (names, order, empty fields left out), so every
+//! release reads and rewrites what another wrote byte for byte.
 
 use std::collections::BTreeMap;
 

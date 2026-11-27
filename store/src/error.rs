@@ -1,10 +1,9 @@
-//! The store's errors: Go's sentinel errors (ErrNotFound, ErrConflict,
-//! ErrPrecondition, ErrNotLeader) as kinds, each error carrying the whole
-//! text Go's wrapped error prints.
+//! The store's errors: not found, conflict, precondition, and not leader
+//! as kinds, each error carrying its whole text (with what it wraps).
 
 use std::fmt;
 
-/// What an error is, as errors.Is tells Go's sentinels apart.
+/// What an error is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
     /// store.ErrNotFound: a record does not exist (or, for scoped updates,
@@ -44,7 +43,7 @@ impl Kind {
     }
 }
 
-/// An error of the store: its kind and the text Go's error prints.
+/// An error of the store: its kind and its text.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Error {
     pub kind: Kind,

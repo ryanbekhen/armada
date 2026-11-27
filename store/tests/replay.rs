@@ -1,18 +1,13 @@
-//! The store's parity tests replayed from recordings of Go (ADR 0055, item
-//! 20). Before the Go code was removed, Go's TestArmadaStore and
-//! TestRecordStoreTexts ran the tests that compare one store with the other
-//! against Go's store alone and wrote testdata/<test>.jsonl: every call
-//! with its arguments, Go's answer, and the keys it wrote or deleted. Here
-//! armada-store-parity runs the same calls on the pinned etcd (`make
-//! store-replay`: scripts/etcd-cache.sh puts it in .cache/etcd, or
-//! ARMADA_ETCD_DIR names it), with no Go, and after each call its answer
-//! (normalized as the Go test normalizes) and its whole keyspace must equal
-//! Go's.
+//! The store's recordings replayed: testdata/<test>.jsonl holds every
+//! call with its arguments, the recorded answer, and the keys it wrote or
+//! deleted. Here armada-store-parity runs the same calls on the pinned etcd
+//! (`make store-replay`: scripts/etcd-cache.sh puts it in .cache/etcd, or
+//! ARMADA_ETCD_DIR names it), and after each call its answer (normalized)
+//! and its whole keyspace must equal the recorded ones.
 //!
-//! The Go tests that ran both stores at once (one keyspace written by both,
-//! stores fenced to the other side's term, one election and one lock) have
-//! nothing to record; `rust_alone` checks the Rust side of each with two
-//! Rust writers, Rust terms, and Rust campaigners instead.
+//! What two servers do on one keyspace (two writers, stores fenced to the
+//! other's term, one election and one lock) has nothing to record;
+//! `shared_keyspace` checks it with two handles on one member instead.
 
 use std::collections::{BTreeMap, HashMap};
 use std::io::{BufRead, BufReader, Write};
@@ -210,7 +205,7 @@ impl Proc {
     }
 }
 
-/// What the Go test compares: times as UTC instants, and nil and empty
+/// What the replay compares: times as UTC instants, and missing and empty
 /// lists and maps alike.
 fn normalize(v: &Value) -> Value {
     match v {
@@ -232,8 +227,7 @@ fn normalize(v: &Value) -> Value {
     }
 }
 
-/// JSON values as Go's reflect.DeepEqual sees them after json.Unmarshal
-/// into any: numbers as float64.
+/// JSON values compared as values, numbers as float64.
 fn same_json(a: &Value, b: &Value) -> bool {
     match (a, b) {
         (Value::Number(x), Value::Number(y)) => x.as_f64() == y.as_f64(),
@@ -263,18 +257,18 @@ async fn dump(c: &Client, prefix: &str) -> BTreeMap<String, String> {
         .collect()
 }
 
-fn diff_keyspaces(go: &BTreeMap<String, String>, rust: &BTreeMap<String, String>) -> Vec<String> {
+fn diff_keyspaces(want: &BTreeMap<String, String>, got: &BTreeMap<String, String>) -> Vec<String> {
     let mut d = Vec::new();
-    for (k, v) in go {
-        match rust.get(k) {
-            None => d.push(format!("only Go wrote {k} = {v}")),
-            Some(r) if r != v => d.push(format!("{k}:\n  go   {v}\n  rust {r}")),
+    for (k, v) in want {
+        match got.get(k) {
+            None => d.push(format!("only the recording has {k} = {v}")),
+            Some(r) if r != v => d.push(format!("{k}:\n  want {v}\n  got  {r}")),
             _ => {}
         }
     }
-    for (k, v) in rust {
-        if !go.contains_key(k) {
-            d.push(format!("only Rust wrote {k} = {v}"));
+    for (k, v) in got {
+        if !want.contains_key(k) {
+            d.push(format!("only the replay wrote {k} = {v}"));
         }
     }
     d
@@ -342,7 +336,7 @@ async fn replay(p: &mut Proc, c: &Client, name: &str, text: &str) -> Result<usiz
                     a["error"].as_str().unwrap_or_default(),
                 );
                 if w != g {
-                    return Err(at(format!("opening {pfx}:\n  go   {w:?}\n  rust {g:?}")));
+                    return Err(at(format!("opening {pfx}:\n  want {w:?}\n  got  {g:?}")));
                 }
                 continue;
             }
@@ -396,14 +390,14 @@ async fn replay(p: &mut Proc, c: &Client, name: &str, text: &str) -> Result<usiz
                 );
                 if wk != gk || we != ge {
                     return Err(at(format!(
-                        "{what}:\n  go   {we:?} ({wk})\n  rust {ge:?} ({gk})"
+                        "{what}:\n  want {we:?} ({wk})\n  got  {ge:?} ({gk})"
                     )));
                 }
                 if we.is_empty() {
                     let (gv, rv) = (normalize(&w["value"]), normalize(&a["value"]));
                     if !same_json(&gv, &rv) {
                         return Err(at(format!(
-                            "{what} answers differ:\n  go   {gv}\n  rust {rv}"
+                            "{what} answers differ:\n  want {gv}\n  got  {rv}"
                         )));
                     }
                 }
@@ -463,7 +457,7 @@ fn recordings_replay() {
     }
     assert!(
         failed.is_empty(),
-        "{} of {} recordings differ from Go:\n\n{}",
+        "{} of {} recordings differ:\n\n{}",
         failed.len(),
         files.len(),
         failed.join("\n\n")
@@ -494,11 +488,10 @@ fn now_ms() -> i64 {
         .as_millis() as i64
 }
 
-/// What the Go tests that ran both stores at once checked, with Rust on
-/// both sides: two writers on one keyspace, fencing, one election, one
+/// Two servers on one keyspace: two writers, fencing, one election, one
 /// lock, and a lease kept alive.
 #[test]
-fn rust_alone() {
+fn shared_keyspace() {
     let texts = texts();
     let rt = runtime();
     let mut member = Member::start("alone");

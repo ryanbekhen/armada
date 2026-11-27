@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "The cluster state in etcd, a port of Go's internal/store and the client side of internal/etcd (ADR 0055)"
+description = "The cluster state in etcd: records, transactions, fencing, election, and the etcd client"
 
 [dependencies]
 armada-pki = { path = "../pki" }
@@ -34,7 +34,7 @@ parity = []
 name = "armada-store-parity"
 required-features = ["parity"]
 
-# The store's parity tests, recorded from Go, replayed against armada-store-parity
+# The store's recordings, replayed against armada-store-parity
 # on the pinned etcd (make store-replay).
 [[test]]
 name = "replay"

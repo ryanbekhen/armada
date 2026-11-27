@@ -33,10 +33,10 @@ fn volume_of(r: VolumeRec) -> Volume {
     }
 }
 
-/// The first n bytes of s as Go slices a string. A cut inside a character
-/// leaves bytes that are not UTF-8, which encoding/json writes as one
-/// "�" escape each; here each becomes U+FFFD, which reads back the
-/// same but is written as the character itself.
+/// The first n bytes of s. A cut inside a character leaves bytes that are
+/// not UTF-8, which the record format writes as one "�" escape each;
+/// here each becomes U+FFFD, which reads back the same but is written as
+/// the character itself.
 fn cut(s: &str, n: usize) -> String {
     if s.len() <= n {
         return s.to_string();

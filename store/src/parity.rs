@@ -1,5 +1,5 @@
 //! What only the parity program uses: every record under the prefix read
-//! into its type and encoded again, which must give the bytes Go wrote.
+//! into its type and encoded again, which must give the bytes stored.
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;

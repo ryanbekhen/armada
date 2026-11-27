@@ -1,4 +1,4 @@
-//! Records as Go's encoding/json writes and reads them: struct fields in
+//! Records as JSON in the keyspace's format: struct fields in
 //! declaration order, map keys sorted, HTML characters and U+2028/U+2029
 //! escaped in strings, []byte as standard base64 (nil as null), and times
 //! as Unix milliseconds or RFC 3339 text.
@@ -12,15 +12,15 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use crate::error::{Error, Result};
 
 /// json.Marshal of v. serde_json writes fields in declaration order, map
-/// keys sorted (BTreeMap), and the control characters as Go does; the HTML
-/// characters and the two line separators Go also escapes appear only
-/// inside strings, so they are escaped afterwards.
+/// keys sorted (BTreeMap), and control characters escaped; the HTML
+/// characters and the two line separators, also escaped in the format,
+/// appear only inside strings, so they are escaped afterwards.
 pub(crate) fn marshal<T: Serialize + ?Sized>(v: &T) -> Vec<u8> {
     let s = serde_json::to_string(v).expect("records always encode");
     escape_html(s).into_bytes()
 }
 
-/// Go's HTML escaping of encoded JSON.
+/// Escapes `<`, `>`, `&`, U+2028, and U+2029 in encoded JSON as `\u003c` and the like.
 pub(crate) fn escape_html(s: String) -> String {
     if !s.contains(['<', '>', '&', '\u{2028}', '\u{2029}']) {
         return s;
@@ -84,7 +84,7 @@ pub(crate) fn compact(b: &[u8]) -> Vec<u8> {
     out.into_bytes()
 }
 
-/// json.Unmarshal of a record at key k, with Go's error prefix.
+/// Decodes the record at key k; errors read `decode KEY: ...`.
 pub(crate) fn decode<T: DeserializeOwned>(k: &str, b: &[u8]) -> Result<T> {
     serde_json::from_slice(b).map_err(|e| Error::other(format!("decode {k}: {e}")))
 }
@@ -160,8 +160,8 @@ pub fn truncate_ms(t: &Time) -> Time {
     }
 }
 
-/// Times as Go's encoding/json writes them (RFC 3339 with nanoseconds),
-/// for the answers of the parity program.
+/// Times as RFC 3339 with nanoseconds, for the answers of the parity
+/// program.
 pub mod time_text {
     use super::*;
 

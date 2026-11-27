@@ -1,14 +1,14 @@
-//! The cluster state in etcd (ADR 0009, ADR 0010, ADR 0055): a port of
-//! Go's `internal/store` and of the client side of `internal/etcd`.
+//! The cluster state in etcd (ADR 0009, ADR 0010), and the control plane's
+//! etcd client.
 //!
-//! The keys, the JSON records (field names, omitempty, time encodings),
-//! the schema number, the commit key, the optimistic transactions, the
-//! fencing on the election key, the range deletes, the event leases, and
-//! the election and mutex recipes are Go's, so a Go server and a Rust
-//! server share one keyspace and campaign in one election. Go's tests
+//! The keys, the JSON records (field names, empty fields left out, time
+//! encodings), the schema number, the commit key, the optimistic
+//! transactions, the fencing on the election key, the range deletes, the
+//! event leases, and the election and mutex recipes are fixed, so servers
+//! of earlier releases and this one share one keyspace and campaign in one
+//! election during a rolling upgrade. The recordings (tests/replay.rs)
 //! drive this crate through the `armada-store-parity` program on one etcd
-//! member and compare the keyspace and every answer
-//! (internal/store/nativestore_test.go).
+//! member and compare the keyspace and every answer.
 
 pub mod client;
 pub mod election;
