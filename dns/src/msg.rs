@@ -43,7 +43,7 @@ fn be16(b: &[u8], at: usize) -> u16 {
     u16::from_be_bytes([b[at], b[at + 1]])
 }
 
-/// Reads a message, applying the checks of the Go server it replaces:
+/// Reads a message, applying these checks:
 /// responses are ignored, opcodes other than QUERY get NOTIMP, and a
 /// message with other than one question, or more records than a query
 /// carries, gets FORMERR.

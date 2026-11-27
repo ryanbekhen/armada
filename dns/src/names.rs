@@ -1,7 +1,7 @@
-//! The name rules of internal/spec the resolver applies: which names are
+//! The name rules of the spec the resolver applies: which names are
 //! app IDs, which are revision labels of one, and which space each belongs
-//! to. They must agree with spec.ValidName, spec.SplitAppID, and
-//! spec.ValidHostName (compared in the Go parity test).
+//! to. They must agree with the spec's app names, app IDs, and host
+//! names.
 
 /// The space of apps whose ID carries no space.
 const DEFAULT_SPACE: &str = "default";

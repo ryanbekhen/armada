@@ -1,7 +1,7 @@
 //! The UDP side: one event loop per thread over epoll, reading lookups
 //! from the shared listening socket and forwarding the rest to the
 //! upstreams without a thread per lookup. Each forwarded lookup goes out
-//! on a socket of its own (a fresh source port, as the Go resolver did),
+//! on a socket of its own (a fresh source port),
 //! waits in the loop, and moves on to the next upstream at its deadline.
 
 use std::collections::VecDeque;

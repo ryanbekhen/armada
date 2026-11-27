@@ -7,7 +7,7 @@ use std::process::Command;
 
 use sha2::{Digest, Sha256};
 
-/// The largest download accepted (Go's mkbundle: 512 MiB).
+/// The largest download accepted: 512 MiB.
 pub const MAX_DOWNLOAD: u64 = 512 << 20;
 
 pub fn sum_hex(b: &[u8]) -> String {

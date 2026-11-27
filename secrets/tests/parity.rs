@@ -1,8 +1,6 @@
-//! The parity cases of Go's internal/secrets tests, recorded once from Go
-//! before the Go code was removed (ADR 0055, item 20): testdata/parity.json
-//! holds
-//! what Go sealed, refused, and wrote; these tests check the crate
-//! opens, refuses, and writes the same with no Go.
+//! The recorded cases: testdata/parity.json holds sealed values, refusals,
+//! and key files; these tests check the crate opens, refuses, and writes
+//! the same.
 
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -42,14 +40,18 @@ fn sealed(v: &Json) -> Sealed {
     }
 }
 
-/// Checks Rust refused as Go did: the same text (the directory written as
+/// Checks the crate refused as recorded: the same text (the directory written as
 /// {dir}) and whether it is ErrWrongKey.
 fn same_error<T>(what: &str, got: Result<T, Error>, want: &Json, dir: &str) {
     let text = s(want, "error").replace("{dir}", dir);
     match got {
-        Ok(_) => panic!("{what}: Go refused with {text:?}; Rust did not"),
+        Ok(_) => panic!("{what}: the recording refused with {text:?}; the crate did not"),
         Err(e) => {
-            assert_eq!(e.to_string(), text, "{what}: Rust's text, then Go's");
+            assert_eq!(
+                e.to_string(),
+                text,
+                "{what}: the crate's text, then the recording's"
+            );
             assert_eq!(
                 e == Error::WrongKey,
                 want["wrongKey"].as_bool().unwrap_or(false),
@@ -64,7 +66,7 @@ fn version(v: &Json) -> i64 {
 }
 
 #[test]
-fn opens_what_go_sealed() {
+fn opens_what_was_sealed() {
     let f = fixture();
     let k = Keyring::new(&unhex(s(&f, "key"))).expect("the key");
     assert_eq!(k.id(), s(&f, "keyId"));
@@ -76,10 +78,10 @@ fn opens_what_go_sealed() {
         let go = sealed(&c["sealed"]);
         let v = k
             .open(&go, s(c, "scope"), s(c, "name"), version(c))
-            .unwrap_or_else(|e| panic!("{what}: Rust does not open Go's: {e}"));
+            .unwrap_or_else(|e| panic!("{what}: the crate does not open the recorded value: {e}"));
         assert_eq!(hex(v.bytes()), s(c, "value"), "{what}");
         assert_eq!(format!("{v} {v:?}"), s(c, "shown"), "{what}: shown");
-        // Rust seals the same value: Go's key ID and lengths, a fresh
+        // The crate seals the same value: the recorded key ID and lengths, a fresh
         // nonce, and it opens again.
         let r = k
             .seal(s(c, "scope"), s(c, "name"), version(c), &v)
@@ -96,7 +98,7 @@ fn opens_what_go_sealed() {
 }
 
 #[test]
-fn refuses_what_go_refused() {
+fn refuses_as_recorded() {
     let f = fixture();
     let cases = f["refused"].as_array().expect("refused");
     assert_eq!(cases.len(), 12);
@@ -138,21 +140,21 @@ fn temp_dir(name: &str) -> PathBuf {
 }
 
 #[test]
-fn key_files_as_go_reads_and_writes_them() {
+fn key_files_as_recorded() {
     let f = fixture();
     let dir = temp_dir("files");
     let dir_text = dir.to_str().expect("a UTF-8 path").to_string();
 
-    // Go's key file reads as Go read it.
+    // The recorded key file reads as recorded.
     let kf = &f["keyFile"];
     let go_path = dir.join("go.key");
     write(&go_path, s(kf, "content").as_bytes(), 0o600);
-    let k = load_key_file(&go_path).expect("Go's key file");
+    let k = load_key_file(&go_path).expect("the recorded key file");
     assert_eq!(k.id(), s(kf, "id"));
     assert_eq!(hex(k.export().bytes()), s(kf, "export"));
     assert_eq!(format!("{k} {k:?}"), s(kf, "shown"));
 
-    // Rust writes one as Go does: 0600, 64 hex digits and a newline.
+    // The crate writes one: 0600, 64 hex digits and a newline.
     let rust_path = dir.join("rust.key");
     generate_key_file(&rust_path).expect("generate");
     let meta = std::fs::metadata(&rust_path).expect("stat");
@@ -165,14 +167,14 @@ fn key_files_as_go_reads_and_writes_them() {
             .iter()
             .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(c))
     );
-    load_key_file(&rust_path).expect("Rust's key file");
+    load_key_file(&rust_path).expect("the crate's key file");
 
     // An exported key written again reads as the same key.
     let exported = dir.join("exported.key");
     write_key_file(&exported, &Value::new(&unhex(s(kf, "export")))).expect("write");
     assert_eq!(load_key_file(&exported).expect("load").id(), s(kf, "id"));
 
-    // Go's refusals, with its texts.
+    // The recorded refusals, with their texts.
     for c in f["loadKeyFile"].as_array().expect("loadKeyFile") {
         let path = dir.join(s(c, "file"));
         if c["dir"].as_bool() == Some(true) {
@@ -189,7 +191,9 @@ fn key_files_as_go_reads_and_writes_them() {
         if c.get("want").is_some_and(|w| !w.is_null()) {
             same_error(s(c, "case"), got, &c["want"], &dir_text);
         } else {
-            let k = got.unwrap_or_else(|e| panic!("{}: Go read it; Rust: {e}", s(c, "case")));
+            let k = got.unwrap_or_else(|e| {
+                panic!("{}: the recording read it; the crate: {e}", s(c, "case"))
+            });
             assert_eq!(k.id(), s(c, "id"), "{}", s(c, "case"));
         }
     }

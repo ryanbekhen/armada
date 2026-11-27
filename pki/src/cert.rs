@@ -1,6 +1,6 @@
 //! Reading certificates (x509-parser), checking their signatures (ring
-//! through x509-parser), and Go's verification rules for the one-CA chains
-//! Armada builds.
+//! through x509-parser), and the verification rules of the one-CA chains
+//! Armada builds, with the `x509:` error texts the recordings hold.
 
 use std::net::IpAddr;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -11,7 +11,7 @@ use crate::encoding::{self, oid};
 use crate::identity::{self, Identity};
 use crate::{Error, SERVER_NAME};
 
-/// An extended key usage, as Go's `x509.ExtKeyUsage` numbers them.
+/// An extended key usage.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExtKeyUsage {
     Any,
@@ -77,20 +77,19 @@ impl ExtKeyUsage {
     }
 }
 
-/// Go's `x509.KeyUsage` bits.
+/// Key usage bits (bit i is the i-th named bit of RFC 5280's KeyUsage).
 pub const KEY_USAGE_DIGITAL_SIGNATURE: u16 = 1;
 pub const KEY_USAGE_CERT_SIGN: u16 = 1 << 5;
 pub const KEY_USAGE_CRL_SIGN: u16 = 1 << 6;
 
-/// A parsed certificate, with the fields Go's `x509.Certificate` gives
-/// Armada's code.
+/// A parsed certificate, with the fields Armada's code reads.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Certificate {
     /// The DER bytes.
     pub raw: Vec<u8>,
     pub raw_subject: Vec<u8>,
     pub raw_issuer: Vec<u8>,
-    /// The subject's last common name, as Go reads it ("" without one).
+    /// The subject's last common name ("" without one).
     pub common_name: String,
     /// The subject's organizations.
     pub organization: Vec<String>,
@@ -103,12 +102,12 @@ pub struct Certificate {
     pub not_after: i64,
     pub basic_constraints_valid: bool,
     pub is_ca: bool,
-    /// -1 when absent, as Go reads it.
+    /// -1 when absent.
     pub max_path_len: i64,
     pub key_usage: u16,
     /// Known extended key usages in the certificate's order.
     pub ext_key_usage: Vec<ExtKeyUsage>,
-    /// Usages Go does not know, as encoded object identifiers.
+    /// Usages not in [`ExtKeyUsage`], as encoded object identifiers.
     pub unknown_ext_key_usage: Vec<Vec<u8>>,
     pub dns_names: Vec<String>,
     pub ip_addresses: Vec<IpAddr>,
@@ -125,7 +124,7 @@ pub struct Certificate {
 }
 
 impl Certificate {
-    /// Parses a DER certificate. Data after it is refused, as Go does.
+    /// Parses a DER certificate. Data after it is refused.
     pub fn from_der(der: &[u8]) -> Result<Self, Error> {
         let (rest, c) = X509Certificate::from_der(der)
             .map_err(|e| Error::new(format!("x509: malformed certificate: {e}")))?;
@@ -276,13 +275,12 @@ impl Certificate {
         identity::parse_identity(&self.common_name)
     }
 
-    /// The hex SHA-256 of the DER bytes (Go's `Fingerprint`).
+    /// The hex SHA-256 of the DER bytes.
     pub fn fingerprint(&self) -> String {
         encoding::hex(ring::digest::digest(&ring::digest::SHA256, &self.raw).as_ref())
     }
 
-    /// The serial number as lowercase hex, no leading zeros (Go's
-    /// `SerialString`, `big.Int.Text(16)`).
+    /// The serial number as lowercase hex, no leading zeros.
     pub fn serial_string(&self) -> String {
         let h = encoding::hex(&self.serial);
         let t = h.trim_start_matches('0');
@@ -294,8 +292,8 @@ impl Certificate {
         }
     }
 
-    /// Checks that `parent` signed this certificate, with Go's
-    /// `CheckSignatureFrom` rules and texts.
+    /// Checks that `parent` signed this certificate: the parent must be a
+    /// CA allowed to sign certificates, and the signature must verify.
     pub fn check_signature_from(&self, parent: &Certificate) -> Result<(), Error> {
         if (parent.version == 3 && !parent.basic_constraints_valid)
             || (parent.basic_constraints_valid && !parent.is_ca)
@@ -318,9 +316,9 @@ impl Certificate {
         })
     }
 
-    /// Go's `Verify` for a chain of this certificate and `root`, with
-    /// `DNSName` and `KeyUsages` as Armada passes them, at `now`. Checks
-    /// run in Go's order, so the first failure has Go's text.
+    /// Verifies a chain of this certificate and `root` for a DNS name and
+    /// key usages, at `now`. Checks run in a fixed order, so the first
+    /// failure always gives the same text.
     pub fn verify(
         &self,
         root: &Certificate,
@@ -444,7 +442,7 @@ impl Certificate {
     }
 }
 
-/// Parses the first certificate in a PEM block (Go's `ParseCertPEM`).
+/// Parses the first certificate in a PEM block.
 pub fn parse_cert_pem(b: &[u8]) -> Result<Certificate, Error> {
     match encoding::pem_decode(b) {
         Some(block) if block.kind == "CERTIFICATE" => Certificate::from_der(&block.bytes),
@@ -474,7 +472,7 @@ pub(crate) fn unix(t: SystemTime) -> (i64, u32) {
     }
 }
 
-/// Go's `time.RFC3339` of a UTC time in Unix seconds.
+/// RFC 3339 of a UTC time in Unix seconds (`2006-01-02T15:04:05Z`).
 pub(crate) fn rfc3339(secs: i64) -> String {
     match ::time::OffsetDateTime::from_unix_timestamp(secs) {
         Ok(t) => format!(

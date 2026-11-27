@@ -1,11 +1,11 @@
-//! Secret values at rest, with envelope encryption: a port of Go's
-//! `internal/secrets` (ADR 0006, ADR 0055).
+//! Secret values at rest, with envelope encryption (ADR 0006).
 //!
 //! Every secret version is encrypted with its own random data key
 //! (AES-256-GCM); the data key is encrypted with the cluster master key.
 //! Both layers bind the secret's scope, name, and version as additional
 //! data, so a ciphertext cannot be moved to another secret or version. The
-//! format is Go's byte for byte: each side opens what the other sealed.
+//! format is fixed byte for byte (tests/parity.rs): values sealed by any
+//! release open in every other.
 
 use std::fmt;
 use std::path::Path;
@@ -21,15 +21,15 @@ const KEY_SIZE: usize = 32;
 const TAG_LEN: usize = 16;
 const REDACTED: &str = "[REDACTED]";
 
-/// The text of Go's `ErrWrongKey`.
+/// The text of [`Error::WrongKey`].
 pub const WRONG_KEY: &str = "secret was encrypted with a different master key";
 
-/// What went wrong, worded as Go's errors are.
+/// What went wrong.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Error {
-    /// The secret was sealed with another master key (Go's `ErrWrongKey`).
+    /// The secret was sealed with another master key.
     WrongKey,
-    /// Anything else, with Go's text.
+    /// Anything else, with its text.
     Other(String),
 }
 
@@ -233,8 +233,7 @@ pub fn generate_key_file(path: &Path) -> Result<(), Error> {
 /// Writes a master key [`Keyring::export`] returned to `path` (mode 0600).
 /// It fails if the file exists or the key is invalid.
 pub fn write_key_file(path: &Path, v: &Value) -> Result<(), Error> {
-    let key =
-        unhex(go_trim_space(v.bytes())).ok_or_else(|| other("master key is not valid hex"))?;
+    let key = unhex(trim_space(v.bytes())).ok_or_else(|| other("master key is not valid hex"))?;
     let key = Wiped(key);
     Keyring::new(&key.0)?;
     armada_fsutil::write_file_exclusive(path, v.bytes(), 0o600)?;
@@ -245,7 +244,7 @@ pub fn write_key_file(path: &Path, v: &Value) -> Result<(), Error> {
 /// group or others may read.
 pub fn load_key_file(path: &Path) -> Result<Keyring, Error> {
     let b = Wiped(armada_fsutil::read_private_file(path)?);
-    let key = unhex(go_trim_space(&b.0))
+    let key = unhex(trim_space(&b.0))
         .ok_or_else(|| other(format!("master key {} is not valid hex", path.display())))?;
     let key = Wiped(key);
     Keyring::new(&key.0)
@@ -309,7 +308,7 @@ fn hex(b: &[u8]) -> String {
     s
 }
 
-/// Go's `hex.DecodeString`: either case, an even length.
+/// Decodes hex: either case, an even length.
 fn unhex(s: &[u8]) -> Option<Vec<u8>> {
     if !s.len().is_multiple_of(2) {
         return None;
@@ -325,9 +324,9 @@ fn unhex(s: &[u8]) -> Option<Vec<u8>> {
         .collect()
 }
 
-/// Go's `strings.TrimSpace` on bytes: leading and trailing white space
+/// Trims leading and trailing white space
 /// (ASCII, and Unicode's in valid UTF-8).
-fn go_trim_space(b: &[u8]) -> &[u8] {
+fn trim_space(b: &[u8]) -> &[u8] {
     match std::str::from_utf8(b) {
         Ok(s) => s.trim().as_bytes(),
         Err(_) => b.trim_ascii(),

@@ -1,8 +1,6 @@
 //! `armada-log export`: reads app output not yet sent to the cluster's log
-//! store and renders it as the requests armadad sends (ADR 0044), for
-//! `embedded.TailLogsWith`, which keeps the cursors and the reference
-//! implementation in Go (`embedded.TailLogs` and `logexport.Encode`,
-//! compared by a Go test). armadad compresses and sends the requests.
+//! store and renders it as the requests the node agent sends (ADR 0044).
+//! The agent keeps the cursors, and compresses and sends the requests.
 //!
 //!   armada-log export --format loki|otlp --node NAME --now NS
 //!                     --batch-records N --batch-bytes N --budget N --share N
@@ -32,7 +30,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, BufRead, Read, Seek, SeekFrom, Write};
 
-/// Go's zero time.Time, which an entry without a time has: 0001-01-01 UTC.
+/// The zero time an entry without a time has: 0001-01-01 UTC.
 const ZERO_TIME: i128 = -62_135_596_800 * 1_000_000_000;
 
 #[derive(Clone, Copy, PartialEq)]
@@ -192,7 +190,7 @@ fn read_plan(r: impl BufRead) -> Result<Vec<Container>, String> {
     Ok(out)
 }
 
-/// `SECONDS.NANOS`, as Go's Unix() and Nanosecond() give them.
+/// `SECONDS.NANOS`: Unix seconds and the nanoseconds within the second.
 fn parse_secs(s: &str) -> Option<i128> {
     let (sec, ns) = s.split_once('.')?;
     let ns: i128 = ns.parse().ok().filter(|n| (0..1_000_000_000).contains(n))?;
@@ -207,7 +205,7 @@ fn format_time(t: i128) -> String {
     )
 }
 
-/// time.Time.UnixNano as Go computes it, wrapping outside int64.
+/// Nanoseconds since the epoch, wrapping outside int64.
 fn unix_nano(t: i128) -> i64 {
     let sec = t.div_euclid(1_000_000_000) as i64;
     let ns = t.rem_euclid(1_000_000_000) as i64;
@@ -296,7 +294,7 @@ fn read_file(
         let n = match f.read(&mut buf[filled..filled + room]) {
             Ok(0) => return Ok((Some(read), last)),
             Ok(n) => n,
-            // Go stops at a read error too, keeping what it found.
+            // A read error stops the file, keeping what was found.
             Err(_) => return Ok((None, last)),
         };
         left -= n as u64;
@@ -311,7 +309,7 @@ fn read_file(
                 None => ZERO_TIME,
                 Some(span) => match decoded(line, span, &mut text).and_then(parse_time) {
                     Some(t) => t,
-                    None => continue, // an invalid time fails the line in Go
+                    None => continue, // an invalid time fails the line
                 },
             };
             if after.is_some_and(|a| time <= a) {
@@ -326,7 +324,7 @@ fn read_file(
                 Some(span) => match canonical(&line[span.start..span.end]) {
                     Some(log) => log,
                     None => match decoded(line, span, &mut text) {
-                        Some(l) => Log::Text(go_string(l, &mut valid)),
+                        Some(l) => Log::Text(lossy_string(l, &mut valid)),
                         None => continue,
                     },
                 },
@@ -442,9 +440,9 @@ fn canonical(raw: &[u8]) -> Option<Log<'_>> {
     Some(Log::Json { raw, len, newline })
 }
 
-/// s as Go's encoding/json decodes it into a string: each byte that is not
+/// s as a JSON decoder reads it into a string: each byte that is not
 /// part of valid UTF-8 becomes U+FFFD.
-fn go_string<'a>(s: &'a [u8], buf: &'a mut Vec<u8>) -> &'a [u8] {
+fn lossy_string<'a>(s: &'a [u8], buf: &'a mut Vec<u8>) -> &'a [u8] {
     if std::str::from_utf8(s).is_ok() {
         return s;
     }
@@ -580,8 +578,8 @@ impl<'a> Encoder<'a> {
         self.labels.len() - 1
     }
 
-    /// Adds one entry, first sending the request when it is full (as
-    /// logexport.Batches splits records).
+    /// Adds one entry, first sending the request when it is full (by the
+    /// batch's record and byte bounds).
     fn add(
         &mut self,
         w: &mut impl Write,
@@ -729,9 +727,9 @@ mod tests {
     #[test]
     fn invalid_utf8_like_go() {
         let mut buf = Vec::new();
-        assert_eq!(go_string(b"ok \xc3\xa9", &mut buf), "ok é".as_bytes());
+        assert_eq!(lossy_string(b"ok \xc3\xa9", &mut buf), "ok é".as_bytes());
         assert_eq!(
-            go_string(b"a\xff\xe2\x80Z\xed\xa0\x80", &mut buf),
+            lossy_string(b"a\xff\xe2\x80Z\xed\xa0\x80", &mut buf),
             "a\u{fffd}\u{fffd}\u{fffd}Z\u{fffd}\u{fffd}\u{fffd}".as_bytes()
         );
     }

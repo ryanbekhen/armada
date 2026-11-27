@@ -1,8 +1,8 @@
 //! PEM, base64, hex, and the little DER Armada writes and reads by hand:
-//! the extensions of the certificates it issues (in Go's order and
+//! the extensions of the certificates it issues (in a fixed order and
 //! encoding), and the outer layer of PKCS#8 keys.
 
-/// Standard base64 with padding (Go's `base64.StdEncoding`).
+/// Standard base64 with padding (RFC 4648).
 pub fn base64_encode(b: &[u8]) -> String {
     const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut s = String::with_capacity(b.len().div_ceil(3) * 4);
@@ -55,8 +55,8 @@ pub fn base64_decode(s: &[u8]) -> Option<Vec<u8>> {
         }
         n <<= 6 * pad as u32;
         let bytes = [(n >> 16) as u8, (n >> 8) as u8, n as u8];
-        // Go's decoder refuses non-zero bits past the data (strict
-        // padding is not Go's default, but PEM bodies never have them).
+        // Non-zero bits past the data are refused (PEM bodies never have
+        // them).
         out.extend_from_slice(&bytes[..3 - pad]);
     }
     Some(out)
@@ -79,7 +79,7 @@ pub struct Block {
     pub bytes: Vec<u8>,
 }
 
-/// Encodes a PEM block as Go's `pem.EncodeToMemory` does: 64 characters a
+/// Encodes a PEM block: 64 characters a
 /// line, a newline after the END line.
 pub fn pem_encode(kind: &str, der: &[u8]) -> Vec<u8> {
     let body = base64_encode(der);
@@ -93,14 +93,14 @@ pub fn pem_encode(kind: &str, der: &[u8]) -> Vec<u8> {
 }
 
 /// Finds the first well-formed PEM block in `data`, skipping anything
-/// before it and blocks that do not decode, as Go's `pem.Decode` does.
+/// before it and blocks that do not decode.
 /// Headers (`Key: value` lines) are skipped.
 pub fn pem_decode(data: &[u8]) -> Option<Block> {
     const BEGIN: &[u8] = b"-----BEGIN ";
     let mut rest = data;
     loop {
         let start = find(rest, BEGIN)?;
-        // Go requires the BEGIN line at the start of the data or of a line.
+        // The BEGIN line must be at the start of the data or of a line.
         if start > 0 && rest[start - 1] != b'\n' {
             rest = &rest[start + BEGIN.len()..];
             continue;
@@ -219,8 +219,8 @@ pub mod oid {
     pub const EKU_PREFIX: &[u8] = &[0x2b, 0x06, 0x01, 0x05, 0x05, 0x07, 0x03];
     pub const EKU_ANY: &[u8] = &[0x55, 0x1d, 0x25, 0x00];
     /// 1.3.6.1.4.1.311.10.3.3, 2.16.840.1.113730.4.1,
-    /// 1.3.6.1.4.1.311.2.1.22, 1.3.6.1.4.1.311.61.1.1: the usages Go
-    /// knows outside the PKIX arc.
+    /// 1.3.6.1.4.1.311.2.1.22, 1.3.6.1.4.1.311.61.1.1: the usages read
+    /// by name outside the PKIX arc.
     pub const EKU_MS_SGC: &[u8] = &[0x2b, 0x06, 0x01, 0x04, 0x01, 0x82, 0x37, 0x0a, 0x03, 0x03];
     pub const EKU_NS_SGC: &[u8] = &[0x60, 0x86, 0x48, 0x01, 0x86, 0xf8, 0x42, 0x04, 0x01];
     pub const EKU_MS_COMMERCIAL: &[u8] =
