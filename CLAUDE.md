@@ -66,9 +66,9 @@ curl -fsSL .../install.sh | sudo sh                                       # inst
 shellcheck install.sh scripts/*.sh test/*.sh test/e2e/*.sh test/bench/*.sh && sh test/install_test.sh # shell scripts + installer tests (Linux)
 sh scripts/check-commits.sh origin/main..HEAD    # commit subjects (Conventional Commits, checked in CI)
 sh scripts/sync-labels.sh                        # create/update repo labels from .github/labels.json (also done by CI)
-sh test/e2e/cluster.sh HOSTS                     # end to end on real machines (test/e2e/README.md; every scenario before releases)
+sh test/e2e/cluster.sh HOSTS                     # end to end on real machines (test/e2e/README.md; every scenario before releases; E2E_STATE_MOVE=now moves the state to armada-kv first, off (default) keeps etcd)
 E2E_ONLY=isolation,rollout sh test/e2e/cluster.sh HOSTS   # only some scenarios (E2E_LIST=1 lists them; README maps changes to scenarios)
-E2E_TO=vX E2E_ETCDCTL=etcdctl [E2E_FROM=v0.1.0-alpha.44] [E2E_RELEASES=DIR] sh test/e2e/upgrade.sh HOSTS   # the lab upgrade: 3 servers + 2 nodes built on E2E_FROM, upgraded machine by machine under load (E2E_LIST=1)
+E2E_TO=vX E2E_ETCDCTL=etcdctl [E2E_FROM=v0.1.0-alpha.44] [E2E_RELEASES=DIR] sh test/e2e/upgrade.sh HOSTS   # the lab upgrade: 3 servers + 2 nodes built on E2E_FROM, upgraded machine by machine under load (the state move held off), then, when E2E_TO has armada-kv, the move scenario: the state moved to armada-kv under the same load (E2E_LIST=1)
 BENCH_WIPE=yes sh test/bench/network.sh HOSTS    # network benchmark between two machines: plain vs WireGuard prototype (test/bench/README.md)
 armadad doctor                                    # pre-flight checks on a node (certificates included; warns when a newer release exists)
 armada version / sudo armadad upgrade [--version vX]   # latest release and server versions / verified upgrade of this machine and restart of its services (ADR 0030); downgrades refused, upgrades into this release only from v0.1.0-alpha.44

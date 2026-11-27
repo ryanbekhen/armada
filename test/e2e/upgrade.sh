@@ -22,7 +22,11 @@
 # The run passes only with every request answered, no container or state
 # of runc's on any machine afterwards, no image pulled again, every etcd
 # member ID unchanged, and the keyspace unchanged but for what the release
-# writes (servers/ records, events, what replica reports change).
+# writes (servers/ records, events, what replica reports change). A release
+# that moves the state to armada-kv (ADR 0057) is held from moving it during
+# the upgrade (--state-move off); the move scenario then moves it under the
+# same load: the state in armada-kv on every server, the keyspace the same,
+# etcd's data kept as etcd.moved, and a backup of armada-kv's state.
 #
 # Releases come from GitHub, or from E2E_RELEASES: a local directory laid
 # out as the release downloads (TAG/armada_<version>_linux_<arch>.tar.gz,
@@ -31,8 +35,9 @@
 set -eu
 
 # Scenarios after the cluster is built on E2E_FROM and its workloads run.
-# E2E_ONLY=upgrade runs only that (empty: all); E2E_LIST=1 lists them.
-SCENARIOS="upgrade"
+# E2E_ONLY=upgrade runs only that (empty: all; move needs the upgrade, which
+# always runs); E2E_LIST=1 lists them.
+SCENARIOS="upgrade move"
 E2E_ONLY=${E2E_ONLY:-}
 if [ "${E2E_LIST:-}" = 1 ]; then
 	echo "$SCENARIOS" | tr ' ' '\n'
@@ -248,9 +253,13 @@ internal_check() {
 
 # What must not change, written into DIR: armada-node's image records
 # (when each was pulled), the etcd member IDs, and the keyspace.
+# The store the state is in: etcd's member, or armada-kv's once moved
+# (ADR 0057), which serves the same API with the same certificates.
+STATE_DIR=/var/lib/armada/etcd
+STATE_PORT=2379
 etcdctl() {
 	_ip=$(host 1 3)
-	on 1 "/root/e2e-etcdctl --endpoints https://$_ip:2379 --cacert /var/lib/armada/etcd/ca.crt --cert /var/lib/armada/etcd/member.crt --key /var/lib/armada/etcd/member.key $*"
+	on 1 "/root/e2e-etcdctl --endpoints https://$_ip:$STATE_PORT --cacert $STATE_DIR/ca.crt --cert $STATE_DIR/member.crt --key $STATE_DIR/member.key $*"
 }
 snapshot() { # snapshot DIR
 	mkdir -p "$1"
@@ -268,7 +277,8 @@ snapshot() { # snapshot DIR
 		# cluster serves: servers/ records (versions), events, the commit
 		# and audit counters, and the job: its record (the fire it last
 		# scheduled), its runs, and their attempts.
-		| map(select((.key | test("^(servers/|events/|audit/|commit$|auditseq$|apps/e2e-job\\.e2e-up$|runs/e2e-job\\.e2e-up/|replicas/e2e-job\\.e2e-up-j|placements/e2e-job\\.e2e-up-j)")) | not))
+		# And the records of the state move (ADR 0057).
+		| map(select((.key | test("^(servers/|events/|audit/|commit$|auditseq$|meta/state-move|apps/e2e-job\\.e2e-up$|runs/e2e-job\\.e2e-up/|replicas/e2e-job\\.e2e-up-j|placements/e2e-job\\.e2e-up-j)")) | not))
 		| map(.value |= (try fromjson catch .))
 		# Fields agents and the leader rewrite on their own: when a node
 		# was last seen and the version its agent runs, when a replica
@@ -290,8 +300,14 @@ unchanged() {
 		_i=$((_i + 1))
 	done
 	ok "$3: no image pulled again"
-	cmp -s "$1/members" "$2/members" || fail "$3: etcd members changed: $(jq -c . "$1/members") then $(jq -c . "$2/members")"
-	ok "$3: every etcd member ID unchanged"
+	if [ "${4:-}" = new-members ]; then
+		# A new store: its own member IDs, one per server.
+		[ "$(jq length "$2/members")" = "$SERVERS" ] || fail "$3: $(jq -c . "$2/members") are not $SERVERS members"
+		ok "$3: $SERVERS members in the new store"
+	else
+		cmp -s "$1/members" "$2/members" || fail "$3: etcd members changed: $(jq -c . "$1/members") then $(jq -c . "$2/members")"
+		ok "$3: every etcd member ID unchanged"
+	fi
 	if ! cmp -s "$1/keyspace" "$2/keyspace"; then
 		jq -r --slurpfile after "$2/keyspace" '
 			. as $before | ($before | keys) + ($after[0] | keys) | unique[] as $k
@@ -319,7 +335,7 @@ upgrade_machine() {
 }
 # units_of N: the Armada units active on machine N.
 # shellcheck disable=SC2016 # expanded on the machine
-units_of() { on "$1" 'for u in armada-etcd armada-server armada-agent; do systemctl is-active --quiet $u && printf "%s " $u; done; true'; }
+units_of() { on "$1" 'for u in armada-etcd armada-kv armada-server armada-agent; do systemctl is-active --quiet $u && printf "%s " $u; done; true'; }
 
 cleanup() {
 	_rc=$?
@@ -517,14 +533,15 @@ no_runc() {
 	done
 }
 
-# check WHEN BEFORE: every check, against the snapshot BEFORE, once no
-# machine has a container or state of runc's left, still under load.
+# check WHEN BEFORE [new-members]: every check, against the snapshot BEFORE,
+# once no machine has a container or state of runc's left, still under
+# load; new-members: the state moved to a new store.
 check() {
 	wait_for 300 "$1: no container or state of runc's on any machine" no_runc state
 	load_stop "$1"
 	internal_check "$1"
 	snapshot "$WORK/after"
-	unchanged "$2" "$WORK/after" "$1"
+	unchanged "$2" "$WORK/after" "$1" "${3:-}"
 	vol_kept || fail "$1: the volume lost its file"
 	job_failed && fail "$1: a run of the job failed"
 	wait_for 120 "$1: the job runs on its schedule" job_ran
@@ -548,6 +565,14 @@ while [ "$i" -le "$SERVERS" ]; do
 	i=$((i + 1))
 done
 upgrade_machine "$_li" "$E2E_TO"
+# A release with armada-kv moves the state ten minutes after every server
+# runs it (ADR 0057): held until the move scenario.
+MOVES=
+if cli cluster update --help 2>/dev/null | grep -q -- --state-move; then
+	MOVES=1
+	cli cluster update --state-move off >/dev/null || fail "holding the state move"
+	ok "the state move held (--state-move off)"
+fi
 i=$((SERVERS + 1))
 while [ "$i" -le "$N" ]; do
 	upgrade_machine "$i" "$E2E_TO"
@@ -565,5 +590,40 @@ ok "servers run armada-etcd, armada-server, and armada-agent; nodes armada-agent
 if ! on 1 'armadad doctor' >"$WORK/doctor" 2>&1; then :; fi
 grep -E '^\[FAIL\]' "$WORK/doctor" >&2 && fail "armadad doctor on $(host 1 1) after the upgrade"
 ok "armadad doctor passes on $(host 1 1)"
+
+# moved: the state is in armada-kv, every server switched.
+moved() { cli cluster status -o json | jq -e '.stateMove.store == "kv" and .stateMove.step == "moved"'; }
+if want move && [ -n "$MOVES" ]; then
+	log "move the control plane's state to armada-kv under load"
+	snapshot "$WORK/before"
+	load_start
+	internal_reset
+	cli cluster update --state-move now >/dev/null || fail "starting the state move"
+	wait_for 600 "the state moved to armada-kv" moved
+	wait_for 180 "control plane has $SERVERS voting members" voting "$SERVERS"
+	wait_for 180 "all $N nodes ready" nodes_ready
+	STATE_DIR=/var/lib/armada/kv
+	STATE_PORT=7445
+	check "the move" "$WORK/before" new-members
+	i=1
+	while [ "$i" -le "$SERVERS" ]; do
+		[ "$(units_of "$i")" = "armada-kv armada-server armada-agent " ] ||
+			fail "$(host "$i" 1) runs $(units_of "$i")instead of armada-kv armada-server armada-agent"
+		on "$i" 'test -d /var/lib/armada/kv && test -d /var/lib/armada/etcd.moved && ! test -e /var/lib/armada/etcd && ! test -e /var/lib/armada/kv.moving && ! systemctl is-enabled --quiet armada-etcd && systemctl is-enabled --quiet armada-kv' ||
+			fail "$(host "$i" 1): the data directory or the units did not switch to armada-kv"
+		i=$((i + 1))
+	done
+	ok "every server runs armada-kv, armada-etcd disabled, etcd's data kept as etcd.moved"
+	cli cluster events --since 1h | grep -q StateMoved || fail "no StateMoved event"
+	ok "StateMoved recorded"
+	on 1 'armadad backup -o /root/e2e-kv-backup.tar.gz >/dev/null 2>&1 && tar -tzf /root/e2e-kv-backup.tar.gz | grep -qx kv.snapshot && rm -f /root/e2e-kv-backup.tar.gz' ||
+		fail "armadad backup of armada-kv's state on $(host 1 1)"
+	ok "armadad backup takes armada-kv's snapshot"
+	if ! on 1 'armadad doctor' >"$WORK/doctor" 2>&1; then :; fi
+	grep -E '^\[FAIL\]' "$WORK/doctor" >&2 && fail "armadad doctor on $(host 1 1) after the move"
+	ok "armadad doctor passes on $(host 1 1) after the move"
+elif want move; then
+	ok "$E2E_TO has no armada-kv move; the move scenario is skipped"
+fi
 
 log "passed in $((($(date +%s) - STARTED) / 60)) minutes (scenarios: ${E2E_ONLY:-all})"
