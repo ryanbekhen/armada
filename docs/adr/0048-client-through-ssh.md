@@ -15,7 +15,7 @@ the same tunnel script again for every computer and every cluster.
 
 ## Decision
 
-A client config may name an SSH destination, `ssh` (`clientconfig.Config.SSH`):
+A client config may name an SSH destination, `ssh`:
 `[user@]host`, a host alias from `~/.ssh/config`, or
 `ssh://[user@]host[:port]`. With it, every connection to a control plane
 address runs the user's own `ssh -o ExitOnForwardFailure=yes -W ADDR -- DEST`
@@ -30,7 +30,7 @@ SSH remote (`clientconfig.sshDialer`).
   bytes and holds no key of the cluster's. Authentication to the SSH host
   is ssh's own (keys, agent, `known_hosts`, `ProxyJump`); Armada carries no
   SSH implementation and stores no SSH secret.
-- `CheckSSH` accepts only destinations that cannot be read as an ssh
+- `check_ssh` accepts only destinations that cannot be read as an ssh
   option (no leading `-`, no spaces or shell characters; `--` ends the
   options), on load and on the flags. The forwarded address is the value
   of `-W`, and an address starting with `-` is refused. ssh's own last

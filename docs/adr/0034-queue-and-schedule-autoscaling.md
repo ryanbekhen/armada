@@ -90,7 +90,7 @@ is needed:
   decrypts it only into the node's assignment (`QueueProbe.url`), and it is
   never logged.
 - **The agent dials from the replica's network namespace.**
-  - `runtime.ContainerDialer`: a thread switched into the namespace creates
+  - A thread switched into the namespace creates
     the socket, which keeps the container's routes and firewall.
   - Names resolve through the nameserver containers use, also from inside.
   - A rule therefore reaches exactly what its app can reach, and an

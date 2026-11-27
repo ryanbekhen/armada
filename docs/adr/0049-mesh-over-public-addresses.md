@@ -41,18 +41,18 @@ question, how the machines reach each other: a trusted private network
 - **Mesh range.** `init --mesh-cidr` (default `10.122.0.0/16`, distinct
   from the default cluster CIDR and from the bridge subnet of nodes without
   a cluster network, `10.121.0.0/24`, and refused when it overlaps the
-  cluster CIDR) is stored in `store.Network`. Each node gets
+  cluster CIDR) is stored in the cluster's network record. Each node gets
   one address of it (`/32`) from the leader, in the same transaction that
   gives it its container subnet.
 - **The node's address is its mesh address.** It takes the place of the
-  private IP everywhere the private IP is used today (`store.Node.PrivateIP`,
+  private IP everywhere the private IP is used today (the node record's private IP,
   the API, join and HTTP-01 listeners after joining, the etcd member, the
   metrics listener, the HAProxy and firewall rules that name nodes), so
   most code is unchanged and binding internal services to a private
   address still holds: the mesh address is private, and it exists only on
   the node's `armada-net`.
 - **Endpoint.** Each node records the address its peers send WireGuard
-  packets to (`store.Node.Endpoint`): the single public IPv4 address of its
+  packets to (the node record's endpoint): the single public IPv4 address of its
   interfaces, or `--endpoint IP` on `init` and `join` (needed behind
   one-to-one NAT, where the public address is on no interface, and when a
   machine has several). The node announces it in `Hello`; the leader
@@ -62,9 +62,8 @@ question, how the machines reach each other: a trusted private network
   side sends.
 - A peer's allowed addresses are its mesh address and its container
   subnet, so the kernel drops anything else the peer sends.
-- The mesh needs the kernel's WireGuard (Linux 5.6 or later): the
-  userspace device of the `wireguard` mode lives inside the agent, and the
-  mesh must be up before the agent and etcd start.
+- The mesh needs the kernel's WireGuard (Linux 5.6 or later), like the
+  `wireguard` mode, and must be up before the agent and etcd start.
 
 ### Joining
 

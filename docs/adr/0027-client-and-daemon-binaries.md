@@ -23,7 +23,7 @@ That mix has costs:
 
 ## Decision
 
-Armada ships two binaries from one module:
+Armada ships two binaries from one Cargo workspace:
 
 - **`armadad`** (`daemon/`, crate `armada-daemon`) runs on every
   machine and needs root: `server`, `agent`, `runtime`, and the hidden

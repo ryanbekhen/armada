@@ -68,9 +68,9 @@ trigger:
   - Every leader picks the same node with no state stored.
   - Jobs spread over nodes.
   - A job moves only when its node stops fitting.
-  - A node reads at most 64 queues (`spec.MaxNodeQueueSandboxes`, what an
+  - A node reads at most 64 queues (what an
     agent keeps): the leader skips a node that already has 64 in the pass.
-    It places the jobs one space at a time (`spec.FairOrder`: the first
+    It places the jobs one space at a time (the first
     job of every space, then the second, and so on), so the jobs of one
     space, however many and whatever their names, cannot take every place
     on a node from another space's.
@@ -80,7 +80,7 @@ trigger:
   lists, for that node only, each job's ID, the queue (type, name, the URL
   decrypted from the pinned secret, and the secret's version), and the
   polling interval. The URL is outside any hash and never logged.
-- **The agent keeps a network sandbox per job** (`runtime.NetworkSandboxer`).
+- **The agent keeps a network sandbox per job**.
   A sandbox is a network namespace with no container and no process, wired
   into the node's container network exactly like a container's:
   - the same network plugins on `armada0`, an address of the node's subnet,

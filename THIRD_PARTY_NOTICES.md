@@ -14,10 +14,10 @@ license texts (below).
 ## Armada's own code
 
 The `armada` and `armadad` binaries are Rust programs (ADR 0055; their
-crates are listed from "armada-node" on) and link no Go module; the
-repository holds no Go code. Parts of the Rust code are ported from Go
-code, listed under armada-spec below. The Go programs releases carry are
-etcd's (below), with the license files of the modules they link.
+crates are listed from "armada-node" on). Parts of their code are derived
+from other projects' code, listed with the crate that holds it
+(armada-spec, armada-store, armada-client below). The Go programs releases
+carry are etcd's (below), with the license files of the modules they link.
 
 ## The runtime pack
 
@@ -142,7 +142,7 @@ dependencies, serde, serde_json, sha2) and downloads with `curl`.
 ## armada-node
 
 The runtime pack also carries `armada-node` (`node/`, Apache-2.0), the
-node agent moving to Rust (ADR 0054). It is linked statically with the
+program that does the node's work (ADR 0054). It is linked statically with the
 Rust standard library and musl, as above, and with these crates from
 <https://crates.io>. `armada-node` is a member of the Cargo workspace at
 the repository's root (ADR 0055), whose one `Cargo.lock` holds every crate
@@ -221,7 +221,7 @@ which `proto/vendor/etcd` keeps with the services Armada uses. Source:
 
 `armada-pki` (`pki/`), `armada-secrets` (`secrets/`), and `armada-fsutil`
 (`fsutil/`, the standard library only), all Apache-2.0, hold the cluster's
-CA, certificates, and secret encryption in Rust (ADR 0055). `armada` and
+CA, certificates, and secret encryption (ADR 0055). `armada` and
 `armadad` link them; they are built with them, ring (above), and these
 crates:
 
@@ -256,7 +256,7 @@ Besides crates under the licenses above, prost-build brings foldhash
 ## armada-spec
 
 `armada-spec` (`spec/`, Apache-2.0) reads, checks, and writes app and job
-specs in Rust (ADR 0055). `armada` and `armadad` link it; besides
+specs (ADR 0055). `armada` and `armadad` link it; besides
 serde_json (above), it is built with these crates:
 
 | Crate | License |
@@ -268,11 +268,10 @@ In the lock file but not built by Armada: jiff-static (Unlicense or MIT),
 log (MIT or Apache-2.0), and, for targets without pointer-sized atomics,
 portable-atomic and portable-atomic-util (Apache-2.0 or MIT).
 
-It also holds code ported from Go, so specs parse, fail, and print as
-Go's code does:
+It also holds code derived from these projects:
 
 - go-yaml v3 (`go.yaml.in/yaml/v3`, `spec/src/yaml`): its reader,
-  scanner, parser, and emitter, ported from libyaml and under the MIT
+  scanner, parser, and emitter, derived from libyaml and under the MIT
   license, and its resolver, node composer, and encoder, under the Apache
   License 2.0 with Canonical's notice
   ([text](third_party/licenses/MIT-Apache-2.0-go-yaml.txt)).
@@ -286,8 +285,8 @@ Go's code does:
 
 ## armada-store
 
-`armada-store` (`store/`, Apache-2.0) keeps the cluster state in etcd in
-Rust (ADR 0055): the client of an etcd member, the transactions, every
+`armada-store` (`store/`, Apache-2.0) keeps the cluster state in etcd
+(ADR 0055): the client of an etcd member, the transactions, every
 record, and the election and lock recipes. `armadad` links it; besides armada-proto, armada-spec, armada-pki, armada-secrets, ring,
 rustls, rustls-pki-types, serde, serde_json, tokio, tokio-stream, and
 tonic (above), it is built with these crates:
@@ -312,8 +311,7 @@ release.
 
 Its election and lock (`store/src/election.rs`) follow the recipes of
 etcd's `concurrency` package (`go.etcd.io/etcd/client/v3/concurrency`,
-v3.7.4, under the [Apache License 2.0](proto/vendor/etcd/LICENSE)), so Go
-and Rust servers campaign in one election. Source:
+v3.7.4, under the [Apache License 2.0](proto/vendor/etcd/LICENSE)). Source:
 <https://github.com/etcd-io/etcd/tree/v3.7.4/client/v3/concurrency>.
 
 ## armada-server
@@ -341,13 +339,12 @@ crates of armada-store (above): hyper-util, rustls, rustls-pki-types,
 serde, serde_json, tokio, tokio-rustls, tokio-stream, tonic, and tower,
 with what they bring. It adds no crate of its own.
 
-Its command framework (`client/src/cli/`) ports the parts of
+Its command framework (`client/src/cli/`) is derived from the parts of
 github.com/spf13/pflag v1.1.0 (BSD-3-Clause, Copyright (c) 2012 Alex
 Ogier and The Go Authors), github.com/spf13/cobra v1.10.2 (Apache-2.0),
 and Go's text/tabwriter and encoding/csv's reader of one record (both
-BSD-3-Clause, The Go Authors) the client's commands use, so their
-parsing, errors, help, and tables read as before; `client/src/term.rs`
-ports golang.org/x/term's raw mode (BSD-3-Clause, The Go Authors).
+BSD-3-Clause, The Go Authors) the client's commands use;
+`client/src/term.rs` is derived from golang.org/x/term's raw mode (BSD-3-Clause, The Go Authors).
 Sources: <https://github.com/spf13/pflag/tree/v1.1.0>,
 <https://github.com/spf13/cobra/tree/v1.10.2>,
 <https://go.dev/src/text/tabwriter/>, <https://go.dev/src/encoding/csv/>,
@@ -371,7 +368,7 @@ release.
 
 ## armada-daemon
 
-`armada-daemon` (`daemon/`, Apache-2.0) is `armadad` in Rust (ADR 0055),
+`armada-daemon` (`daemon/`, Apache-2.0) is `armadad` (ADR 0055),
 a program of its own, which releases ship for Linux (static, with musl,
 as above). It uses only crates named above (armada-client's command framework, armada-pki, armada-spec,
 armada-fsutil, flate2, libc, rustls, rustls-pki-types, serde_json, and
@@ -383,7 +380,7 @@ under "The runtime pack" above.
 ## Downloaded at run time
 
 Nodes pull the HAProxy image (`haproxy:3.2-alpine`, pinned by digest in
-`internal/proxy/haproxy/engine.go`) from its registry and run it as a
+`agent/src/haproxy/engine.rs`) from its registry and run it as a
 separate container. HAProxy is under the GNU General Public License 2.0
 and its image holds Alpine Linux packages under their own licenses;
 Armada does not distribute, link, or change them, and talks to HAProxy

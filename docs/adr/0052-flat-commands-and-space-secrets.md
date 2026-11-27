@@ -348,7 +348,7 @@ upgrade before the release.
 - Bare references keep meaning the app's own secret, so a space secret
   named like an app is that app's secret too. `secret show` lists which
   apps use each key, so this stays visible.
-- The client carries one set of commands. `TestCommandAliases` checks
+- The client carries one set of commands. A test checks
   that no noun holds nouns and that the old words fail.
 - ADR 0032's command list and ADR 0006's "per app" secrets are superseded
   by this record; both keep their other decisions.

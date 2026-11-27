@@ -20,12 +20,12 @@ resolvers. Every lookup a container makes passes through it. It ran inside
 
 Measured on one machine with the resolver held to two CPUs, 64 clients:
 
-| Lookup | Inside `armadad` (Go) | armada-dns (Rust) |
+| Lookup | Inside `armadad` | armada-dns |
 | --- | --- | --- |
 | `<app>.internal` | 94,000 per second, 0.68 ms | 221,000 per second, 0.29 ms |
 | forwarded | 47,000 per second, 1.35 ms | 78,000 per second, 0.82 ms |
 
-Request traffic itself never passes through Go: HAProxy and the kernel
+Request traffic itself never passes through `armadad`: HAProxy and the kernel
 carry it. The resolver is the one part of `armadad` on the path of a
 container's work, which is what makes it worth its own program.
 
@@ -49,9 +49,8 @@ in the runtime pack.
    saves what it knows beside its socket (`<hash>.state`, `0600`, in
    `/run`), so the unit systemd starts again after a crash (100 ms later)
    answers at once.
-3. **Same behaviour as before.** The rules of the Go resolver carry over
-   and were tested against both programs (the Go resolver's tests, run on
-   `armada-dns` too until the Go code was removed, ADR 0055): answers only the bridge subnet,
+3. **Same behaviour as before.** The rules of the resolver inside
+   `armadad` carry over: answers only the bridge subnet,
    silent to everyone else; names only within the caller's space; a lookup
    from an address the agent has not named waits up to 3 seconds, and
    before the first names up to 10; at most 128 forwards at once and 16 per
@@ -67,15 +66,17 @@ in the runtime pack.
    (`SO_REUSEPORT`), the old one is told to `drain` (its UDP socket stops
    taking new datagrams and it answers what it holds), and only then is it
    stopped.
-6. **Fallback.** A pack without `armada-dns` (builds without the runtime
-   bundle) or a unit that does not start leaves the resolver inside
-   `armadad`, as before. `armadad runtime reset` stops the units.
+6. **No resolver inside `armadad`.** A pack without `armada-dns` (builds
+   without the runtime bundle) or a unit that does not start leaves the
+   node without internal names: the agent logs why, and internal ingress
+   and DNS stay off on that node until it starts. `armadad runtime reset`
+   stops the units.
 
 ## Consequences
 
 - An `armadad` restart no longer interrupts name resolution in containers.
 - One more program in the runtime pack, under the same rules as the other
-  two: standard library only, checked by `TestLoggerStandardLibraryOnly`,
+  two: standard library only, checked by `armada-pack`'s notices tests,
   listed in `THIRD_PARTY_NOTICES.md`, built for both architectures by
   `make dns`, linted and tested in CI.
 - The resolver keeps its last names and clients while `armadad` is down.

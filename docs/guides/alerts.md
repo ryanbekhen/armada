@@ -227,12 +227,10 @@ or `armada app events`.
 | `QueueReadFailed` | The node that reads a job's queue cannot read it; the event says why (refused credentials, a refused virtual host, an unknown authentication mechanism, a broker out of reach, ...), never the URL |
 | `LogExportFailing` | A node cannot send logs to the log store |
 | `PeerUnreachable` | A node has had no WireGuard handshake with another node for 3 minutes (UDP 51820 blocked, or the other node is down) |
-| `WireGuardUserspace` | A node's agent of v0.1.0-alpha.42 or earlier encrypts its traffic to other nodes in userspace, as its kernel has no WireGuard: markedly slower (later agents need the kernel's WireGuard) |
 | `VolumeUnavailable`, `VolumesSplit`, `VolumeOnCordonedNode` | An app with a volume cannot run where its volume is |
 | `VolumeBackupFailed`, `VolumeBackupUnsupported` | Scheduled volume backups do not work |
 | `VolumeFailedOver`, `VolumeFailoverFailed` | A volume was restored on another node, or could not be |
 | `ControlPlaneBackupFailed` | The control plane could not be backed up to its bucket |
-| `RuntimeMoveGivenUp` | The leader gave up moving a containerd node to the supervisor runtime (a step took too long); the node stays on containerd and is tried again an hour later |
 
 Any other reason can be named with `--reason`, such as `Deployed`,
 `Scheduled`, `Restarted`, `NotReady`, `RolledBack` (someone ran `armada app rollback`), or `Joined`.

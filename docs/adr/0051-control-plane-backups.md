@@ -36,14 +36,14 @@ armada cluster set --backup none
   (`backup_every_seconds`, or `backup_schedule` with `backup_time_zone`),
   `set_backup_keep` (`BackupKeep`), `set_backup_url`, `set_backup_key`, and
   `set_backup_off`. No restart: a change wakes the leader's loop.
-- When and what to keep are checked exactly as a volume's `backup` is
-  (`spec.CheckBackupPlan`): `every` 5 minutes to 7 days, or a five-field
+- When and what to keep are checked exactly as a volume's `backup` is:
+  `every` 5 minutes to 7 days, or a five-field
   cron schedule in a time zone; `keep` a number of the latest backups, or
   `last`, `hourly`, `daily`, `weekly`, `monthly` (each at most 1000, at
   least one).
 - The bucket URL (`https://KEY:SECRET@host[:port]/bucket[/prefix][?region=R]`,
   `http://` only for a private IP address, never loopback, link-local,
-  unspecified, or multicast: `volbackup.ParseTarget`) and the key (at least
+  unspecified, or multicast) and the key (at least
   32 bytes) are read by the client from a file (mode `0600`) or stdin, never
   from an argument, and sealed with the master key like the DNS token
   (scope `cluster`, names `backup-url` and `backup-key`, versioned). They
@@ -54,19 +54,19 @@ armada cluster set --backup none
 
 ### Backups
 
-- Every server's configuration (`server.Config.ControlPlaneBackup`) knows
-  how to write its own backup: `backup.Stage` writes the files
+- Every server's configuration knows how to write its
+  own backup: it stages the files
   `armadad backup` puts into an archive (the checked etcd snapshot, the
   master key, the CA, the server certificate and key, the node identity,
   and the manifest) as plain owner-only files into a temporary directory
   inside the data directory, which is removed afterwards.
-- The leader's `controlPlaneBackupLoop` runs once at the start of its term,
+- The leader's `control_plane_backup_loop` runs once at the start of its term,
   every `Config.BackupInterval` (30 s) after, and when the settings change.
   It runs one backup at a time and stops with the term, so only the leader
   writes; a backup cut short by a lost leadership records nothing. A backup
   is due on the plan after the last success, and after a failure no later
   than min(5 minutes, `every`).
-- The files go into a `volbackup.Repo` (ADR 0041: content-defined chunks
+- The files go into a volume backup repository (ADR 0041: content-defined chunks
   named by HMAC, zstd, AES-256-GCM, keys through HKDF from the key salted
   with the repository's ID) at `<prefix>_control-plane/`. App IDs never
   hold an underscore, so the repository never meets a volume's
@@ -103,7 +103,7 @@ armada cluster set --backup none
 - `armadad restore --backup-url FILE --backup-key FILE [--snapshot ID|latest]`
   restores one into an empty data directory. Both flags read a file or `-`
   for stdin (one of them). The snapshot's files go through the same checks
-  as an archive (`backup.Restorer`, shared by both): only known names and
+  as an archive (one restorer, shared by both): only known names and
   regular files, the size limits, every checksum in the manifest, the CA,
   the server certificate, the snapshot opened as state this version
   understands, the master key against the state; nothing reaches the data

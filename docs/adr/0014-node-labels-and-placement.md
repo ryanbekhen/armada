@@ -134,7 +134,7 @@ draining ones included, leaves room for it.
 - Containers get a CPU weight in proportion to their reservation, so on a
   busy node each gets at least its share.
 - Armada keeps 100m of CPU and 128Mi of memory on every node for the
-  agent, containerd, and HAProxy, and another 100m on control plane
+  agent, the container runtime, and HAProxy, and another 100m on control plane
   servers. The rest is what replicas share.
 - Capacity is what the agent reports, bounded by the server. A node that
   reports none (0) is not checked.

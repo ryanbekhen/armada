@@ -74,7 +74,6 @@ once per 10 seconds, and values may be that old. Nothing is stored.
   - `armada_reconcile_duration_seconds` (histogram)
   - `armada_reconcile_errors_total`
   - `armada_events_total{kind,reason}`, added with event history (ADR 0018)
-  - Go runtime metrics
 - **Apps:**
   - `armada_app_replicas_desired{app}` and `armada_app_replicas_ready{app}`
   - `armada_app_rollout{app,state}`, which is 1 for the current state

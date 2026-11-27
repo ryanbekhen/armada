@@ -21,7 +21,7 @@ semantic versioning, with pre-releases before their release. GitHub allows
 60 requests an hour without credentials from one address, which every
 machine behind it shares, so an answer is kept for an hour in the user's
 cache (`armada/latest.json`) and reused; when a lookup fails, the last
-answer kept is shown, and nothing else (`RateLimitError` names the limit
+answer kept is shown, and nothing else (the error names the limit
 for `armadad upgrade`, which always asks and says to pass `--version`). It
 is asked by:
 
@@ -43,9 +43,8 @@ repository's release workflow for that tag when cosign is installed, made
 mandatory by `--require-signature`, then the archive's checksum), takes only
 the two binaries and the systemd units from the archive, replaces each file
 atomically, reloads systemd, and restarts `armada-runtime` when it runs, so
-the node uses the runtime pack (containerd, runc, `armada-log`; ADR 0011)
-the new `armadad` carries (its unit kills only containerd: containers and
-their shims keep running), then whichever of `armada-server` and
+the node uses the runtime pack (ADR 0011, ADR 0046) the new `armadad`
+carries (containers and their shims keep running), then whichever of `armada-server` and
 `armada-agent` runs. Without that, a node kept the pack it extracted when
 the runtime last started, so runtime fixes in a release never reached it;
 `armadad doctor` warns (`runtime-pack`) when the running pack is not the

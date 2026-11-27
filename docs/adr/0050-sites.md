@@ -50,7 +50,7 @@ not.
 ### 1. Switching between `plain` and `wireguard`
 
 `armada cluster set --network wireguard` (or `plain`) switches a running
-cluster. The leader records the switch in `store.Network`:
+cluster. The leader records the switch in the cluster's network record:
 - the target mode;
 - the step it has reached;
 - when it began.
@@ -86,8 +86,7 @@ How it is shown and when it is refused:
 - A second switch is refused while one runs.
 - A switch is refused while a node runs a version that does not announce it
   (`Hello.network_switch`).
-- A switch to `wireguard` needs the kernel's WireGuard on every node: the
-  userspace device's control socket would not follow the rename.
+- A switch to `wireguard` needs the kernel's WireGuard on every node.
 - A server that does not know switches ignores one, so its nodes stay on
   (or go back to) the cluster's mode if it becomes the leader.
 - `mesh` clusters are refused: their nodes' addresses depend on the mode.
@@ -105,7 +104,7 @@ MTU:
 
 ### 2. Sites
 
-Every node belongs to one site, recorded in `store.Node.Site`.
+Every node belongs to one site, recorded in its node record.
 
 **Naming and setting a site:**
 

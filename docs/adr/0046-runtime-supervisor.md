@@ -5,7 +5,7 @@
 
 ## Context
 
-Every node runs Armada's own containerd (ADR 0011): a daemon that keeps the
+Every node ran Armada's own containerd (ADR 0011): a daemon that keeps the
 image store, the snapshots, and container metadata, and one runc shim per
 app that is the parent of the app's containers. Measured on a
 node of a three-node production cluster and in a two-node lab:
@@ -24,7 +24,7 @@ containerd and its shims. Armada uses a small part of what containerd
 offers: no CRI, no plugins, no other clients, one namespace, one
 snapshotter.
 
-What containerd does for Armada today:
+What containerd did for Armada:
 
 1. Pulls images over HTTPS with registry credentials, keeps their content,
    and unpacks layers into overlayfs snapshots.
@@ -37,89 +37,74 @@ What containerd does for Armada today:
 
 ## Decision
 
-Nodes can run containers without containerd, on the **supervisor**
-runtime, chosen per node (`--runtime supervisor` on `armadad init`, `join`,
-and `server join`, recorded as `"runtime"` in `agent.json`). runc, the CNI
-plugins, tini, and `armada-log` are the same on both.
+Nodes run containers without containerd, on the **supervisor** runtime
+(`--runtime supervisor` on `armadad init`, `join`, and `server join`, the
+default and the only value, recorded as `"runtime"` in `agent.json`). The
+OCI runtime, the CNI plugins, tini, and `armada-log` are the ones ADR 0011
+brought.
 
-It started as an experiment beside containerd. Since 2026-11-22 it is the
-default: `init` and `join` set up the supervisor unless `--runtime embedded`
-is given. Nodes set up before keep the runtime their `agent.json` names (one
-with no `"runtime"` runs containerd), since upgrading never changes a node's
-runtime; `armadad doctor` warns on a node still on containerd and names the
-command that moves it. containerd is removed from the runtime pack in a
-later release, once every node has had a release to move.
+It started as an experiment beside containerd, became the default on
+2026-11-22, and is now the only runtime: containerd and its shim have left
+the runtime pack.
 
-Note (ADR 0055): containerd and its shim left the runtime pack with the
-release after v0.1.0-alpha.42, Armada's first Rust release. That release
-refuses `--runtime embedded` and has no `armadad runtime migrate`; nodes
-still on containerd move with v0.1.0-alpha.42, by hand or by the leader's
-move (ADR 0054), which the Rust leader keeps doing for such nodes.
-
-- **The agent keeps images and container records itself (in the Go code;
-  armada-node since ADR 0054).** Pulling and unpacking run in the agent
-  through containerd's own libraries, with no daemon: a content store, the
-  overlay snapshotter, and the layer applier under
-  `<data-dir>/supervisor/images`, at most two blobs fetched at once
-  (pulling three images peaks at a 10 MiB heap and leaves 3 MiB). Images
-  are recorded in `images.json` with their labels (`armada.pulled-with/<key>`
-  keeps its meaning, and a name pulled again to another target starts
-  with none); a layer already unpacked is reused for a new image only
-  once its blob is shown to decompress to the image's diff ID, as with
-  containerd (ADR 0011). Removing an image removes the layers and blobs no
-  other image uses, once no pull is running (the last pull to end does
-  it otherwise). Each container is an OCI bundle under
-  `<data-dir>/supervisor/containers/<id>`: its root filesystem mounted from
-  a snapshot, `config.json`, and `record.json` (labels, image, shim group),
-  written last.
+- **armada-node keeps images and container records (ADR 0054).** Pulls and
+  unpacking run in the pack's `armada-node`, with no daemon: a content
+  store, unpacked layers, and root filesystems under
+  `<data-dir>/node/images` (`index.json`, `content/blobs`, `layers/<chain
+  ID>`, `active/<container>`), at most two blobs fetched at once. Images
+  are recorded with their labels (`armada.pulled-with/<key>` keeps its
+  meaning, and a name pulled again to another target starts with none); a
+  layer already unpacked is reused for a new image only once its blob is
+  shown to decompress to the image's diff ID (ADR 0011). Removing an image
+  removes the layers and blobs no other image or root filesystem uses,
+  once no pull is running (the last pull to end does it otherwise). Each
+  container is an OCI bundle under `<data-dir>/supervisor/containers/<id>`:
+  its root filesystem mounted from the image's layers, `config.json`, and
+  `record.json` (labels, image, shim group, OCI runtime), written last.
 - **`armada-shim` (Rust, standard library only, `shim/`) supervises
   containers.** One per app and runtime pack on a node (the group the spec
   annotation names), started by the agent as a transient systemd unit
-  (`armada-shim-<hash>`): `armada-server` stops every process it started
-  when it restarts, a unit of its own does not. It is the child subreaper
-  of its containers, creates and starts them with `runc create`/`runc
-  start`, hands their output to `armada-log` as containerd's shim does,
-  keeps exit codes until delete, and answers one line per connection on a
-  0600 socket in `/run/armada/shim/` (`create`, `start`, `state`, `wait`,
-  `kill`, `kill all`, `delete`, `list`). It exits 10 seconds after its last
-  container is gone, removing its socket and state. It never reads images
-  or credentials. It refuses a process ID of 0 or 1 from runc's pid file
-  (and deletes a container whose pid file it cannot read), and keeps at
-  most 4096 exit codes nobody asked for, never dropping a container's
+  (`armada-shim-<hash>`): a service stops every process it started when it
+  restarts, a unit of its own does not. It is the child subreaper of its
+  containers, creates and starts them with the OCI runtime's `create` and
+  `start`, hands their output to `armada-log`, keeps exit codes until
+  delete, and answers one line per connection on a 0600 socket in
+  `/run/armada/shim/` (`create`, `start`, `state`, `wait`, `kill`, `kill
+  all`, `delete`, `list`). It exits 10 seconds after its last container is
+  gone, removing its socket and state. It never reads images or
+  credentials. It refuses a process ID of 0 or 1 from the runtime's pid
+  file (and deletes a container whose pid file it cannot read), and keeps
+  at most 4096 exit codes nobody asked for, never dropping a container's
   own. The unit runs with the limits of `armada-runtime.service`
   (`OOMScoreAdjust=-999`, `LimitNOFILE`, `LimitNPROC`, `LimitCORE`, and
   `TasksMax` unlimited), which its containers inherit. Before the agent
-  starts a group's shim, containers a shim that ended left in runc's state
-  are killed and deleted, so they end with their shim as on containerd, and
+  starts a group's shim, containers a shim that ended left in the
+  runtime's state are killed and deleted, so they end with their shim, and
   the agent starts them again. A shim counts as ended only when nothing
   listens on its socket or its unit is no longer active: one that is slow
   or busy (a timeout, a closed connection) keeps its containers, and the
   agent asks again on its next pass. Starting and abandoning a group's
   shim are serialized per group, so two callers never start two shims or
   abandon one that was just started.
-- **The driver is shared.** The Go driver reached
-  containers, tasks, and images through a `backend` interface; the
-  supervisor offers containerd's client types (`Container`, `Task`,
-  `Process`, `Image`), so networking, host files, SELinux labels, ports,
-  logs, init containers, sidecars, and system containers are one code path.
-  Exec runs `runc exec` from the agent in the foreground (a pseudo-terminal
-  the agent holds for `-t`, so size changes reach the process); statistics
+- **The agent drives the rest.** Networking, host files, SELinux labels,
+  ports, logs, init containers, sidecars, and system containers are the
+  agent's (`agent/src/supervisor`). Exec runs through `armada-node runtime
+  exec`, which starts the OCI runtime's `exec` in the foreground (a
+  pseudo-terminal for `-t`, so size changes reach the process); statistics
   are read from the container's cgroup files. The conformance suite runs
-  against both.
-- **The runtime pack carries `armada-shim`.** On a supervisor node the
-  agent installs the pack itself at start, so an upgrade brings the new
-  shim and runc; `armadad runtime` installs it and exits instead of
-  starting containerd.
+  against it on a lab node.
+- **The runtime pack carries `armada-shim`.** The agent installs the pack
+  itself at start, so an upgrade brings the new shim and OCI runtime;
+  `armadad runtime` installs it and exits.
 
-### Moving nodes
+### Nodes set up on containerd
 
-A node changes runtime by replacing its containers: drain it, stop its
-service, run `armadad runtime migrate --to supervisor` (or `--to embedded`),
-which removes every container Armada runs there from the current runtime,
-records the new one, and stops containerd when leaving it; then start the
-service and resume the node, which pulls its images again. The command
-refuses while the agent runs. Upgrading a release never changes a node's
-runtime.
+A node whose `agent.json` names `"runtime": "embedded"`, or no runtime, was
+set up on containerd by an earlier release. This release cannot run it: its
+agent starts nothing and logs why, and `armadad doctor` fails its `runtime`
+check, both telling the operator to upgrade through v0.1.0-alpha.44 first,
+which moves such a node to the supervisor runtime. `--runtime embedded` is
+an invalid value.
 
 ### Measured
 
@@ -130,39 +115,27 @@ shim held 7.5–8.5 MiB (4 MiB) and containerd 47 MiB (15 MiB): about 30 MiB
 less held memory on a node with four apps, against the 20 MiB this work
 had to save.
 
-Containerd leaves the runtime pack only after a release in which every
-node runs the supervisor.
-
 ## What stays out of scope
 
-- The control plane (server, etcd, ACME, access control) stays in Go. Its
-  held memory is mostly the Go runtime around a live heap of 7–14 MiB, and
-  a lower `GOGC` (50, about 4 MiB less) addresses that without a rewrite.
-- runc stays the OCI runtime: it runs only while it creates, starts, or
-  execs, so it holds no memory between those calls, and replacing it would
-  mean taking over the most security-sensitive code on the node.
+- The OCI runtime stays a program of its own (runc, then crun since ADR
+  0056): it runs only while it creates, starts, or execs, so it holds no
+  memory between those calls, and replacing it would mean taking over the
+  most security-sensitive code on the node.
 
 ## Alternatives considered
 
 - **Keep containerd.** No work and no risk; the 30 MiB per node and the
   program text stay.
-- **A Rust OCI runtime library instead of runc.** Removes the runc calls,
-  but brings namespaces, seccomp, and AppArmor/SELinux setup into code
-  Armada would own, for no gain in held memory.
+- **An OCI runtime library inside Armada instead of a runtime program.**
+  Removes the runtime calls, but brings namespaces, seccomp, and
+  AppArmor/SELinux setup into code Armada would own, for no gain in held
+  memory.
 - **One supervisor per node instead of one per app.** Less memory still,
   but a crash or upgrade of that one process would end every container on
-  the node; one per app keeps the blast radius where it is today.
-- **Rewrite the whole of Armada in Rust.** The memory that matters is
-  held by containerd and the shims, not by Armada's own code, and the
-  control plane depends on etcd, which has no equivalent of the same
-  maturity.
+  the node; one per app keeps the blast radius small.
 
 ## Consequences
 
-- Armada owns image pulling and unpacking, which containerd's maintainers
-  own today, including its security fixes.
-- Two runtimes ship side by side until containerd is removed, and the
-  conformance suite and end-to-end tests run against both; the end-to-end
-  test uses the supervisor unless `E2E_RUNTIME=embedded`.
-- `ctr` cannot inspect a supervisor node's containers; `armada` and
-  `armadad doctor` are the interface.
+- Armada owns image pulling and unpacking, including their security fixes.
+- `ctr` cannot inspect a node's containers; `armada` and `armadad doctor`
+  are the interface.

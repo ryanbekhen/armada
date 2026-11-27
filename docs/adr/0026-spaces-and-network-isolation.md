@@ -24,13 +24,13 @@ cluster.
   often hold one stage each), it does not read like `env` and `--env`, and
   it leaves room to group apps inside a space later without the grouping
   taking the same name. Records written while spaces were called projects
-  are moved at schema 11 (`migrateSpaces`), and a client config's
+  are moved at schema 11 (`migrate_spaces`), and a client config's
   `project` is read as its space.
 - Space names follow the app name rules, at most 30 characters.
   `default` exists in every cluster without a record and holds everything
   deployed without a space.
-- **App IDs.** Everywhere past the API, an app is named by its ID
-  (`spec.AppID`): its name in `default`, `<name>.<space>` in any other
+- **App IDs.** Everywhere past the API, an app is named by its ID:
+  its name in `default`, `<name>.<space>` in any other
   space. App names have no dots, so IDs never collide. The ID is the store
   key (`apps/<id>`, and the same for revisions, replicas, secrets, runs, and
   volumes), and everything built from it carries the space without a
@@ -83,7 +83,7 @@ tools built on Armada's API, which call it with one identity of their own.
 - Automation identities call `AdminService` on the same private listener
   as the CLI, where every RPC already names an app by its ID. The
   interceptor lets them reach only an allowlist of methods
-  (`automationMethods`): any method not on it, including any added later,
+  (one list): any method not on it, including any added later,
   is refused before its handler runs. Each allowed handler checks the app
   or space of the request against the scope (`access`), with the same
   answer whether or not the app exists, and listings (status, top, jobs,

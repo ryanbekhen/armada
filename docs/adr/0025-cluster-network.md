@@ -113,7 +113,7 @@ The cluster CIDR is routed between nodes over one interface per node,
   - It needs a private network between the nodes, like every cluster today.
   - Before release, the benchmark gains a `vxlan` mode to confirm its cost.
 - **`wireguard`, for encryption between nodes.** It uses the kernel's
-  WireGuard through netlink (pure Go, no CGO).
+  WireGuard through generic netlink.
   - Each peer is another node, with the peer's private IP as its endpoint.
     Its allowed addresses are exactly the peer's node subnet, so the kernel
     drops any packet whose inner source is not that node's.
@@ -128,11 +128,11 @@ The cluster CIDR is routed between nodes over one interface per node,
     a firewall rule that accepts the port only on the private IP and only
     from the current peers' addresses. WireGuard never answers a packet
     that does not authenticate.
-  - Where the kernel has no WireGuard, the agent runs the pure Go userspace
-    implementation, embedded in the binary, with the usual root-only
-    control socket. The agent logs a warning and `armadad doctor` reports
-    it, because it is markedly slower. The device lives as long as the
-    agent, so traffic between nodes stops while the agent restarts.
+  - The mode needs the kernel's WireGuard (Linux 5.6 or later). On a
+    kernel without it the agent's network pass fails with a message naming
+    it, and `armadad doctor` fails its `wireguard` check. The kernel device
+    outlives the agent, so traffic between nodes keeps flowing while the
+    agent restarts.
   - It is the mode for private networks the operator does not trust
     (shared or provider-managed networks), and for compliance needs.
   - It costs CPU: see the numbers above.
@@ -289,8 +289,8 @@ exists only where a pair of nodes uses it.
 - With the same report, a node whose WireGuard runs in userspace because
   its kernel has none says so (`wireguard_userspace`), and the leader keeps
   a `WireGuardUserspace` condition on it, an alert warning too: traffic
-  between nodes is markedly slower there, which otherwise only the node's
-  log and `armadad doctor` would tell.
+  between nodes is markedly slower there. The agent itself uses only the
+  kernel's WireGuard, so it never reports one.
 - HAProxy health checks already mark the replicas behind a broken path as
   down, and local-first keeps requests on the node. Scheduling does not
   change, because the control plane can still reach both nodes. A node the
@@ -374,9 +374,8 @@ Doctor checks that:
   containers get;
 - in the `plain` mode, the kernel has VXLAN, and `armada-net` is up with a
   route for each peer;
-- in the `wireguard` mode, the kernel has WireGuard, or a warning that the
-  userspace fallback runs, and each peer has a handshake from the last
-  three minutes;
+- in the `wireguard` mode, the kernel has WireGuard, and each peer has a
+  handshake from the last three minutes;
 - the node's subnet does not overlap the host's routes.
 
 Later stages add:

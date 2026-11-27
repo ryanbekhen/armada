@@ -81,8 +81,8 @@ Keys come from the key secret through HKDF-SHA-256, salted with the
 repository ID: one for sealing, one for chunk names, one for the chunk
 boundaries' gear table. Without the key the bucket shows only how many
 chunks there are and their sizes; chunk names reveal nothing about content
-to someone without it. Standard library primitives only (`crypto/aes`,
-`crypto/cipher`, `crypto/hmac`, `crypto/hkdf`, `crypto/rand`).
+to someone without it. ring's primitives only (AES-256-GCM, HMAC-SHA-256, HKDF-SHA-256, and its
+secure random source).
 
 ### Backing up
 
@@ -100,7 +100,7 @@ to someone without it. Standard library primitives only (`crypto/aes`,
   replaces between its lookup and its open fails the backup, as
   `armada volume backup` does), uploads the chunks the repository lacks, then writes the snapshot.
   Chunks are cut one file after another through one buffer, compressed
-  and sealed on up to 4 goroutines (one CPU fewer than the machine has),
+  and sealed on up to 4 threads (one CPU fewer than the machine has),
   and written up to 32 at once within 64 MiB: a bucket answers each write
   after a round trip, and every small file is an object of its own. On a
   tree of 15,600 files (231 MiB) behind a bucket answering in 20 ms, a

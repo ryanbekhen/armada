@@ -1,6 +1,6 @@
 # 0011. Embedded container runtime
 
-- Status: Accepted; its containerd part is superseded by [0046](0046-runtime-supervisor.md) (containerd left the runtime pack with ADR 0055), and runc as the OCI runtime by [0056](0056-crun.md) (crun runs new containers; runc stays for those it created)
+- Status: Accepted; its containerd part is superseded by [0046](0046-runtime-supervisor.md) (containerd has left the runtime pack), and runc as the OCI runtime by [0056](0056-crun.md) (crun runs new containers; runc stays for those it created)
 - Date: 2026-11-01
 
 ## Context
@@ -12,8 +12,8 @@ restart behaviour, logging, security defaults) would change between
 releases outside Armada's control. A node should need nothing but the
 Armada binary, and Armada should own the behaviour it depends on.
 
-Runtime access sits behind interfaces (`runtime.Driver`,
-`runtime.SystemRunner`, `runtime.BridgeInspector`), so reconciliation,
+Runtime access sits behind the agent's runtime interfaces
+(`agent/src/runtime.rs`), so reconciliation,
 rollouts, probes, and self-healing do not depend on how containers are run.
 
 ## Decision
@@ -33,13 +33,12 @@ one platform it builds, releases, and tests.
 ### What is bundled
 
 Release builds embed upstream release binaries, pinned by version and
-SHA-256 in `pack/lock.json` (in a Go file of the runtime package until
-ADR 0055's item 20):
+SHA-256 in `pack/lock.json`:
 
 | Component | Why |
 | --- | --- |
 | containerd (static) and `containerd-shim-runc-v2` | Image store, snapshots, container lifecycle |
-| runc | OCI runtime (needs CGO and C, so it cannot be compiled into Armada) |
+| runc | OCI runtime (a program of its own, run for each call) |
 | CNI plugins `bridge`, `host-local`, `loopback`, `portmap`, `firewall` | Container networking |
 | tini (static) | PID 1 in every app container: reaps zombies and forwards signals |
 
@@ -148,7 +147,7 @@ Armada's and visible in one place:
 - Images do not pile up: every 10 minutes the agent removes images that no
   container uses (system containers and stopped job attempts included), that
   no replica of its assignment names by reference or digest, and that were
-  pulled more than an hour ago (`runtime.ImagePruner`). It holds the lock
+  pulled more than an hour ago. It holds the lock
   that starts replicas while it does. A rollback to an image already
   removed pulls it again.
 
@@ -225,11 +224,10 @@ per container that lives as long as the container's shim, so a restart of
 `armada-log` from the runtime pack: a small Rust program (`logger/`,
 standard library only, static, toolchain pinned in
 `logger/rust-toolchain.toml`) that takes well under 1 MiB of memory per
-container, where a Go process takes about 5 MiB of its own and maps the
-whole `armadad` binary. Builds whose pack has no `armada-log` use
-`armadad runtime-log` (a hidden command), which stays the reference: CI
-compares the two byte for byte (`TestArmadaLogMatchesGo`). One difference:
-after a write error, such as a full disk, `armada-log` keeps reading and
+container, instead of a process of the whole `armadad` binary. Builds
+whose pack has no `armada-log` use `armadad runtime-log` (a hidden
+command), which writes the same files. One difference: after a write
+error, such as a full disk, `armada-log` keeps reading and
 dropping the container's output instead of stopping. Both write
 `<data-dir>/logs/<container>.log` as JSON lines with the stream and a
 timestamp, rotated at 10 MB with 3 files kept. Each container may write
@@ -251,7 +249,7 @@ running, and one line on stderr records how many bytes were dropped
   distribution, and other software may own it.
 - **Compile containerd into the Armada binary:** fewer files to extract,
   but containerd's daemon pulls in a large dependency tree and some plugins
-  expect CGO; runc must be a separate binary anyway. Upstream release
+  need C libraries; runc must be a separate binary anyway. Upstream release
   binaries are built, tested, and signed by their maintainers.
 - **Our own networking (netlink, IPAM, nftables) instead of CNI:** less to
   bundle, but bridge, IPAM, masquerading, and port mapping are exactly what

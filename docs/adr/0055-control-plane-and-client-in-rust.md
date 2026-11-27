@@ -1,832 +1,181 @@
-# 0055. Armada's own code moves to Rust in one release
+# 0055. One Rust workspace, two binaries, etcd as a unit
 
 - Status: Accepted
 - Date: 2026-11-24
 
 ## Context
 
-ADR 0054 moves the node agent to Rust in steps. Steps 1 to 5 are done:
-`armada-node` renders HAProxy's configuration, runs the cluster network
-and its firewall, pulls images and runs containers on the supervisor
-runtime, reads statistics, queues, connection tracking, and NFS mounts,
-and runs exec, volume, and backup sessions, each checked against the Go
-code it replaced. What is left in Go is the agent's own loop (step 6),
-the control plane (`armadad server`: the API and its access control, the
-join listener, leader election, every reconciler, certificates, alerts,
-metrics, events, backups, the CA, and secret encryption), the machine
-commands (`init`, `join`, `server join`, `doctor`, `backup`, `restore`,
-`upgrade`, `runtime`, `endpoint`, `user renew`, and the rest), and the
-client `armada`.
-
-ADR 0054 planned a release per step, with Go removed a release after each
-part became the default. That keeps a cluster on two languages for many
-releases, every fix written twice, and every operator upgrading through
-each of them. The decision here is to move everything that is left in
-one release: an existing cluster changes to Rust with one `armadad
-upgrade` per machine, and the release ships no Go code of Armada's own.
-
-Sizing: about 55,000 lines of Go outside tests remain (the control plane
-about 16,000, the store 6,600, the client 8,500, the machine commands
-6,200, the agent's loop 6,900, specs 3,400, the rest in smaller
-packages), with about as many lines of tests. `armada-node` is about
-33,000 lines of Rust today.
-
-The state store stays etcd (ADR 0009, ADR 0010). etcd is a Go program,
-and Rust cannot link it the way `armadad` embeds it today (CGO is not
-used, and a Go library cannot be linked into a Rust program without it).
-Replacing etcd with a store of Armada's own is a separate decision, not
-made here.
+Armada runs on every machine of a cluster as root, and its client runs on
+people's workstations. Its parts share a protocol, record formats, specs,
+the CA, and secret encryption, so they are best built from one code base
+with one toolchain and one set of license checks. The state store is etcd
+(ADR 0009, ADR 0010), a separate program.
 
 ## Decision
 
-### What ships
+### One Cargo workspace
 
-Two Armada binaries, as before (ADR 0027), both written in Rust:
+All of Armada's own code is Rust, in one Cargo workspace at the
+repository's root (edition 2024, toolchain pinned in
+`rust-toolchain.toml`, every crate pinned in `Cargo.lock`, every build
+`--locked`):
+
+| Crate | Directory | What it holds |
+| --- | --- | --- |
+| `armada-proto` | `proto/` | The protocol's types, gRPC clients and servers, and protobuf JSON, generated from `api/armada/v1/armada.proto` and checked in (`make proto`), plus etcd's API as clients |
+| `armada-spec` | `spec/` | Spec parsing (strict YAML), defaults, validation, export, variables, cron schedules, and time zones |
+| `armada-pki` | `pki/` | The CA, certificates, requests, join tokens, and CA pinning |
+| `armada-secrets` | `secrets/` | Envelope encryption of secrets (ADR 0006) and key files |
+| `armada-fsutil` | `fsutil/` | Files with strict permissions, written atomically |
+| `armada-store` | `store/` | The state in etcd: records, transactions, fencing, migrations, leader election, and locks |
+| `armada-server` | `server/` | The control plane: API and access control, joins, reconcilers, ingress and certificates (ACME), alerts, metrics, events, and backups |
+| `armada-agent` | `agent/` | The node agent: the session with the control plane, the reconcile loop, the supervisor runtime, HAProxy's driver, the cluster network, and the sessions beside the pass |
+| `armada-node` | `node/` | The node's work, as a program in the runtime pack and as a library (ADR 0054) |
+| `armada-client` | `client/` | The `armada` client and the command framework both binaries use |
+| `armada-daemon` | `daemon/` | `armadad`: the server, the agent, and the machine commands |
+| `armada-pack` | `pack/` | The runtime pack's build tool (pins, notices, licenses, sources); never shipped |
+
+`armada-log` (`logger/`), `armada-shim` (`shim/`), and `armada-dns`
+(`dns/`) stay programs with the standard library only, outside the
+workspace, each with its own lock and toolchain file.
+
+### Two binaries
+
+As in ADR 0027:
 
 - **`armadad`** (static, musl, linux/amd64 and linux/arm64): `server`,
-  `agent`, `runtime`, `etcd` (new, below), and every machine command, with
-  the same names, flags, and help. It embeds the runtime pack as the Go
-  binary did (`include_bytes!` of the pack `make runtime-bundle` builds),
-  so `armadad upgrade` still installs two files and the units.
+  `agent`, `etcd`, `runtime`, and every machine command (`init`, `join`,
+  `server join`, `doctor`, `backup`, `restore`, `upgrade`, `endpoint`,
+  `user renew`, ...). Release builds embed the runtime pack
+  (`include_bytes!` of the pack `make runtime-bundle` builds), so
+  `armadad upgrade` installs two files and the units.
 - **`armada`** (static, musl, linux/amd64 and linux/arm64; darwin/amd64
-  and darwin/arm64): every client command, with the same names, flags,
-  help, output, exit codes, completion, and configuration files.
+  and darwin/arm64): every client command. It never links the daemon or
+  what a machine needs (`client/tests/dependencies.rs`).
 
-They are two separate programs, each built as its own binary and installed
-as its own file. Neither is a link to the other, and neither picks its role
-from the name it was started under: the Go `armadad`'s fallback that runs
-the client when started as `armada` (left for the links of
-v0.1.0-alpha.35) is not carried over. An `armada` left as a link by that
-release is replaced by a file at the upgrade, as `armadad upgrade` does today.
-
-The runtime pack keeps runc, the CNI plugins, tini, `armada-log`,
-`armada-shim`, `armada-dns`, and `armada-node`, and gains the official
-etcd release's `etcd` and `etcdutl`, pinned and checked in the lock as
-containerd was (version, URL, SHA-256 per architecture after verifying
-the release's signature). containerd and its shim leave the pack: the
-Rust agent runs the supervisor runtime only (ADR 0054 step 4).
-
-The code is one Cargo workspace at the repository's root. `node/` stays a
-member (the `armada-node` program and the library the agent links);
-shared crates hold the protocol (`proto`), specs (`spec`), the CA and
-certificates (`pki`), secret encryption (`secrets`), files with strict
-permissions (`fsutil`), the store (`store`),
-the control plane (`server`), the agent (`agent`), the client (`client`),
-and the machine commands (`daemon`). `armada-log`, `armada-shim`, and
-`armada-dns` stay standard-library-only programs outside the workspace's
-dependencies, checked as before.
-
-The agent links armada-node's code and calls it in process for pure work
-(rendering, network passes, pulls, bundles, statistics, volume archives,
-conntrack). It still runs `armada-node` from the pack where a process of
-its own is the point: exec (the process becomes runc), dials and queue
-readings from a container's network namespace, the network switch's
-probe, and NFS mounts (a mount that never returns must not hold the
-agent). Their interfaces and tests stay as they are.
+They are separate programs, each installed as its own file. Neither is a
+link to the other, and neither picks its role from the name it was
+started under.
 
 ### Dependencies
 
 Every crate follows the license policy of ADR 0054 (Apache-2.0, MIT,
 BSD-2/3, ISC, MPL-2.0, CC0-1.0, Unicode-3.0 for Unicode data), checked
-from `Cargo.lock` with `cargo deny` in CI, built with `--locked`, and
-listed in `THIRD_PARTY_NOTICES.md`.
+from `Cargo.lock` with `cargo deny` in CI and listed in
+`THIRD_PARTY_NOTICES.md`.
 
 | Need | Choice | License |
 | --- | --- | --- |
 | Async runtime | tokio | MIT |
 | gRPC server and client | tonic, with hyper, h2, tower | MIT |
-| Protobuf messages | prost, prost-types (code generated by prost-build and tonic-build, checked in and regenerated by `make proto`) | Apache-2.0 |
-| Protobuf JSON for `-o json` | pbjson (with Armada's own `Timestamp`, which writes `Z` as protojson does) | MIT |
+| Protobuf messages | prost, prost-types (code generated by prost-build and tonic-build, checked in) | Apache-2.0 |
+| Protobuf JSON for `-o json` | pbjson | MIT |
 | TLS | rustls, tokio-rustls, rustls-pki-types, rustls-webpki | Apache-2.0, ISC, or MIT (each crate's own) |
 | Cryptography | ring | Apache-2.0 AND ISC |
 | Certificates and requests | rcgen (issuing, CSR parsing), x509-parser (reading) | MIT OR Apache-2.0 |
-| ACME | instant-acme on ring | Apache-2.0 |
 | JSON | serde, serde_json | MIT OR Apache-2.0 |
-| YAML | no crate: go-yaml v3's reader, scanner, parser, and emitter ported (from libyaml), with its resolver, composer, and encoder; Armada's own decoder into spec types | MIT, Apache-2.0 (the ported code) |
-| Time zones | jiff (TZif data from the machine's zoneinfo first, as Go reads it, then its bundled time zone database) | Unlicense OR MIT (used under MIT) |
-| Command line parsing | no crate: pflag's and cobra's parsing, help, errors, suggestions, and completion ported (`client/src/cli`), since the client's texts must stay as they are | Apache-2.0, BSD-3-Clause (the ported code) |
+| YAML | no crate: `spec/src/yaml`, derived from go-yaml v3 (its reader, scanner, parser, and emitter from libyaml, and its resolver, composer, and encoder), with Armada's own decoder into spec types | MIT, Apache-2.0 (the derived code) |
+| Time zones | jiff (TZif data from the machine's zoneinfo first, then its bundled database) | Unlicense OR MIT (used under MIT) |
+| Command line parsing | no crate: `client/src/cli`, derived from pflag and cobra (parsing, help, errors, suggestions, and completion) | BSD-3-Clause, Apache-2.0 (the derived code) |
 | Compression | flate2 (Rust backend), ruzstd | MIT OR Apache-2.0, MIT |
-| etcd's API | etcd's own `.proto` files (Apache-2.0), vendored and generated with tonic-build | Apache-2.0 |
+| etcd's API | etcd's own `.proto` files, vendored and generated with tonic-build | Apache-2.0 |
 
-Why these:
+Written by hand, as `armada-node` does: the ACME client (RFC 8555 with
+renewal information, HTTP-01 and DNS-01, the Cloudflare DNS calls), the
+SMTP client of alerts, the Prometheus text format of the metrics
+endpoint, a DNS client for domain verification, the HTTP and S3 clients,
+and etcd's election and lock recipes (a key `<prefix>/<lease ID in hex>`
+under a lease, the holder being the key with the lowest creation
+revision, each waiter watching the deletion of the key just before its
+own). Each is small and its rules are Armada's.
 
-- **ring, not aws-lc-rs.** ring is already in `armada-node`, passes the
-  license check, and builds for both musl targets with clang
-  (`.cargo/config.toml`). It has everything Armada uses: ECDSA P-256
-  keys and signatures (every Armada key is P-256 in PKCS#8, which ring
-  reads as written), AES-256-GCM, HKDF, HMAC, and SHA-2. aws-lc-rs adds
-  CMake and a larger C build to every target, and parts of its C code
-  carry a license outside the list above.
-- **etcd's own protos, not a client crate.** Armada needs a small part
-  of etcd's API (KV ranges, puts, deletes, and transactions; leases and
-  their keep-alive; watches, which the election recipe needs; the
-  cluster's members; the maintenance snapshot and
-  status). Generating it from etcd's protos gives the client the exact
-  TLS rules of today (TLS 1.3 only, the member certificate read on every
-  handshake) and no transitive dependencies beyond tonic. Leader election
-  and the ACME locks use the same recipe as Go's `concurrency.Election`
-  and `concurrency.Mutex`: a key `<prefix>/<lease ID in hex>` under the
-  lease, the holder being the key with the lowest creation revision, each
-  waiter watching the deletion of the key just before its own. Go and
-  Rust servers therefore campaign against each other in one election
-  during the upgrade, and the test does exactly that.
-- **instant-acme** speaks ACME (RFC 8555) with HTTP-01 and DNS-01 on
-  rustls and ring. The rest of certificate management (which names, when
-  to renew, the HTTP-01 responder, the DNS-01 record through the
-  Cloudflare API with the cluster's or the app's token) is Armada's code,
-  and so is the storage: certificates, keys, their metadata, the ACME
-  account, and locks under `/armada-acme/` in the layout the Go code
-  writes today, so a Rust leader serves and renews certificates a Go
-  leader obtained, and the other way round.
-- **YAML ported from the library the Go code uses.** Specs are parsed
-  strictly and `spec.Substitute` works on a node tree with the resolution
-  rules of go-yaml v3 (which scalars are strings, numbers, booleans, and
-  null, and when a plain scalar re-resolves its tag). No Rust YAML
-  deserializer has those rules. An event parser (saphyr-parser was the
-  first choice) does not keep anchor names, which `Substitute` writes
-  back, accepts and refuses other documents than libyaml does, and words
-  its errors otherwise, while a spec must fail with the same text and
-  line as before. So go-yaml's reader, scanner, parser, and emitter (its
-  port of libyaml, MIT) and its resolver, composer, and node encoder
-  (Apache-2.0) are ported to `spec/src/yaml` with their behaviour and
-  texts, and the decoder into spec types (with go-yaml's type errors,
-  aliases, merge keys, duplicate keys, and strict fields) and the writer
-  of `-o yaml` are Armada's. All of it is checked against Go on the spec
-  corpus and on mutated specs (PR 5's parity tests).
-- **Written by hand, as `armada-node` does:** the SMTP client of alerts
-  (EHLO, STARTTLS, AUTH PLAIN only over TLS, the checks of ADR 0045), the
-  Cloudflare DNS calls, the Prometheus text format of the metrics
-  endpoint, the cron parser (five fields, as the Go parser reads them),
-  a DNS client for domain verification (from `armada-dns`'s wire code),
-  the HTTP client (`armada-node`'s guarded client, already used for
-  registries and buckets), the S3 client (`armada-node`'s, used by volume
-  backups and now control plane backups too), structured logging in the
-  key=value form of today, and a read-only reader of the overlay
-  snapshotter's `metadata.db` (below). Each is small and its rules are
-  Armada's, which a library would have to be bent to.
-- **WireGuard's userspace device.** The kernel device is used wherever
-  the kernel has it, as today. The userspace device, used by the Go agent
-  where the kernel has none, moves to boringtun (BSD-3-Clause) behind the
-  same root-only control socket; see "If time runs out".
-
-### What stays compatible on the wire and on disk
-
-Nothing a running cluster holds changes format, so Go and Rust servers,
-agents, and clients work together while machines are upgraded one at a
-time:
-
-- **The protocol.** `api/armada/v1` is unchanged: the Rust code is
-  generated from the same `.proto` files, and the release adds no field
-  either side depends on. Both directions are tested: a Go server with
-  Rust agents and clients, a Rust server with Go agents and clients.
-- **The state.** The same keys under `/armada/`, the same JSON records
-  (field names, `omitempty`, the encodings of times, bytes, and
-  durations), the same schema number, the same commit key, optimistic
-  transactions, fencing on the election key, range deletes, and
-  `maxTxnOps`. The release changes no record layout and adds no
-  migration: its schema is the one the last Go release wrote, so Go and
-  Rust servers may both lead (ADR 0012) and the release can be rolled
-  back. State older than that schema is refused, with the release to pass
-  through first.
-- **Files.** The data directory's files (`ca.crt`, `ca.key`,
-  `master.key`, server, node, and member certificates, `network.key`,
-  `mesh.json`, `agent.json`, `runtime-move.json`, the etcd member's
-  directory), `/etc/armada/admin.config`, `/etc/armada/servers`,
-  `~/.armada/config`, `/etc/armada/server.env` and the flags it holds,
-  and their owners and modes. Writers of `agent.json` still change only
-  their own fields.
-- **Certificates.** The same CA, P-256 keys in PKCS#8 PEM, identities in
-  the common name (`node:`, `server:`, `user:`, `service:`, `metrics:`,
-  `etcd:member`), lifetimes, extended key usages, backdating by
-  `pki.ClockSkew`, serial recording, and renewal rules. A certificate
-  either side issues is accepted by the other.
-- **Secrets.** The envelope format of ADR 0006 (AES-256-GCM, the master
-  key, the secret's ID and key as scope and name); each side opens what
-  the other sealed.
-- **Containers.** Bundles, records, shim sockets, labels, log files, and
-  the replica spec hash. The hash is SHA-256 of the deterministic protobuf
-  encoding of the cleaned `ReplicaSpec` (`specHash`); the Rust agent
-  encodes in field-number order with maps sorted by key, as Go's
-  deterministic encoding does, and the hash is checked against Go's on
-  every golden spec and on random ones. A different hash would recreate
-  every replica at the upgrade, so this test gates the release.
-- **What people and tools read.** Command names, flags, help, table
-  output, `-o json` (the same fields; Go's protobuf JSON never promised
-  its spacing, so it is compared as JSON), `-o yaml`, error texts and
-  exit codes, completion (the scripts and the `__complete` protocol
-  installed scripts call), metric names and labels, event reasons, audit
-  actions, and the release's archive names, checksums, signatures, SBOM,
-  and provenance, which `install.sh` and every `armadad upgrade` before
-  this release read. The CLI reference `make docs` generates is
-  byte-for-byte what the Go client generates.
+Why ring and not aws-lc-rs: ring has everything Armada uses (ECDSA P-256
+in PKCS#8, AES-256-GCM, HKDF, HMAC, SHA-2), passes the license check, and
+builds for both musl targets with clang; aws-lc-rs adds CMake and a larger
+C build to every target, and parts of its C code carry a license outside
+the list above.
 
 ### etcd as its own unit
 
-etcd runs from the pack as `armada-etcd.service` (`ExecStart=armadad etcd
-...`, `EnvironmentFile=-/etc/armada/server.env`, `Restart=always`). `armadad
-etcd` reads the server's flags, works out the member exactly as
-`internal/etcd` does today, and executes the pinned `etcd` with a
-configuration file it writes (0600) beside the member:
+etcd is the official release's `etcd` and `etcdutl`, pinned in the
+runtime pack (version, URL, SHA-256 per architecture, `pack/lock.json`).
+On a server machine it runs as `armada-etcd.service` (`ExecStart=armadad
+etcd ...`, `EnvironmentFile=-/etc/armada/server.env`, `Restart=always`).
+`armadad etcd` works out the member from the server's flags and executes
+the pinned `etcd` with a configuration file it writes (`etcd/etcd.yaml`,
+0600):
 
-- the same name (the server's node name), the same data directory
-  (`<data dir>/etcd/data`), the same client and peer URLs on the private
-  address (ports 2379 and 2380), the same cluster token, and, on a first
-  start only, the same initial cluster rules (`etcd/initial-cluster` for
-  a joining server; a data directory without a write-ahead log removed
-  first);
+- the member's name (the server's node name), data directory (`<data
+  dir>/etcd/data`), client and peer URLs on the private address (ports
+  2379 and 2380), the cluster token, and, on a first start only, the
+  initial cluster (`etcd/initial-cluster` for a joining server; a data
+  directory without a write-ahead log removed first);
 - TLS 1.3 only, client certificates required on both listeners, from the
-  cluster CA, with `allowed-cn: etcd:member` on both (etcd's
-  `client-transport-security` and `peer-transport-security`), the member
-  certificate issued and renewed as today (`ensureCert`, the machine's
-  private addresses as SANs), and etcd's own client SAN check kept;
-- no HTTP/JSON gateway, no metrics listener, `max-txn-ops` 4096,
-  periodic compaction after an hour.
+  cluster CA, with `allowed-cn: etcd:member` on both, the member
+  certificate naming the machine's private addresses, and etcd's own
+  client SAN check kept;
+- no HTTP/JSON gateway, no metrics listener, `max-txn-ops` 4096, periodic
+  compaction after an hour.
 
-The pinned etcd is the version the last Go release embeds (v3.7.4 at the
-time of writing), so the files on disk do not change version in either
-direction. A later etcd release is a normal etcd upgrade, one member at a
-time, through `armadad upgrade`.
+It refuses to start while another process holds the member's database.
+`armadad server` waits up to a minute for its member and talks to it over
+gRPC with the member certificate. `armadad backup` takes etcd's
+maintenance snapshot and verifies it in a scratch member (the pinned
+`etcd` in a private directory on Unix sockets only); `armadad restore`
+uses the pinned `etcdutl`. A machine command that needs the state of a
+server whose member does not run (`backup`, `user renew`) starts the
+pinned `etcd` for its own length and stops it afterwards; such commands
+extract `etcd` and `etcdutl` from the pack they carry into a private
+directory, checked against the pack's manifest. `armadad doctor` checks
+the unit, the member's health, and its version against the pack's.
 
-`armada-server.service` wants and orders after `armada-etcd.service`, so
-enabling and starting the server is enough; `armadad server` waits for its
-member (a minute, as today) and talks to it over gRPC with the member
-certificate. `armadad backup` takes etcd's maintenance snapshot as before
-and verifies it in a scratch member, now the pinned `etcd` started in a
-temporary directory on a Unix socket; `armadad restore` and the scratch
-check use the pinned `etcdutl`. A machine command that needs the state of
-a server whose member does not run (`backup`, `user renew`) starts the
-pinned `etcd` for its own length, from the file `armadad etcd` writes,
-and stops it afterwards, as Go's commands start the embedded member.
-These commands extract `etcd` and `etcdutl` from the pack they carry into
-a private directory for the command, checked against the pack's
-manifest. The archive format of `armadad backup` and the control plane
-backups' repository (ADR 0051) do not change.
-`armadad doctor` gains an `etcd` check (the unit, the member's health, its
-certificate, and the version against the pack's).
+### Units on a server machine
 
-### The agent on a server machine
+A server machine runs three units: `armada-etcd`, `armada-server`, and
+`armada-agent` (the same agent unit nodes run, reading `agent.env`).
+`armada-server.service` wants and orders after the other two, so
+enabling and starting it is enough. A restart of the control plane does
+not restart the node's agent or the member, and an agent restart costs no
+election. The agent holds the data directory's lock; the control plane
+does not take it.
 
-ADR 0054 step 6 has `armadad server` run the agent as a unit of its own.
-Here that unit is the same `armada-agent.service` nodes run, wanted by
-`armada-server.service`, so a server machine runs three units: etcd, the
-control plane, and the agent. A restart of the control plane no longer
-restarts the node's agent, and an agent restart costs no election. The
-agent holds the data directory's lock as today; the control plane does
-not take it.
+### Recorded behaviour
 
-### Upgrading one machine
-
-The operator upgrades as today (operations guide): servers first, the
-leader's machine last, then the other nodes, one at a time, with
-`sudo armadad upgrade`. The first upgrade to this release is run by the
-Go `armadad` already on the machine, which downloads and verifies the
-release, takes `armadad`, `armada`, and `deploy/systemd/armada-*.service`
-(the new unit's name fits that pattern), reloads systemd, and restarts the
-running service. What happens next on each kind of machine:
-
-**A server machine.**
-
-1. systemd stops the Go `armadad server`. A leader resigns, so another
-   server leads within about a second; its embedded etcd member stops
-   with its write-ahead log closed. Containers, their shims, HAProxy, and
-   `armada-dns` keep running.
-2. systemd starts the new `armada-server.service`, which pulls in
-   `armada-etcd.service` and `armada-agent.service`.
-3. `armadad etcd` finds the write-ahead log, so the member restarts as
-   itself: same member ID, cluster ID, peer URLs, and data. No member is
-   added or removed and nothing joins again. Before the first start under
-   the unit it copies the stopped member's data directory once to
-   `<data dir>/etcd/data.before-unit` (0700), the way back should the new
-   start damage it; doctor names the copy, and the next release removes
-   it.
-4. `armadad server` (Rust) waits for its member, writes its `servers/`
-   record (version, schema), and campaigns. With the same schema as the
-   Go servers it may lead at once; with three servers it usually stands
-   by, since a Go server leads.
-5. `armadad agent` (Rust) takes the data directory's lock, installs the
-   pack, converts the node's image store when it is still Go's (below),
-   adopts every container, takes over the running HAProxy without a
-   reload (the configuration differs only in server lines, `liveConfig`),
-   starts or adopts `armada-dns`, and connects to the leader with its
-   node certificate.
-
-**A node.** Only steps 1 (without etcd) and 5: the Go agent stops, the
-Rust agent starts and adopts.
-
-**The image store.** A supervisor node on a release before armada-node
-ran its containers keeps its images in Go's store. The Rust agent's start
-converts it as `supervisor.MoveImages` does (ADR 0054 step 4, seventh
-part): blobs hard-linked, committed snapshots renamed to `layers/`, the
-root filesystems of existing containers moved under `active/` without a
-restart, the record written, Go's store removed once nothing uses it.
-Reading the snapshotter's `metadata.db` needs a read-only reader of its
-file format, written for this. The Rust conversion is checked against
-`ConvertImages` and `moveActive` on the same stores while the Go code
-exists. An image that cannot be converted is pulled again when needed,
-as before.
-
-**A node on containerd.** The Rust agent has no containerd runtime. A
-node whose `agent.json` still names it (doctor has warned since ADR 0046)
-must move to the supervisor runtime first with the release it runs
-(`armada node drain`, `sudo armadad runtime migrate --to supervisor`,
-`armada node resume`, or the leader's automatic move of ADR 0054 on
-releases that have it). The upgrade before this release cannot check
-that, so the Rust agent does: on such a node it starts nothing, removes
-nothing, and logs and reports why (`armadad doctor` too); the containers
-keep running under their shims, and the way on is the move with the
-previous release (rolling back, below) or by hand.
-
-Done: containerd and `containerd-shim-runc-v2` are out of `pack/lock.json`,
-so `armada-runtime` (`armadad runtime`) installs the pack and fails on a
-containerd node instead of running containerd; `armadad init`, `join`, and
-`server join` refuse `--runtime embedded`; and `armadad runtime migrate`,
-which always left or entered containerd, is removed. `agent.json`'s
-`"runtime": "embedded"` still reads, so the agent and doctor say what to
-do, and the Rust leader still moves v0.1.0-alpha.42 agents off containerd
-(ADR 0054) during the rolling upgrade.
-
-**The leader.** A cluster's leader moves from Go to Rust through ordinary
-elections. When the operator upgrades the leader's machine last, the Go
-leader resigns when it stops and an upgraded server wins; a new term
-starts with a fresh server, as on every failover (ADR 0010): agents
-reconnect within seconds, rollout drains count from the term's start,
-autoscaling waits a full window, and the leader's in-memory state (usage,
-sessions) is rebuilt from the agents' next reports. Nothing makes a Rust
-server prefer or refuse a Go leader, or the other way round, and the
-mixed elections are tested under load with leaders killed in turn. A
-single server is down for its restart, as with every upgrade; apps keep
-serving.
-
-**When a step fails.**
-
-- The download, signature, or checksum fails: the old upgrader changes
-  nothing (ADR 0030).
-- etcd does not start under the unit: `armadad server` waits its minute
-  and exits, systemd tries again, and the other members keep the quorum
-  (with three servers). The operator reads `armadad doctor` and `journalctl
-  -u armada-etcd`, and rolls the machine back.
-- The Rust control plane fails: the other servers lead; the machine is
-  rolled back.
-- The Rust agent fails: containers and HAProxy keep running and serving;
-  the node's agent is away until it is fixed or rolled back, and the
-  leader treats the node as away, then lost, as for any agent.
-
-**Rolling back.** `sudo armadad upgrade --version V` with V the last Go
-release is the one downgrade the Rust `armadad` allows (that release is
-named in the binary; its schema is the one the state has, since this
-release migrates nothing). It downloads and verifies V as any upgrade,
-stops `armada-server` (a leader resigns), `armada-agent`, and
-`armada-etcd`, disables and removes the units the Go release does not
-have, installs V's binaries and units, and starts V's service: the Go
-server embeds the same member on the same data directory, and the Go
-agent adopts the containers (their bundles, records, and root
-filesystems are in the layouts the last Go release reads, armada-node's
-image store included). The last Go release is therefore a release of its
-own, cut from `main` before this work is merged, and it is the only
-rollback target; rolling back to an older one is not supported. The
-operations guide also lists the same steps by hand.
-
-### Parity testing
-
-The Go code is the reference until it is removed, in the pattern
-`armada-node` set: Go tests run the Rust program on the same inputs and
-compare.
-
-- **Pure code.** Spec parsing, validation, export, and `Substitute`
-  (every spec in the repository and the guides, the fuzz corpus, random
-  specs, error texts), the replica spec hash, cron schedules and time
-  zones (fires across daylight saving changes), the CA (each side
-  verifies the other's certificates, signs the other's requests, and
-  renews them), secrets (each side opens the other's), every store record
-  (Go writes, Rust reads and writes back, Go reads, deep-equal), protobuf
-  JSON, the YAML export, the certificate storage layout, and the alert
-  messages.
-- **The store.** One etcd member, both stores, the same operations;
-  the keyspace compared after each.
-- **The control plane.** The server's scenario tests (about 15,000 lines
-  today, with fake agents and a fake clock) are driven against either
-  server: the Go one in process, or the Rust one as a program
-  (`ARMADA_SERVER_BIN`) with a test clock, through the same AgentService
-  and AdminService calls. Assignments, answers, events, and the keyspace
-  are compared after each step. The Rust tests that stay after the Go code
-  is removed are ported from those scenarios. Until the whole server is
-  ported, the Go server under these tests runs only the parts the Rust one
-  has (a test-only mode of its reconcile pass and loops), and each pull
-  request that ports more widens both.
-- **The client.** Every example line of every command (the lines
-  `cli.ExampleProblems` already parses) run by both clients against one
-  recorded AdminService: stdout, stderr, exit code, and the requests sent
-  must match. `make docs` from the Rust client must leave `docs/cli`
-  unchanged.
-- **The agent.** The runtime conformance suite on the Rust agent, the
-  network integration tests in namespaces, and the agent's scenario tests
-  against a fake runtime.
-- **Mixed versions.** A Go server with Rust agents and client, a Rust
-  server with Go agents and client, and Go and Rust servers in one
-  election with the leader killed in turn under load.
-- **The lab, end to end.** Every scenario of `test/e2e/cluster.sh` with
-  the Rust binaries, then a new scenario: a cluster made on
-  v0.1.0-alpha.41 (three servers and two nodes, both architectures, the
-  wireguard network mode, an app with a volume, a job, internal TCP, and a
-  custom domain) under continuous load through the public and internal
-  addresses, upgraded machine by machine with `armadad upgrade` (standby
-  servers, the leader, the nodes). It passes only with zero failed
-  requests, no container recreated (IDs and start times unchanged), no
-  image pulled again, every etcd member ID unchanged, and the keyspace
-  unchanged but for the records the release writes (`servers/` versions,
-  events). Then one machine is rolled back to the last Go release and
-  upgraded again under the same checks. The same run follows in the cloud
-  before the release. `test/e2e/upgrade.sh` is that scenario: `E2E_FROM`
-  names the starting release (v0.1.0-alpha.42 by default; run it from
-  v0.1.0-alpha.41 too), and the app's certificate is for a name under the
-  cluster's root domain, since a custom domain needs a TXT record in a
-  zone the run does not control. The keyspace is read with `etcdctl` and
-  the member's certificate; besides `servers/` and events it leaves out
-  what changes while the cluster serves (the commit and audit counters,
-  the job's record, runs, and attempts, nodes' last seen and agent
-  version, and when a replica report arrived).
-
-### The work, as pull requests
-
-Each is opened from `main` and merged on its own once its checks pass;
-none is stacked on another. Until the switch, the released binaries stay
-Go and every new Rust part is exercised only by its parity tests.
-
-1. This ADR, accepted.
-2. **The last Go release** cut from `main`, the rollback target. From here
-   until the release, `main` takes fixes, not features: a fix to Go code
-   comes with the same fix to its Rust port when that exists.
-3. **The workspace.** Cargo workspace, the `proto` crate (tonic, prost,
-   pbjson), `make` targets, CI jobs and `cargo deny` for the workspace,
-   release builds for every target including macOS.
-4. **etcd from the pack.** The pinned `etcd` and `etcdutl` in the lock,
-   and `armadad etcd` and `armada-etcd.service` written in Go first, with
-   a server flag (`--etcd-member unit`, hidden, used only in the lab) that makes the Go server use the
-   unit's member instead of embedding one, so that the member's move from
-   embedded to its own unit, and back, is tested on its own before any
-   Rust server exists. `armadad etcd` is ported with the machine commands
-   (18).
-5. **Specs.** The `spec` crate with its parity tests.
-6. **CA, certificates, and secrets.** `pki` and `secrets`, cross-checked.
-7. **The store.** The etcd client, transactions, fencing, every record
-   and method, election and mutex recipes, with the store parity tests.
-8. **The control plane, core.** Server lifecycle, terms, servers and
-   members, joins (node and server, learners and promotion), certificate
-   renewal, the API with access control and stream checks, sessions with
-   agents, assignments, and the scenario parity harness.
-9. **Placement and rollouts.** Scheduling, placement, rollouts, drains,
-   self-healing, rebalancing, removal, secrets' rollouts, traffic splits.
-10. **Jobs.** Runs, tasks, schedules, queue triggers.
-11. **Scaling.** Autoscaling on every rule, scale to zero and waking.
-12. **Volumes.** Volumes, NFS, backups, failover and fencing.
-13. **The network and the runtime move.** Network configuration, isolation
-    endpoints, the mode switch, sites, relays, key rotation, the move of
-    containerd nodes.
-14. **Ingress and certificates.** The proxy configuration per pass,
-    domains, ACME HTTP-01 and DNS-01 (tested with Pebble and a stand-in
-    DNS API), the certificate storage shared with Go. In two parts: the
-    proxy configuration, domains, and the certificate storage first, then
-    obtaining certificates (the ACME client): one account, certificates,
-    their metadata, challenges, and locks in the shared storage as
-    certmagic keeps them, so a Go server and a Rust server renew and
-    answer for each other's certificates. OCSP stapling is not carried
-    over: the proxies get the chain and the key only.
-15. **Watching.** Events, alerts, metrics, log search and export
-    settings, usage, `Top`, cluster status, control plane backups. In two
-    parts: cluster status, `Top` and usage, alerts, and the metrics
-    endpoint first, then log search and live logs, exec, the log export
-    settings, and the control plane backups' loop. The metrics endpoint
-    exports every `armada_*` metric as the Go server does; Go's own
-    runtime metrics (`go_*`) are not carried over. The control plane
-    backups write the volume backups' repository format through
-    armada-node's own code (its library), so a Go server and a Rust
-    server back up to and restore from one bucket; what a backup holds is
-    still staged by the daemon. With the second part every method of both
-    services is ported and the scenario harness runs Go's whole control
-    plane (no part of it is left out any more).
-16. **The agent.** The agent's loop (ADR 0054 step 6) as `armadad agent`:
-    session, Hello, reconcile, probes, fencing, held replicas, jobs, init
-    containers and sidecars, secret files, wake, certificates, exec,
-    volume, and log sessions, usage reports, the runtime move, proxy and
-    network passes, and the conversion of Go's image store. In five
-    parts: 16a, the loop over a runtime trait (session, Hello, reconcile,
-    probes, fencing, held replicas, jobs, members, secret files, usage
-    samples); 16b, the proxy and network passes over seams of their own
-    (proxy, cluster network, the node's resolver, certificates by
-    reference), the wake socket, key rotation, the runtime move, and the
-    usage reports' load, switch, and peers; 16c, the sessions and loops
-    left (exec, log, and volume sessions, queue readings and sandboxes,
-    NFS, log export and prune, and the usage reports' volumes,
-    connection tracking, queues, sandboxes, and export; volume archives
-    and backups, NFS mounts, and connection tracking behind seams of their
-    own, whose first implementations run `armada-node` as a process with
-    the protocols Go's agent uses); 16d, the HAProxy driver, the cluster
-    network, and the resolver's client behind those seams over
-    armada-node's library; 16e, the supervisor runtime behind the runtime
-    trait, with the system containers HAProxy's engine runs on. 16e lands
-    in two pull requests: the first runs containers (pulls, root
-    filesystems, specs, bundles, shims, the CNI plugins as libcni runs
-    them, logs, init containers and sidecars, stats, exec, prunes, and
-    system containers), and refuses to start on a machine with SELinux on
-    rather than run containers unlabelled; the second labels containers
-    for SELinux, converts Go's image store at the agent's start,
-    implements 16c's runtime calls (exec sessions, logs, dials, queues,
-    sandboxes), and moves the volume and connection tracking seams in
-    process (NFS mounts stay a process). The conversion of Go's image
-    store moved to a third pull request: the agent's start converts the
-    store, moves the root filesystems of the containers on it, and
-    removes it once none is left (at the start and after every release),
-    as Go's agent does, reading the overlay snapshotter's metadata
-    database with a read-only reader of the bbolt format of its own and
-    never writing it. Going back to Go's code on a node the Rust agent
-    moved stays Go's agent's work, as it is today.
-17. **The client.** Every command, output, completion, the SSH dialer,
-    configuration files, and the release notice, with the client parity
-    tests.
-18. **The machine commands.** `init`, `join`, `server join`, `doctor`,
-    `backup`, `restore`, `upgrade` (rollback included), `runtime`,
-    `endpoint`, `user`, and the rest. In two parts: first `armadad`'s
-    whole command tree (`daemon/`) on the client's command framework,
-    which it links as Go's daemon runs the client's `cli.Run`, with the
-    commands that need neither the cluster's state nor the container
-    runtime's driver (`version`, `endpoint`, `etcd`, `upgrade`, `runtime`)
-    and the runtime pack compiled in; then the commands that do (`doctor`,
-    `backup`, `restore`, `user renew`, `runtime reset` and `migrate`) with
-    `init`, `join`, `server join`, `server`, and `agent`. Each is checked
-    by a daemon parity harness that runs Go's armadad and the Rust one on
-    the same command lines and case directories; doctor's cases give both
-    a machine of their own (host files, needrestart, the pack, being
-    root). The Rust doctor says what the Rust armadad does where it
-    differs from Go's: a node on containerd fails the runtime check, a
-    kernel without WireGuard fails the `wireguard` check for the
-    `wireguard` and `mesh` modes and other sites (no userspace device),
-    and servers whose member armada-etcd.service runs get the `etcd`
-    check of "etcd as its own unit" (the unit, the member's status, and
-    its version against the pack's; the member's certificate stays the
-    certificates check's).
-19. **The switch.** The release builds `armadad` and `armada` from Rust
-    (done: GoReleaser's rust builder runs `cargo build --release --locked`
-    for `x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl` after
-    `make runtime-bundle`, `armadad` with the `bundle` feature; the macOS
-    client is built on a macOS runner and packed by the same run; the
-    archives, their names and files, `checksums.txt`, the cosign
-    signature, the SBOMs, and the provenance are unchanged; the version
-    reaches both programs through `ARMADA_VERSION`, `ARMADA_COMMIT`, and
-    `ARMADA_DATE`; the release runs the workspace's gates beside Go's, and
-    CI runs the packaging on `main` without publishing);
-    units for etcd and the agent on server machines; the lab upgrade from
-    v0.1.0-alpha.41 and the full end-to-end run pass. The machine side,
-    done: `armada-server.service` wants and orders after
-    `armada-etcd.service` and `armada-agent.service` (the agent after the
-    member too), so enabling and starting the server is enough, as
-    `armadad init` and `server join` print; nothing else changes for
-    them, since the server unit pulls in the others on every start and
-    boot. The Rust `armadad server` takes `--etcd-member unit` as its
-    default and refuses `embedded` with what to remove; the flag stays
-    accepted and hidden for the lab's `server.env` files. `--agent`,
-    `--proxy`, `--secrets-dir`, and `--internal-dns` stay accepted and
-    hidden too, so a `server.env` of v0.1.0-alpha.42 keeps working, and a
-    value given is logged, never acted on: the agent unit reads
-    `/etc/armada/agent.env` on every machine, never `server.env`, whose
-    server flags `armadad agent` does not know (the operations guide says
-    to move such flags before the upgrade, and to mask `armada-agent` for a
-    server that ran with `--agent=false`). The server takes no lock on the
-    data directory, signs an expired node certificate again at its start
-    (`renew_node`) for the agent unit, and the agent unit holds the lock
-    and writes `/etc/armada/servers`. `armadad endpoint set` restarts both
-    `armada-server` and `armada-agent` on a server machine. `armadad
-    upgrade` enables `armada-etcd` and `armada-agent` on a server machine
-    (`armada-server` enabled) where they are not yet, restarts every active
-    unit in the order `armada-runtime`, `armada-etcd`, `armada-server`,
-    `armada-agent`, and takes `--version v0.1.0-alpha.42`
-    (`LAST_GO_RELEASE`) as the one older release: it stops the server, the
-    agent, and the member, disables `armada-agent` on a server machine
-    (v0.1.0-alpha.42 has the unit, but its server runs the agent),
-    disables and removes the units that release lacks (`armada-etcd`),
-    installs it, restarts `armada-runtime` where it runs, and starts
-    `armada-server` or `armada-agent`; `--no-restart` does all of that but
-    the start. The daemon parity harness compares where Go's upgrader does
-    the same and checks the Rust-only paths on their own
-    (`internal/daemon/parity_units_test.go`). The first upgrade, run by
-    v0.1.0-alpha.42's upgrader (units installed, `daemon-reload`,
-    `armada-runtime` restarted where active, then `systemctl restart
-    armada-server`), brings the new units up on both kinds of machine: on
-    a server the restart job stops the Go server before the `armada-etcd`
-    and `armada-agent` start jobs it pulls in run (the server is ordered
-    after both, and a restart's stop runs before the jobs it is ordered
-    after), so the member and the data directory's lock are free when they
-    start; on a node only `armada-agent` restarts. `test/e2e/upgrade.sh` is
-    the lab scenario below (`E2E_FROM`, by default v0.1.0-alpha.42;
-    run it from v0.1.0-alpha.41 too), and `test/e2e/cluster.sh` installs
-    `armada-etcd.service` and treats every machine's agent as
-    `armada-agent`. Left for the lab: both scripts' runs.
-20. **Go removed**, in two steps:
-    1. **The parity tests ported.** Go's outputs for every parity
-       scenario are recorded once as fixtures, and Rust tests drive the
-       Rust programs through the same scenarios and compare against them,
-       as `testdata/rust` already does for the runtime, HAProxy's driver,
-       and the image store's move. Its first slice, done, is the control
-       plane's scenarios: `go test ./internal/server -run TestParity
-       -record-scenarios` runs each scenario against Go's server alone and
-       writes `server/tests/testdata/scenarios/<test>.json`, every step the
-       scenario took at the server's boundaries (API calls and their
-       streams, fake agents' sessions and volume sessions, the store's
-       methods the harness called, clock moves, passes, TXT records, the
-       fake etcd membership) with Go's normalized answer to each, and values
-       a later step sends that came from an answer written as references;
-       `server/tests/scenarios.rs` (`make server-scenarios`, run by
-       `rust-check` and CI) replays them against `armada-server-parity` on
-       the pinned etcd and compares every answer. Every scenario replays,
-       with stand-ins of the replay's own: fake agents answering log and
-       exec requests, the alert channels' HTTP and SMTP servers, the
-       control plane backups' bucket, a client of the metrics endpoint,
-       the public join listeners, and certmagic's storage, which Rust's
-       must read as Go wrote it, write as Go writes it, and lock where Go
-       locks; `TestArmadaServerTerms`, which compares with no Go server,
-       runs as a Rust test of its own. The client's and the daemon's are
-       done too: `go test ./internal/cli -run TestClientParity
-       -record-fixtures` writes `client/tests/testdata/parity.jsonl.gz`
-       (each of the 669 cases' command line, environment, standard input,
-       files, starting client config, the fake AdminService's answers,
-       and Go's outcome), which `client/tests/parity` (`make
-       client-replay`) replays against the Rust armada built with its
-       test-hooks feature (its clock starts at the recorded time) and a
-       stand-in AdminService over mTLS; `go test ./internal/daemon -run
-       TestDaemonParity -record-fixtures` writes
-       `daemon/tests/testdata/parity.jsonl.gz` (each of the 350 cases'
-       arguments, environment, standard input, the case directory as
-       prepared, the state it needs, and the outcome it must give: Go's,
-       or for the Rust armadad's own paths its own once their checks
-       passed), which `daemon/tests/parity` (`make daemon-replay`)
-       replays with the same stand-ins, a stand-in bucket, and a member
-       from the pinned etcd, the machine's interfaces and file system
-       type as recorded (test hooks). The logger cases (`armadad
-       runtime-log` and armada-log against WriteLogs,
-       `daemon/tests/logwriter.rs`) and HAProxy's render cases
-       (`node/tests/render.rs`) replay too, and the scenarios of HAProxy's
-       driver, the supervisor runtime, and the image store's move kept
-       under `internal/.../testdata/rust` moved to the crates that read
-       them (`agent/tests/testdata/haproxy`,
-       `agent/tests/testdata/supervisor`, `node/tests/testdata/move.json`).
-       armada-node's other comparisons with Go (cluster network messages,
-       pulls and unpacking, exec, the supervisor's calls, volumes, NFS,
-       conntrack, queues), armada-log's search and export, armada-dns's
-       tests against the Go resolver's, ACME's against Pebble beside
-       certmagic, etcd's unit integration test, and the containerd
-       conformance suite were not recorded: they went with the Go code,
-       armada-node, armada-log, and armada-dns keeping their own Rust tests
-       and the end-to-end run.
-    2. **Go deleted.** `cmd/`, `internal/`, `go.mod`, Go's CI jobs and
-       release steps, and every document that names Go code (CLAUDE.md,
-       the operations guide, the threat model's references,
-       `docs/compatibility.md` for the one downgrade allowed). Done
-       (20c): `cmd/`, `internal/`, `go.mod`, `go.sum`, the generated Go
-       code next to `api/armada/v1/armada.proto` (the `.proto` stays,
-       `make proto` generates `proto/src/gen` from it), the golangci-lint
-       configuration, the parity programs only Go's tests ran
-       (`armada-pki-parity`, `armada-secrets-parity`,
-       `armada-acme-parity`), and every Go step of the Makefile, CI, and
-       the release workflow are gone. The recordings are goldens: nothing
-       writes them again, and a change of behaviour they cover changes
-       them by hand. CI runs only what a change touches
-       (`scripts/ci-changes.sh`): the crates it changes and every crate
-       that depends on one, with their replays; the programs outside the
-       workspace it changes; HAProxy's `haproxy -c` on the configurations
-       armada-node renders (`scripts/haproxy-check.sh`) when the renderer
-       or the image changes; and the packaging when something a release
-       builds changes; the arm64 release build runs on pushes to `main`
-       only. `cargo deny check advisories` takes govulncheck's place.
-
-    Done first (20a): every build, release, and documentation tool that
-    needed Go is out of Go, so deleting the code breaks none of them.
-    The runtime pack's pins are `pack/lock.json`, and `armada-pack`
-    (`pack/`, a workspace member never shipped) builds the pack from
-    them (`make runtime-bundle`): the same tar as Go's mkbundle, byte for
-    byte, in flate2's gzip stream (Go's compressor's bytes are not kept:
-    they change with Go's releases). It also extracts etcd's programs for
-    the parity tests (`scripts/etcd-cache.sh`), collects the license
-    files of the Go modules the pack's etcd and etcdutl link into release
-    archives (`licenses/runtime`, replacing `licenses/go`, since no
-    released program links Armada's Go modules any more), and fetches
-    etcd's API module for `make proto-rust`, every module checked
-    against the go.sum hash its program records or the lock pins; its
-    tests check the pins and the notices. `make docs` writes `docs/cli`
-    from the Rust client and daemon. GoReleaser's hooks and CI's release
-    jobs run no Go command; `lock.go` keeps the same pins until Go goes
-    (`TestLockMatchesFile`).
-
-    Step 1, the agent's part: every scenario of the agent parity harness
-    (the loop, ingress, the sessions and loops beside the pass, Hello),
-    the spec hash, the reconnect waits, the health check, and a whole
-    session over mTLS are recorded from Go's agent (`go test
-    ./internal/agent -run TestAgentParity -record-scenarios` writes
-    `agent/tests/testdata`): each scenario's steps, every change to what
-    its fakes answer, and the transcript lines Go's run wrote for each
-    step. `agent/tests/scenarios.rs` (`make agent-scenarios`, run by
-    `rust-check` and CI) replays them against the agent's parity program
-    with the fakes ported to Rust (the runtime, proxy, network, resolver,
-    certificate source, and move hooks; the sessions' control plane and
-    log endpoint; the fake armada-node as `armada-agent-fake-node`), and
-    compares every line, JSON whatever the order of its keys and a step's
-    calls sorted as before. A wait for a probe's verdict polls until the
-    report is Go's. The Go parity tests stay until Go is deleted.
-    Step 1's pure slice, done: the spec's, the CA's, and the secrets'
-    parity tests replay from recordings of Go. With `-record-fixtures` the
-    Go tests run their cases against Go alone and write the inputs with
-    Go's answers. The spec's (`TestArmadaSpec*`) go to
-    `spec/tests/testdata/<test>.jsonl.gz`, one gzipped line per case with
-    the exact input (the corpus's specs as they were, 8000 seeded mutations
-    instead of the live test's 20000, the validators', schedules', and
-    windows' calls; about 2.6 MB), and `spec/tests/parity.rs` sends them to
-    `armada-spec-check` and compares as the Go tests do. The CA's and the
-    secrets' go to `pki/tests/testdata/parity.json` and
-    `secrets/tests/testdata/parity.json`: Go's CA and test keys, what Go
-    issued, signed, and reissued from it by shape (every extension in order,
-    the raw names, the algorithms, the lifetime), Go's certificates,
-    requests, tokens, key files, and sealed values with what Go read of
-    them, and every refusal with its text; the crates' `tests/parity.rs`
-    issue and sign the same from Go's CA, read Go's, and refuse the same,
-    at the recorded times where time matters. All three run in `cargo test
-    --workspace`. Go can no longer open what Rust sealed or verify what
-    Rust issued; the replays check Rust's output by shape and by its own
-    round trip instead.
-
-    Step 1's storage slice, done: the store's parity tests
-    (`TestArmadaStore*`) record to `store/tests/testdata/<test>.jsonl`
-    every call with its arguments, Go's answer, and the keys it wrote or
-    deleted; `store/tests/replay.rs` (`make store-replay`, run by
-    `rust-check` and CI) replays them against `armada-store-parity` on the
-    pinned etcd over a Unix socket and compares each answer and the whole
-    keyspace after each call. The Go tests that ran Go and Rust at once
-    (two writers on one keyspace, stores fenced to the other side's term,
-    one election and one lock, a lease kept alive) cannot be recorded;
-    `rust_alone` checks the same with Rust on both sides. What no replay
-    checks once Go is gone is that the two run side by side at the same
-    moment, which only mattered while both were released.
-
-The release is tagged after 19 and the cloud run, before 20 (the owner's
-decision once 19 passed the lab runs): from 19 on, nothing a release
-ships is Go, and the Go code stayed in the repository only as the parity
-tests' reference until 20 had replaced them (it went in 20c).
-
-### What stays the same for people
-
-Commands of both binaries, their flags and help; spec files; output and
-`-o json|yaml`; exit codes; configuration files and their places;
-`/etc/armada`; the data directory's files; the units' names (one new
-unit, `armada-etcd`, and the agent's unit on server machines); ports;
-metrics, events, and audit records; `install.sh`; and `armadad upgrade`
-as the one command per machine. Running apps see nothing: no container
-restarts and no image is pulled again.
-
-### If time runs out
-
-The release ships whole or waits; nothing above is shipped in part. To
-keep it whole, these are cut, in this order:
-
-1. **The userspace WireGuard device.** Nodes without kernel WireGuard are
-   refused by doctor and by the agent for the `wireguard` and `mesh`
-   modes, with what to install, until it comes back in a later release.
-2. **Starting points older than v0.1.0-alpha.41.** Already the case for
-   the schema; the conversion of images is kept only for the store layout
-   alpha.41 writes.
-3. **The macOS client.** macOS keeps the client of the last Go release,
-   which works with servers of the next one, until the Rust one builds
-   there.
-
-Moving only the agent and the client and keeping a Go control plane for
-another release is the owner's call, not a cut made along the way.
+Each crate's `tests/testdata` holds recordings of the expected behaviour:
+the control plane's scenarios with fake agents and a fake clock, the
+agent's scenarios against a fake runtime, the store's keyspace after each
+operation, every example line of every client and daemon command
+(stdout, stderr, exit code, and the requests sent), HAProxy's driver, the
+supervisor runtime's files, and the spec, CA, and secret corpora.
+`make replays` replays them against the code. They are goldens: nothing
+writes them again, and a change of behaviour they cover changes its
+recording by hand, in the same change. `make docs` writes `docs/cli` from
+the commands, and the tests fail when it is stale.
 
 ## Alternatives considered
 
-- **A release per step, as ADR 0054 planned.** Every cluster would run
-  Go and Rust side by side for many releases, every change would be made
-  twice, and operators would upgrade through each step.
 - **etcd as a child process of `armadad server`.** Its restarts would
   follow the control plane's, an upgrade of the control plane would
   restart the member, and systemd would not supervise it.
 - **An etcd client crate.** It brings its own TLS setup and election
-  helpers; generating the small part of the API Armada uses keeps the
-  TLS rules and the recipes exactly as today.
-- **aws-lc-rs.** See "Dependencies".
-- **A serde YAML deserializer.** None has the resolution rules specs are
-  parsed with today; a spec that parsed before must parse the same way.
-- **An event parser crate (saphyr-parser).** See "Dependencies": it loses
-  anchor names, and its acceptance and error texts are not libyaml's.
+  helpers; generating the small part of the API Armada uses keeps the TLS
+  rules and the recipes exactly as Armada needs them.
+- **A YAML crate.** None has the resolution rules specs are parsed with
+  (which scalars are strings, numbers, booleans, and null), keeps anchor
+  names for variables, and gives the same acceptance and error texts.
+- **A store of Armada's own instead of etcd.** It changes how every
+  cluster stores its state and needs its own design and a path for every
+  existing cluster; it is not decided here.
 
 ## Consequences
 
-- Every Armada program on a machine is Rust; the only Go program left is
-  the pinned etcd on server machines.
+- One language and one toolchain for every Armada program; contributors
+  need Rust and the C compiler ring builds with.
+- The only programs in the runtime pack that are not Armada's own are
+  pinned releases run as separate processes: etcd and etcdutl, the CNI
+  plugins, the OCI runtimes, and tini.
 - Server machines run one more unit, and etcd restarts only when its own
   version changes, not with every control plane restart.
-- The release allows one downgrade, to the last Go release, which
-  `docs/compatibility.md` will name as the exception to "no downgrade".
-- Containerd nodes must move to the supervisor runtime before their
-  machine takes this release.
-- Contributors need only Rust (and the C compiler ring builds with).
-- Features wait for the release; fixes are written in both languages while
-  both exist.
-- The size of the work makes the parity tests and the lab upgrade the
-  release's gate: a difference found there is fixed in Rust, never
-  accepted as a change of behaviour.
+- Recorded behaviour is the reference for every change: a difference a
+  replay finds is a bug unless the change meant it and updates the
+  recording.
