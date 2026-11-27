@@ -17,8 +17,8 @@ use armada_agent::clock::{TestClock, from_unix_nanos, unix_nanos};
 use armada_agent::network::Network;
 use armada_agent::proxy::{BoxFut, CertificateSource, Clients, InternalDns, Proxy, ServerLoad};
 use armada_agent::runtime::{
-    AgentStatus, Container, ContainerSpec, Error, Image, Member, MemberSpec, RegistryAuth, Result,
-    Runtime, Stats,
+    Container, ContainerSpec, Error, Image, Member, MemberSpec, RegistryAuth, Result, Runtime,
+    Stats,
 };
 use armada_agent::session::{ServerConn, reconnect_wait};
 use armada_agent::side::conntrack::NodeConntrack;
@@ -495,16 +495,6 @@ impl Runtime for Remote {
             )
             .await?;
         Ok(int(&v))
-    }
-
-    async fn runtime_agent(&self) -> Option<AgentStatus> {
-        let v = self.wire.call("runtimeAgent", json!({})).await.ok()?;
-        if v.is_null() {
-            return None;
-        }
-        Some(AgentStatus {
-            runc_containers: int(&v["runcContainers"]),
-        })
     }
 }
 

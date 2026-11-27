@@ -1,8 +1,8 @@
 //! armada-shim processes: one per group as the transient systemd unit
-//! armada-shim-<name>, socket DIR/<name>.sock, the OCI runtimes' state
-//! under DIR/<name>/crun and DIR/<name>/runc (oci.rs: crun for new
-//! containers, runc for those it created before ADR 0056), one request
-//! line per connection.
+//! armada-shim-<name>, socket DIR/<name>.sock, crun's state under
+//! DIR/<name>/crun (oci.rs), one request line per connection. A shim of an
+//! older release may also have runc's state under DIR/<name>/runc, whose
+//! containers are ended without runc (cgroup.rs).
 //!
 //! A shim that runs but does not answer is never replaced, and its
 //! containers are ended only once it is really gone: nothing listens on
@@ -31,10 +31,12 @@ use std::time::{Duration, Instant};
 pub struct Request {
     pub dir: String,
     pub bin: String,
-    pub runc: String,
-    /// crun (ADR 0056); empty for a shim that runs runc alone.
+    /// crun (ADR 0056), the OCI runtime the shim runs.
     pub crun: String,
     pub logger: String,
+    /// Where cgroup v2 is mounted; empty for /sys/fs/cgroup.
+    #[serde(rename = "cgroupRoot")]
+    pub cgroup_root: String,
     pub group: String,
     /// The programs systemd is reached through; tests name stand-ins.
     #[serde(rename = "systemdRun")]
@@ -298,12 +300,12 @@ impl Request {
         rt.root(&Path::new(&self.dir).join(self.name()))
     }
 
-    /// The runtime's program; empty when the request names none.
-    pub fn program(&self, rt: OciRuntime) -> &str {
-        match rt {
-            OciRuntime::Runc => &self.runc,
-            OciRuntime::Crun => &self.crun,
-        }
+    fn cgroup_root(&self) -> &Path {
+        Path::new(if self.cgroup_root.is_empty() {
+            "/sys/fs/cgroup"
+        } else {
+            &self.cgroup_root
+        })
     }
 
     /// The time left to the caller, none when it set no deadline.
@@ -406,21 +408,47 @@ impl Request {
         }
     }
 
-    /// abandon: every container in each OCI runtime's state (runc's,
-    /// then crun's) killed and deleted.
+    /// abandon: every container in crun's state killed and deleted, and
+    /// every container runc's state (left by an older release) names
+    /// ended through its cgroup, its state removed.
     fn abandon_root(&self) -> Result<(), String> {
-        for rt in OciRuntime::ALL {
-            self.abandon_runtime(rt)?;
+        self.abandon_runc()?;
+        self.abandon_crun()
+    }
+
+    /// The containers runc created ended without runc: each state
+    /// directory names a container ID, whose cgroup is /armada/<ID>.
+    fn abandon_runc(&self) -> Result<(), String> {
+        let root = self.root(OciRuntime::Runc);
+        let entries = match fs::read_dir(&root) {
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
+            Err(e) => return Err(format!("open {}: {}", root.display(), io_text(&e))),
+            Ok(rd) => rd,
+        };
+        for e in entries.flatten() {
+            if !e.file_type().is_ok_and(|t| t.is_dir()) {
+                continue;
+            }
+            let id = e.file_name().to_string_lossy().into_owned();
+            let path = format!("{}/{id}", super::cgroup::PARENT);
+            if super::cgroup::armada_path(&path).is_ok() {
+                super::cgroup::end(self.cgroup_root(), &path, super::cgroup::END_WAIT)
+                    .map_err(|err| format!("end container {id} runc created: {err}"))?;
+            }
+            fs::remove_dir_all(e.path())
+                .map_err(|err| format!("unlinkat {}: {}", e.path().display(), io_text(&err)))?;
         }
+        let _ = fs::remove_dir(&root);
         Ok(())
     }
 
-    fn abandon_runtime(&self, rt: OciRuntime) -> Result<(), String> {
+    fn abandon_crun(&self) -> Result<(), String> {
+        let rt = OciRuntime::Crun;
         let root = self.root(rt);
         if fs::symlink_metadata(&root).is_err_and(|e| e.kind() == io::ErrorKind::NotFound) {
             return Ok(());
         }
-        let (name, prog) = (rt.name(), self.program(rt));
+        let (name, prog) = (rt.name(), self.crun.as_str());
         if prog.is_empty() {
             return Err(format!(
                 "{name} list: no {name} to end the containers in {}",
@@ -476,14 +504,34 @@ impl Request {
             "serve".into(),
             self.socket().display().to_string(),
             Path::new(&self.dir).join(&name).display().to_string(),
-            self.runc.clone(),
+            self.crun.clone(),
             self.logger.clone(),
         ]);
-        // crun last: a shim of a release before ADR 0056 takes four.
-        if !self.crun.is_empty() {
-            a.push(self.crun.clone());
-        }
         a
+    }
+
+    /// The group's shim stopped (its unit), for a shim of an older
+    /// release left holding only containers runc created, which it can no
+    /// longer delete: it would otherwise never exit. Its socket goes too
+    /// (the agent's, through the library).
+    #[allow(dead_code)]
+    pub fn stop(&self) -> Result<(), String> {
+        let _l = self.lock()?;
+        let unit = unit_name(&self.group);
+        let (out, err) = run(
+            self.systemctl(),
+            &["stop", "--", &unit],
+            true,
+            self.deadline,
+        );
+        if let Some(e) = err {
+            return Err(format!(
+                "systemctl stop {unit}: {e}: {}",
+                String::from_utf8_lossy(&out).trim()
+            ));
+        }
+        let _ = fs::remove_file(self.socket());
+        Ok(())
     }
 
     /// Shims.For: the group's shim, started when none runs.
@@ -602,68 +650,65 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// A gone shim's containers are ended in both runtimes' state, each
-    /// with its own program and root; a root that does not exist is
-    /// left alone, and a shim with runc alone takes four arguments.
+    /// A gone shim's containers are ended: crun's with crun, and those
+    /// runc created (a shim of an older release) through their cgroups,
+    /// with no runc; a root that does not exist is left alone.
     #[test]
-    fn abandon_ends_both_runtimes() {
+    fn abandon_ends_crun_and_runc_containers() {
         use std::os::unix::fs::PermissionsExt;
         let dir = std::env::temp_dir().join(format!("armada-shim-oci-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         let log = dir.join("calls.log");
-        let stand_in = |name: &str, id: &str| {
-            let p = dir.join(name);
-            fs::write(
-                &p,
-                format!(
-                    "#!/bin/sh\necho \"{name} $*\" >> {}\ncase \"$*\" in *\" list -q\") echo {id} ;; esac\n",
-                    log.display()
-                ),
-            )
-            .unwrap();
-            fs::set_permissions(&p, fs::Permissions::from_mode(0o755)).unwrap();
-            p.display().to_string()
-        };
+        let crun = dir.join("crun");
+        fs::write(
+            &crun,
+            format!(
+                "#!/bin/sh\necho \"crun $*\" >> {}\ncase \"$*\" in *\" list -q\") echo new-1 ;; esac\n",
+                log.display()
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&crun, fs::Permissions::from_mode(0o755)).unwrap();
+        let cgroups = dir.join("cgroup");
         let mut r = Request {
             dir: dir.join("shim").display().to_string(),
-            runc: stand_in("runc", "old-1"),
-            crun: stand_in("crun", "new-1"),
+            crun: crun.display().to_string(),
+            cgroup_root: cgroups.display().to_string(),
             group: "web@p1".into(),
             ..Default::default()
         };
-        for rt in OciRuntime::ALL {
-            fs::create_dir_all(r.root(rt)).unwrap();
-        }
-        assert_eq!(r.abandon_root(), Ok(()));
         let state = Path::new(&r.dir).join(shim_name("web@p1"));
         let (runc_root, crun_root) = (state.join("runc"), state.join("crun"));
+        fs::create_dir_all(runc_root.join("old-1")).unwrap();
+        fs::write(runc_root.join("old-1").join("state.json"), "{}").unwrap();
+        fs::create_dir_all(&crun_root).unwrap();
+        // The runc container's cgroup, its processes gone already.
+        fs::create_dir_all(cgroups.join("armada/old-1")).unwrap();
+        assert_eq!(r.abandon_root(), Ok(()));
         assert_eq!(
             fs::read_to_string(&log).unwrap(),
             format!(
-                "runc --root {r} list -q\nrunc --root {r} kill --all old-1 KILL\nrunc --root {r} delete --force old-1\n\
-                 crun --root {c} list -q\ncrun --root {c} kill --all new-1 KILL\ncrun --root {c} delete --force new-1\n",
-                r = runc_root.display(),
+                "crun --root {c} list -q\ncrun --root {c} kill --all new-1 KILL\ncrun --root {c} delete --force new-1\n",
                 c = crun_root.display()
             )
         );
-        // Only runc's state (a shim of a release before ADR 0056).
-        fs::remove_file(&log).unwrap();
-        fs::remove_dir_all(&crun_root).unwrap();
-        assert_eq!(r.abandon_root(), Ok(()));
-        let calls = fs::read_to_string(&log).unwrap();
-        assert!(!calls.contains("crun"), "{calls}");
+        assert!(!runc_root.exists(), "runc's state is removed");
+        assert!(
+            !cgroups.join("armada/old-1").exists(),
+            "its cgroup is removed"
+        );
         // crun's state with no crun to end it is an error, not ignored.
-        fs::create_dir_all(&crun_root).unwrap();
         r.crun.clear();
         assert!(
             r.abandon_root()
                 .unwrap_err()
                 .starts_with("crun list: no crun")
         );
-        assert_eq!(r.launch_args().len(), 9 + 6);
         r.crun = "/bin/crun".into();
-        assert_eq!(r.launch_args().last().unwrap(), "/bin/crun");
+        let args = r.launch_args();
+        assert_eq!(args.len(), 9 + 6);
+        assert_eq!(args[args.len() - 2], "/bin/crun");
         let _ = fs::remove_dir_all(&dir);
     }
 

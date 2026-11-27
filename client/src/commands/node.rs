@@ -5,8 +5,8 @@ use std::collections::BTreeMap;
 use armada_proto::armada::v1::{
     CordonNodeRequest, CreateJoinTokenRequest, LabelNodeRequest, ListServersRequest,
     ListServersResponse, ListVolumesRequest, NodeStatus, RemoveNodeRequest, RemoveServerRequest,
-    RestrictNodeRequest, RotateNodeKeyRequest, RuntimeStatus, SetNodeRelayRequest,
-    SetNodeSiteRequest, StatusRequest, StatusResponse,
+    RestrictNodeRequest, RotateNodeKeyRequest, SetNodeRelayRequest, SetNodeSiteRequest,
+    StatusRequest, StatusResponse,
 };
 use armada_spec as spec;
 use armada_spec::go;
@@ -318,21 +318,6 @@ fn node_endpoint(n: &NodeStatus) -> String {
     dash(&n.endpoint)
 }
 
-/// How a node runs containers, from its latest report.
-fn node_runtime(st: Option<&RuntimeStatus>) -> String {
-    let Some(st) = st else {
-        return "-".to_string();
-    };
-    let mut out = "supervisor".to_string();
-    if st.runc_containers > 0 {
-        out.push_str(&format!(
-            "; {} containers still on runc, moving to crun",
-            st.runc_containers
-        ));
-    }
-    out
-}
-
 fn node_relay(n: &NodeStatus) -> &'static str {
     match (n.relay, n.relay_pinned) {
         (true, true) => "yes (chosen)",
@@ -403,7 +388,7 @@ fn show(ctx: &mut Ctx<'_>, args: &[String]) -> Result {
     };
     let mut tw = TabWriter::new(0, 2);
     tw.write(&format!(
-        "Node:\t{}\nPrivate IP:\t{}\nSite:\t{}\nEndpoint:\t{}\nRelay:\t{}\nState:\t{}\nReplicas:\t{}\nCPU:\t{:.1}\nMemory:\t{}\nVersion:\t{}\nRuntime:\t{}\nLast seen:\t{}\nCert expires:\t{}\nLabels:\t{}\n",
+        "Node:\t{}\nPrivate IP:\t{}\nSite:\t{}\nEndpoint:\t{}\nRelay:\t{}\nState:\t{}\nReplicas:\t{}\nCPU:\t{:.1}\nMemory:\t{}\nVersion:\t{}\nLast seen:\t{}\nCert expires:\t{}\nLabels:\t{}\n",
         n.id,
         n.private_ip,
         site,
@@ -414,7 +399,6 @@ fn show(ctx: &mut Ctx<'_>, args: &[String]) -> Result {
         n.cpu_millis as f64 / 1000.0,
         human_bytes(n.memory_bytes),
         dash(&n.version),
-        node_runtime(n.runtime.as_ref()),
         seen,
         exp,
         dash(&format_labels(&n.labels))

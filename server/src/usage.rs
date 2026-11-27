@@ -13,7 +13,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 
-use armada_proto::armada::v1::{NetworkSwitchStatus, RuntimeStatus, SandboxQueue, UsageReport};
+use armada_proto::armada::v1::{NetworkSwitchStatus, SandboxQueue, UsageReport};
 use armada_spec::gotime::Time;
 use armada_spec::validate::{split_app_id, valid_app_id, valid_name};
 use armada_spec::{MAX_IDLE_AFTER, SCALE_QUEUE};
@@ -24,16 +24,6 @@ use crate::network::clean_switch_status;
 use crate::reconcile::sub;
 
 const SECOND: i64 = 1_000_000_000;
-/// Bounds the runc containers a node reports (ADR 0056).
-const MAX_RUNC_CONTAINERS: i32 = 1 << 20;
-
-/// What a node says about how it runs containers, bounded.
-pub(crate) fn clean_runtime_status(st: Option<&RuntimeStatus>) -> Option<RuntimeStatus> {
-    let st = st?;
-    Some(RuntimeStatus {
-        runc_containers: st.runc_containers.clamp(0, MAX_RUNC_CONTAINERS),
-    })
-}
 /// How long a node's sample counts.
 pub(crate) const USAGE_MAX_AGE: i64 = 35 * SECOND;
 /// A report with more replicas is dropped.
@@ -128,8 +118,6 @@ pub(crate) struct NodeUsage {
     /// The node's side of a switch of the network's mode (ADR 0050),
     /// bounded by clean_switch_status.
     pub net_switch: Option<NetworkSwitchStatus>,
-    /// How the node runs containers, bounded by clean_runtime_status.
-    pub runtime: Option<RuntimeStatus>,
 }
 
 /// Which space, app, and node a replica belongs to.
@@ -357,7 +345,6 @@ impl Usage {
                 conntrack_entries: r.conntrack_entries.clamp(0, MAX_CONNTRACK),
                 conntrack_max: r.conntrack_max.clamp(0, MAX_CONNTRACK),
                 net_switch,
-                runtime: clean_runtime_status(r.runtime.as_ref()),
             },
         );
         fresh
@@ -530,18 +517,6 @@ impl Usage {
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn clean_runtime_status_bounds() {
-        use super::clean_runtime_status;
-        use armada_proto::armada::v1::RuntimeStatus;
-        assert!(clean_runtime_status(None).is_none());
-        // Containers left on runc (ADR 0056), bounded.
-        for (n, want) in [(-1, 0), (7, 7), (i32::MAX, 1 << 20)] {
-            let st = clean_runtime_status(Some(&RuntimeStatus { runc_containers: n })).unwrap();
-            assert_eq!(st.runc_containers, want);
-        }
-    }
-
     use super::*;
     use armada_proto::armada::v1::ReplicaLoad;
 

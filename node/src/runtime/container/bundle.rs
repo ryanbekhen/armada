@@ -35,8 +35,9 @@ pub struct Record {
     )]
     pub labels: BTreeMap<String, String>,
     pub group: String,
-    /// The OCI runtime that created the container (oci.rs): "crun", or
-    /// none for runc, which records written before ADR 0056 never name.
+    /// The OCI runtime that created the container (oci.rs): "crun"; none
+    /// (or "runc") for a container runc created, which is only ended and
+    /// created again.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub runtime: String,
     pub created: String,
@@ -164,7 +165,7 @@ pub fn bundle_spec(spec: &RawValue) -> Result<(Vec<u8>, String), String> {
     Ok((out, group))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 pub struct CreateRequest {
     pub dir: String,
     pub id: String,
@@ -174,8 +175,8 @@ pub struct CreateRequest {
     pub spec: Box<RawValue>,
     #[serde(default, deserialize_with = "crate::runtime::nullable")]
     pub mounts: Vec<Mount>,
-    /// The OCI runtime the container is created with (oci.rs), as the
-    /// record names it: "crun", or none for runc.
+    /// The OCI runtime the container is created with (oci.rs): "crun", or
+    /// none for crun.
     #[serde(default)]
     pub runtime: String,
 }
@@ -205,7 +206,9 @@ pub type MountFn<'a> = &'a dyn Fn(&[Mount], &Path) -> Result<(), String>;
 /// create, the root filesystem mounted by mount.
 pub fn create_with(r: &CreateRequest, mount: MountFn) -> Result<Record, String> {
     valid_id(&r.id)?;
-    let runtime = super::oci::OciRuntime::of_record(&r.runtime)?.record_value();
+    let runtime = super::oci::OciRuntime::for_create(&r.runtime)?
+        .name()
+        .to_string();
     let dir = Path::new(&r.dir).join(&r.id);
     if fs::metadata(&dir).is_ok() {
         return Err(format!("container {}: already exists", r.id));
@@ -472,8 +475,9 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// A new record names its OCI runtime (ADR 0056); a record written
-    /// before names none, and keeps naming none when it is written again.
+    /// A new record names crun (ADR 0056), and nothing creates one for
+    /// runc; a record written by an older release names none, and keeps
+    /// naming none when it is written again.
     #[test]
     fn records_name_their_runtime() {
         let dir = std::env::temp_dir().join(format!("armada-bundle-rt-{}", std::process::id()));
@@ -488,8 +492,13 @@ mod tests {
                 r#"{"ociVersion":"1.2.1","annotations":{"io.containerd.runc.v2.group":"web"}}"#,
             ),
             mounts: Vec::new(),
-            runtime: super::super::oci::OciRuntime::NEW.record_value(),
+            runtime: "crun".into(),
         };
+        let runc = CreateRequest {
+            runtime: "runc".into(),
+            ..req.clone()
+        };
+        assert!(create_with(&runc, &|_, _| Ok(())).is_err());
         let odd = CreateRequest {
             dir: d.clone(),
             id: "web-r1-c".into(),

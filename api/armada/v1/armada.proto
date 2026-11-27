@@ -1210,9 +1210,10 @@ message NodeStatus {
   // 0050), and whether an admin chose it (armada node relay).
   bool relay = 16;
   bool relay_pinned = 17;
-  // How the node runs containers, from its latest report; unset without
-  // a recent one.
-  RuntimeStatus runtime = 18;
+  // How the node ran containers (the count of containers runc created,
+  // ADR 0056): gone with runc.
+  reserved 18;
+  reserved "runtime";
 }
 
 message TopRequest {
@@ -1529,20 +1530,8 @@ message UsageReport {
   // no handshake for 3 minutes, at most 32 node names, sorted.
   bool peers_checked = 13;
   repeated string unreachable_peers = 14;
-  reserved 15;
-  reserved "wireguard_userspace";
-  // How the node runs containers.
-  RuntimeStatus runtime = 16;
-}
-
-// RuntimeStatus is how a node runs containers.
-message RuntimeStatus {
-  reserved 1, 2, 3, 4, 5;
-  reserved "agent", "converting", "images_to_pull", "error", "move_error";
-  // Containers runc created that are still on the node (ADR 0056): the
-  // agent moves them to crun one replica at a time, HAProxy last; job
-  // attempts end on runc and leave with their history.
-  int32 runc_containers = 6;
+  reserved 15, 16;
+  reserved "wireguard_userspace", "runtime";
 }
 
 // NetworkSwitchStatus is a node's side of a switch between the plain and

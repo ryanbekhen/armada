@@ -14,7 +14,7 @@
 //!       stdout: {"keys": [KEY]}, every container's root filesystem
 //!   armada-node runtime bundle create
 //!       stdin: {"dir", "id", "image", "labels", "spec", "mounts",
-//!       "runtime"} ("crun", or none for runc: oci.rs);
+//!       "runtime"} ("crun", or none: oci.rs);
 //!       stdout: {"record": Record} or {"error"} (bundle.rs)
 //!   armada-node runtime bundle remove DIR ID
 //!   armada-node runtime bundle records DIR
@@ -23,8 +23,8 @@
 //!   armada-node runtime bundle labels DIR ID
 //!       stdin: {"labels"}; stdout: {"record": Record}
 //!   armada-node runtime shim call|start|abandon
-//!       stdin: {"dir", "bin", "runc", "crun", "logger", "group", "words",
-//!       "timeoutMs", "systemdRun", "systemctl"}; call: stdout {"answer"},
+//!       stdin: {"dir", "bin", "crun", "logger", "cgroupRoot", "group",
+//!       "words", "timeoutMs", "systemdRun", "systemctl"}; call: stdout {"answer"},
 //!       {"shim": TEXT} (the shim's own error), or {"error", "errno"};
 //!       start: {} or {"error"}; abandon: {"gone"} or {"error"}
 //!       (shim.rs)
@@ -46,13 +46,14 @@
 //!       socket (JSON lines);
 //!       fds 5, 6, 7: the caller's input, output, and error output. Runs
 //!       the exec's session: writes process.json, starts the container's
-//!       OCI runtime's exec (`crun exec`, or `runc exec`: oci.rs) on
+//!       OCI runtime's exec (`crun exec`: oci.rs) on
 //!       pipes or a terminal, copies, waits, and drains; answers
 //!       {"spawned"} (or {"execErrno"}, {"redo"}, {"error"}), then
 //!       {"started"} or {"notStarted"}, {"exit"}, {"drained"}; reads
 //!       {"resize"}, {"kill"}, {"abandon"} (exec.rs)
 
 pub mod bundle;
+pub mod cgroup;
 pub mod dial;
 pub mod exec;
 pub mod mount;

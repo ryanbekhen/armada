@@ -876,12 +876,10 @@ impl Server {
             // The node's record changes only with its status; its usage
             // samples say when it was last heard, every few seconds.
             let mut last_seen = n.last_seen.clone();
-            let mut runtime = None;
-            if let Some(sample) = self.0.usage.node(&n.id, &now) {
-                if sample.at.after(&last_seen) {
-                    last_seen = sample.at.clone();
-                }
-                runtime = sample.runtime;
+            if let Some(sample) = self.0.usage.node(&n.id, &now)
+                && sample.at.after(&last_seen)
+            {
+                last_seen = sample.at.clone();
             }
             resp.nodes.push(NodeStatus {
                 id: n.id.clone(),
@@ -901,7 +899,6 @@ impl Server {
                 relay_pinned: n.relay,
                 last_seen: optional_time(&last_seen),
                 cert_expires_at: optional_time(&n.cert_not_after),
-                runtime,
             });
         }
         if !a.acc.admin() {

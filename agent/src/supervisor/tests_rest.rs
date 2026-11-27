@@ -302,8 +302,8 @@ echo '{{"exit":137}}' >&4"#,
             bin.join("crun").display()
         )
     );
-    // A container created before ADR 0056 (its record names no runtime)
-    // stays on runc.
+    // A container runc created (its record names no runtime): nothing
+    // enters it, as the pack has no runc; the agent creates it again.
     let record = lab
         .data()
         .join("supervisor/containers")
@@ -312,9 +312,7 @@ echo '{{"exit":137}}' >&4"#,
     let mut rec = lab.record(&id);
     rec.as_object_mut().unwrap().remove("runtime");
     fs::write(&record, serde_json::to_vec(&rec).unwrap()).unwrap();
-    // The agent sees it on runc and moves it; the node counts it.
     assert_eq!(lab.rt.inspect(&id).await.unwrap().oci_runtime, "runc");
-    assert_eq!(lab.rt.runtime_agent().await.unwrap().runc_containers, 1);
     assert_eq!(
         lab.rt
             .exec_session(&id, cmd(&["x"]))
@@ -322,8 +320,7 @@ echo '{{"exit":137}}' >&4"#,
             .unwrap_err()
             .to_string(),
         format!(
-            "exec: runc exec: fork/exec {}: no such file or directory",
-            bin.join("runc").display()
+            "container {id} was created by runc, which this release does not carry; the agent creates it again on crun"
         )
     );
     assert_eq!(
@@ -681,5 +678,89 @@ esac"#,
     assert_eq!(
         lab.rt.ensure_sandbox("Bad").await.unwrap_err().to_string(),
         "invalid sandbox ID \"Bad\""
+    );
+}
+
+/// Makes the container's record say runc created it (no runtime), as a
+/// record of a release before crun.
+fn left_by_runc(lab: &Lab, id: &str) {
+    let record = lab
+        .data()
+        .join("supervisor/containers")
+        .join(id)
+        .join("record.json");
+    let mut rec = lab.record(id);
+    rec.as_object_mut().unwrap().remove("runtime");
+    fs::write(&record, serde_json::to_vec(&rec).unwrap()).unwrap();
+}
+
+/// A container runc created is stopped and removed without runc (ADR
+/// 0056): SIGTERM through its shim, then its cgroup (the spec's
+/// cgroupsPath) ended and removed, never `kill --all`; its removal takes
+/// runc's state of it, its bundle, root filesystem, and network.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn ends_a_container_runc_created_without_runc() {
+    let lab = Lab::new("runc-left");
+    let mut s = web_spec("web-r1", 0);
+    s.env.push("TEST_IGNORE_TERM=1".into());
+    let id = lab.rt.run(&s).await.unwrap();
+    left_by_runc(&lab, &id);
+    let cg = lab.root.join("cgroup/armada").join(&id);
+    assert_eq!(
+        lab.config(&id)["linux"]["cgroupsPath"],
+        format!("/armada/{id}")
+    );
+    fs::create_dir_all(&cg).unwrap();
+    let rec = lab.rt.inner.load(&id).await.unwrap();
+    let runc_state = lab
+        .rt
+        .inner
+        .shims
+        .root(&rec.group, OciRuntime::Runc)
+        .join(&id);
+    fs::create_dir_all(&runc_state).unwrap();
+
+    lab.rt.stop(&id, Duration::from_millis(50)).await.unwrap();
+    assert!(!cg.exists(), "the cgroup is ended and removed");
+    let lines = lab.shim.lines();
+    assert!(lines.contains(&format!("kill {id} 15")), "{lines:?}");
+    assert!(
+        !lines.iter().any(|l| l.ends_with(" all")),
+        "never kill --all: {lines:?}"
+    );
+
+    fs::create_dir_all(&cg).unwrap();
+    lab.rt.remove(&id).await.unwrap();
+    assert!(!cg.exists());
+    assert!(!runc_state.exists(), "runc's state is removed");
+    assert!(!lab.data().join("supervisor/containers").join(&id).exists());
+    assert_eq!(lab.rt.inspect(&id).await.unwrap_err(), Error::NotFound);
+    assert_eq!(lab.shim.lines().last().unwrap(), &format!("delete {id}"));
+    // Its shim forgot it: not stopped.
+    assert!(
+        !fs::read_to_string(lab.root.join("systemctl.log"))
+            .unwrap_or_default()
+            .contains("stop")
+    );
+}
+
+/// A shim of an older release cannot delete a container runc created (it
+/// runs runc, which is gone): the container is removed anyway, and the
+/// shim, holding nothing else, is stopped.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn stops_an_old_shim_left_with_runc_containers() {
+    let lab = Lab::new("runc-shim");
+    let mut s = web_spec("web-r1", 0);
+    s.env.push("TEST_DELETE_FAILS=1".into());
+    let id = lab.rt.run(&s).await.unwrap();
+    left_by_runc(&lab, &id);
+    let rec = lab.rt.inner.load(&id).await.unwrap();
+    lab.rt.remove(&id).await.unwrap();
+    assert!(!lab.data().join("supervisor/containers").join(&id).exists());
+    let unit = armada_node::runtime::container::shim::unit_name(&rec.group);
+    assert!(
+        fs::read_to_string(lab.root.join("systemctl.log"))
+            .unwrap()
+            .contains(&format!("stop -- {unit}")),
     );
 }

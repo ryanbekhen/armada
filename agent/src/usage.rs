@@ -13,9 +13,7 @@ use armada_proto::armada::v1 as pb;
 
 use crate::agent::{Agent, Inner, lock, managed};
 use crate::clock;
-use crate::runtime::{
-    self, AgentStatus, Container, LABEL_REPLICA, LABEL_SYSTEM, Runtime, STATE_RUNNING,
-};
+use crate::runtime::{self, Container, LABEL_REPLICA, LABEL_SYSTEM, Runtime, STATE_RUNNING};
 
 /// How often the agent samples what its replicas use.
 pub const DEFAULT_USAGE_INTERVAL: Duration = Duration::from_secs(10);
@@ -40,13 +38,6 @@ pub type Samples = HashMap<String, UsageSample>;
 pub struct UsageState {
     pub samples: Samples,
     pub totals: HashMap<String, i64>,
-}
-
-/// How the node runs containers, as the leader reads it.
-pub fn runtime_status(s: &AgentStatus) -> pb::RuntimeStatus {
-    pb::RuntimeStatus {
-        runc_containers: s.runc_containers.clamp(0, 1 << 20) as i32,
-    }
 }
 
 impl<R: Runtime> Agent<R> {
@@ -174,11 +165,7 @@ impl<R: Runtime> Inner<R> {
             report.network_switch = sw.switch_status().await;
         }
         self.report_peers(&mut report).await;
-        if let Some(s) = self.rt.runtime_agent().await {
-            report.runtime = Some(runtime_status(&s));
-        }
         (sampled
-            || report.runtime.is_some()
             || report.peers_checked
             || report.load_measured
             || report.volumes_measured

@@ -386,6 +386,9 @@ fn serve(st: &Arc<(Mutex<ShimState>, Condvar)>, sock: &str, c: UnixStream) {
                         "ok".into()
                     }
                 }
+                ("delete", Some(t)) if env_value(&t.env, "TEST_DELETE_FAILS").is_some() => {
+                    "err runc: No such file or directory (os error 2)".into()
+                }
                 ("delete", Some(_)) => {
                     g.tasks.get_mut(sock).unwrap().remove(&id);
                     cv.notify_all();
@@ -446,14 +449,7 @@ impl Lab {
         let _ = fs::remove_dir_all(&root);
         let bin = root.join("data/runtime/current/bin");
         fs::create_dir_all(&bin).unwrap();
-        for p in [
-            "armada-shim",
-            "crun",
-            "runc",
-            "tini",
-            "armada-log",
-            "armada-node",
-        ] {
+        for p in ["armada-shim", "crun", "tini", "armada-log", "armada-node"] {
             script(&bin.join(p), "exit 0");
         }
         cni_plugins(&bin.join("cni"), &root.join("cni-log"));
@@ -484,6 +480,11 @@ impl Lab {
         let mut cfg = Config::new(root.join("data"), root.join("run"), Logger::discard());
         cfg.host = host.clone();
         cfg.systemd_run = root.join("systemd-run").display().to_string();
+        script(
+            &root.join("systemctl"),
+            &format!("echo \"$@\" >> {}", root.join("systemctl.log").display()),
+        );
+        cfg.systemctl = root.join("systemctl").display().to_string();
         cfg.mtu = 1450;
         cfg.cgroup_root = root.join("cgroup");
         cfg.proc_root = root.join("proc");
@@ -668,14 +669,13 @@ async fn runs_lists_stops_and_removes_a_container() {
         "--unit=armada-shim-{} --collect --quiet --property=OOMScoreAdjust=-999",
         armada_node::runtime::container::shim::shim_name("web@current")
     )));
-    // The shim runs crun beside runc (ADR 0056), each named last.
+    // The shim runs crun (ADR 0056), then armada-log.
     let bin = lab.data().join("runtime/current/bin");
     assert!(
         sd.trim_end().ends_with(&format!(
-            "{} {} {}",
-            bin.join("runc").display(),
-            bin.join("armada-log").display(),
-            bin.join("crun").display()
+            "{} {}",
+            bin.join("crun").display(),
+            bin.join("armada-log").display()
         )),
         "{sd}"
     );
@@ -701,7 +701,6 @@ async fn runs_lists_stops_and_removes_a_container() {
     assert_eq!(got.state, STATE_RUNNING);
     assert_eq!(got.ip, "10.121.0.5");
     assert_eq!(got.oci_runtime, "crun");
-    assert_eq!(rt.runtime_agent().await.unwrap().runc_containers, 0);
     assert_eq!(
         (got.host_ip.as_str(), got.host_port),
         ("10.0.0.5", i64::from(hp))

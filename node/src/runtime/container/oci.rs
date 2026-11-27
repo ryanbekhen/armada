@@ -1,33 +1,26 @@
-//! The OCI runtime a container runs on (ADR 0056). New containers are
-//! created with crun; containers created before it with runc stay on runc
-//! until they are recreated, since neither runtime reads the other's
-//! state. A container's bundle record names its runtime (no name: runc),
-//! and every call for it (start, kill, delete, exec, and the cleanup of a
-//! shim that is gone) goes to that runtime, with its own state directory
-//! beside the other's in the shim's state.
+//! The OCI runtime (ADR 0056): crun creates and runs every container. A
+//! container's bundle record names it ("crun"). A record that names runc,
+//! or no runtime at all, is a container runc created under a release
+//! that still carried runc; neither runtime reads the other's state, and
+//! the runtime pack no longer carries runc, so such a container is only
+//! recognized to be ended without runc and created again on crun
+//! (cgroup.rs, and the agent's supervisor runtime).
 
 use std::path::{Path, PathBuf};
 
-/// The OCI runtime of a container.
+/// What a bundle record says created a container.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OciRuntime {
-    /// Containers created before ADR 0056, until they are recreated.
+    /// runc, under a release that carried it: to be ended and recreated.
     Runc,
-    /// Every container created since.
+    /// crun: every container created now.
     Crun,
 }
 
 impl OciRuntime {
-    /// What new containers are created with (the agent's choice, through
-    /// the library: the program creates what its request names).
-    #[allow(dead_code)]
-    pub const NEW: OciRuntime = OciRuntime::Crun;
-
-    /// Both, in the order a shim's state is cleaned up.
-    pub const ALL: [OciRuntime; 2] = [OciRuntime::Runc, OciRuntime::Crun];
-
     /// The runtime a bundle record names: none is runc, which records
-    /// written before ADR 0056 never name.
+    /// written before crun never name (the agent's, through the library).
+    #[allow(dead_code)]
     pub fn of_record(name: &str) -> Result<OciRuntime, String> {
         match name {
             "" | "runc" => Ok(OciRuntime::Runc),
@@ -39,8 +32,20 @@ impl OciRuntime {
         }
     }
 
-    /// Its program's name in the runtime pack, and the word the shim and
-    /// the records use.
+    /// The runtime a new bundle is created for: crun, which a request may
+    /// name or leave out; anything else is refused.
+    pub fn for_create(name: &str) -> Result<OciRuntime, String> {
+        match name {
+            "" | "crun" => Ok(OciRuntime::Crun),
+            "runc" => Err("OCI runtime \"runc\": containers are created with crun".into()),
+            other => Err(format!(
+                "unknown OCI runtime {}",
+                crate::net::addr::quote(other)
+            )),
+        }
+    }
+
+    /// Its program's name, the word the shim and the records use.
     pub fn name(self) -> &'static str {
         match self {
             OciRuntime::Runc => "runc",
@@ -48,17 +53,8 @@ impl OciRuntime {
         }
     }
 
-    /// What a new bundle record holds: crun named, runc left out (as
-    /// every record before ADR 0056).
-    pub fn record_value(self) -> String {
-        match self {
-            OciRuntime::Runc => String::new(),
-            OciRuntime::Crun => self.name().to_string(),
-        }
-    }
-
     /// Its state directory under a shim's state directory (`--root`):
-    /// runc's and crun's never share one.
+    /// crun's, and runc's as a release that carried runc left it.
     pub fn root(self, state: &Path) -> PathBuf {
         state.join(self.name())
     }
@@ -77,9 +73,10 @@ mod tests {
             OciRuntime::of_record("youki"),
             Err("unknown OCI runtime \"youki\"".to_string())
         );
-        assert_eq!(OciRuntime::NEW, OciRuntime::Crun);
-        assert_eq!(OciRuntime::Crun.record_value(), "crun");
-        assert_eq!(OciRuntime::Runc.record_value(), "");
+        assert_eq!(OciRuntime::for_create(""), Ok(OciRuntime::Crun));
+        assert_eq!(OciRuntime::for_create("crun"), Ok(OciRuntime::Crun));
+        assert!(OciRuntime::for_create("runc").is_err());
+        assert!(OciRuntime::for_create("youki").is_err());
         let s = Path::new("/run/armada/shim/s0");
         assert_eq!(OciRuntime::Runc.root(s), s.join("runc"));
         assert_eq!(OciRuntime::Crun.root(s), s.join("crun"));
