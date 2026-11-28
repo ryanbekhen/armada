@@ -58,9 +58,21 @@ E2E_SUDO=${E2E_SUDO:-}                  # "sudo" when SSH-TARGET is not root
 E2E_REBOOT=${E2E_REBOOT:-1}             # 0 skips rebooting every machine at once
 E2E_BRIDGE_GW=${E2E_BRIDGE_GW:-} # armada0 address; read from each node if empty
 E2E_SERVER_FLAGS=${E2E_SERVER_FLAGS:-}
-# The state's move to armada-kv (ADR 0057): off keeps it in etcd for the
-# run, now moves it right after the cluster forms (every scenario then runs
-# on armada-kv), auto leaves it to the leader (it moves ten minutes in).
+# Where the cluster keeps its state (ADR 0057): kv, armada-kv (what
+# `armadad init` makes), or etcd (`armadad init --state etcd`, the store
+# of clusters not moved yet).
+E2E_STATE=${E2E_STATE:-kv}
+case "$E2E_STATE" in
+kv | etcd) ;;
+*)
+	echo "e2e: E2E_STATE is kv or etcd" >&2
+	exit 2
+	;;
+esac
+# The state's move from etcd to armada-kv, with E2E_STATE=etcd only: off
+# keeps it in etcd for the run, now moves it right after the cluster forms
+# (every scenario then runs on armada-kv), auto leaves it to the leader (it
+# moves ten minutes in).
 E2E_STATE_MOVE=${E2E_STATE_MOVE:-off}
 case "$E2E_STATE_MOVE" in
 off | now | auto) ;;
@@ -69,6 +81,10 @@ off | now | auto) ;;
 	exit 2
 	;;
 esac
+if [ "$E2E_STATE" = kv ] && [ "$E2E_STATE_MOVE" != off ]; then
+	echo "e2e: E2E_STATE_MOVE moves a cluster on etcd: set E2E_STATE=etcd with it" >&2
+	exit 2
+fi
 
 case $E2E_ACME_CA in
 letsencrypt | *acme-v02.api.letsencrypt.org*)
@@ -282,7 +298,7 @@ join() {
 	printf '%s\n' "$_tok" | on "$1" 'umask 077; cat > /run/armada/e2e.token'
 	_tok=
 	if [ "$2" = server ]; then
-		_args="--name $(host "$1" 1)" _unit=armada-server
+		_args="--name $(host "$1" 1)" _unit=$SERVER_UNITS
 	else
 		_args="--node-name $(host "$1" 1)" _unit=armada-agent
 	fi
@@ -358,7 +374,10 @@ while [ "$i" -le "$SERVERS" ]; do
 	on "$i" "umask 077; echo $(q "ARMADA_SERVER_FLAGS=\"$FLAGS\"") > /etc/armada/server.env"
 	i=$((i + 1))
 done
-on 1 "armadad init --node-name $(host 1 1) --private-ip $(host 1 3) >/dev/null && systemctl enable --now -q armada-server"
+# A cluster on armada-kv enables its member's unit beside the server, as
+# init and server join say; on etcd armada-server.service starts etcd's.
+if [ "$E2E_STATE" = kv ]; then SERVER_UNITS="armada-kv armada-server"; else SERVER_UNITS=armada-server; fi
+on 1 "armadad init --state $E2E_STATE --node-name $(host 1 1) --private-ip $(host 1 3) >/dev/null && systemctl enable --now -q $SERVER_UNITS"
 wait_for 120 "control plane answers" voting 1
 
 i=2
@@ -374,7 +393,7 @@ while [ "$i" -le "$N" ]; do
 done
 wait_for 180 "all $N nodes ready" nodes_ready
 
-if cli cluster update --help 2>/dev/null | grep -q -- --state-move; then
+if [ "$E2E_STATE" = etcd ]; then
 	cli cluster update --state-move "$E2E_STATE_MOVE" >/dev/null || fail "armada cluster update --state-move $E2E_STATE_MOVE"
 	if [ "$E2E_STATE_MOVE" = now ]; then
 		log "move the control plane's state to armada-kv"
@@ -384,6 +403,26 @@ if cli cluster update --help 2>/dev/null | grep -q -- --state-move; then
 		wait_for 180 "all $N nodes ready" nodes_ready
 	fi
 fi
+
+# state_units N: server N runs the member of the store its cluster keeps
+# the state in, and not the other one's; its data directory holds only that
+# store's member (kv/, or etcd/; a moved server keeps etcd.moved/).
+state_units() {
+	_store=$(cli cluster status -o json | jq -r '.stateMove.store // "etcd"')
+	if [ "$_store" = kv ]; then
+		on "$1" 'systemctl is-active -q armada-kv && ! systemctl is-active -q armada-etcd &&
+			test -f /var/lib/armada/kv/kv.db && ! test -e /var/lib/armada/etcd'
+	else
+		on "$1" 'systemctl is-active -q armada-etcd && ! systemctl is-active -q armada-kv &&
+			test -d /var/lib/armada/etcd && ! test -e /var/lib/armada/kv'
+	fi
+}
+i=1
+while [ "$i" -le "$SERVERS" ]; do
+	state_units "$i" || fail "$(host "$i" 1) does not run its state's member alone"
+	i=$((i + 1))
+done
+ok "every server runs the member of the cluster's store ($(cli cluster status -o json | jq -r '.stateMove.store // "etcd"'))"
 
 # Each machine's agent applies the cluster network through the runtime
 # pack's armada-node, and doctor checks it through it. A pass armada-node
@@ -1633,6 +1672,12 @@ if [ "$E2E_REBOOT" = 1 ] && want reboot; then
 	wait_for 300 "all $N nodes ready" nodes_ready
 	wait_for 300 "$APP serving" serving
 	wait_for 120 "https://$URL_HOST answers 200 on every public IP" all_https_ok
+	i=1
+	while [ "$i" -le "$SERVERS" ]; do
+		state_units "$i" || fail "$(host "$i" 1) does not run its state's member alone after the reboot"
+		i=$((i + 1))
+	done
+	ok "every server came back with the member of the cluster's store"
 fi
 
 # armada-node did every pass of the cluster network: a pass it fails is
