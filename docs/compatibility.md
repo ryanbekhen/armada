@@ -49,9 +49,13 @@ rules above:
   write under `/etc/armada` and the data directory, and the systemd units.
 
 Not stable: anything named experimental in its documentation, and
-behaviour the documentation does not describe. armada-kv (ADR 0057) is a
-preview until the release that moves every cluster onto it: its files and
-units may change before then.
+behaviour the documentation does not describe.
+
+New clusters keep their state in armada-kv (ADR 0057): `armadad init`
+defaults to `--state kv`. `armadad init --state etcd` is deprecated: it
+still makes a cluster on etcd in this release, which then moves to
+armada-kv by itself, and goes away with etcd in the next release, as do
+`armadad etcd` and `armada-etcd.service`.
 
 The move to armada-kv (ADR 0057) changes the data directory once: `etcd/`
 becomes `etcd.moved/` and `kv/` the server's member, `armada-kv` runs in
@@ -133,7 +137,16 @@ When something stable has to go:
 A security fix may break something sooner, when keeping it would leave
 clusters exposed; its release notes say so and why.
 
-Deprecated: nothing at the moment.
+Deprecated:
+
+- **`armadad init --state etcd`**, **`armadad etcd`**, and
+  **`armada-etcd.service`** ([ADR 0057](adr/0057-state-store-in-rust.md)):
+  new clusters keep their state in armada-kv, the default of `armadad
+  init`. `--state etcd` still makes a cluster on etcd in this release and
+  warns on standard error; such a cluster, and every cluster upgraded into
+  this release, moves to armada-kv by itself ([operations
+  guide](operations.md#moving-the-state-to-armada-kv)). The next release
+  has no etcd: upgrade into it only once the state moved.
 
 Removed:
 

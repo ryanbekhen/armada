@@ -80,10 +80,10 @@ every other node reaches over WireGuard:
 
 ```bash
 sudo armadad server join 203.0.113.10:7444 --ca-hash sha256:... --no-private-ip
-sudo systemctl enable --now armada-server
+sudo systemctl enable --now armada-kv armada-server
 ```
 
-`d`'s etcd member and API listen on its mesh address (`10.122.0.1`, from
+`d`'s member of the state (armada-kv) and API listen on its mesh address (`10.122.0.1`, from
 the range `10.122.0.0/16`). If a private network of the cluster uses
 that range, pick another before the first such machine joins:
 

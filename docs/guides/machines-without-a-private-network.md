@@ -4,7 +4,7 @@ Some providers rent machines with a public address and no private network
 between them, and machines of different providers or sites never share
 one. A **mesh** cluster needs only the public addresses: Armada connects
 every machine to every other over WireGuard, gives each a private mesh
-address, and runs the control plane, etcd, and the traffic between
+address, and runs the control plane, its state, and the traffic between
 containers through the tunnel ([ADR 0049](../adr/0049-mesh-over-public-addresses.md)).
 
 You will build a cluster of three machines, `a`, `b`, and `c`, each with
@@ -27,7 +27,7 @@ cannot switch to it.
 
 ```bash
 sudo armadad init --network mesh
-sudo systemctl enable --now armada-server
+sudo systemctl enable --now armada-kv armada-server
 armada node list
 ```
 
@@ -78,11 +78,12 @@ armada server join-token --from 203.0.113.12
 
 ```bash
 sudo armadad server join 203.0.113.10:7444 --ca-hash sha256:...
-sudo systemctl enable --now armada-server
+sudo systemctl enable --now armada-kv armada-server
 ```
 
-Each server's etcd member and API listen on its mesh address. Keep the
-servers in one region: etcd waits for a majority on every write, so
+Each server's member of the state (armada-kv) and API listen on its mesh
+address. Keep the servers in one region: the state waits for a majority on
+every write, so
 servers far apart slow every change. Nodes may be anywhere.
 
 ## 4. Check it
@@ -121,6 +122,7 @@ armada user create alex --role cluster-admin -o alex.config --ssh admin@203.0.11
   sudo armadad endpoint set 203.0.113.20
   ```
 - When every machine restarts at once, each brings its tunnel up from the
-  last peer list it kept (`/var/lib/armada/mesh.json`) before etcd starts.
+  last peer list it kept (`/var/lib/armada/mesh.json`) before the state's
+  member starts.
 - A machine restored from a backup comes up alone and gets its peers once
   the control plane answers.

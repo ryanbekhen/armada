@@ -50,7 +50,7 @@ Ports:
 | 7443/tcp | Every node, on the private network only (control plane API) |
 | 7444/tcp | New nodes while they join, private network only |
 | 7480/tcp | Every node, on the private network only (HTTP-01 challenges forwarded to the leader) |
-| 2379, 2380/tcp | Other control plane servers only (embedded etcd) |
+| 7445, 7446/tcp | Other control plane servers only (armada-kv, the control plane's state) |
 | 4789/udp | Every node, on the private network only (cluster network, `plain` mode) |
 | 51820/udp | Every node, on the private network only (cluster network, `wireguard` mode) |
 
@@ -140,14 +140,15 @@ Note the **CA SHA-256** it prints; nodes check it when they join.
 ## 4. Start the control plane
 
 ```bash
-sudo systemctl enable --now armada-server
+sudo systemctl enable --now armada-kv armada-server
 armada cluster status    # give it a few seconds to start
 armada cluster update --acme-email you@example.com --acme-ca letsencrypt-staging
 ```
 
 The first machine runs the control plane and an agent, so it also serves
-apps: `armada-server` starts the server's etcd member (`armada-etcd`) and
-the node's agent (`armada-agent`) beside itself, each a unit of its own. `armada cluster update` keeps settings in the cluster, so every server
+apps: `armada-kv` is the server's member of the control plane's state
+(armada-kv, Armada's own store), and `armada-server` starts it and the
+node's agent (`armada-agent`) beside itself, each a unit of its own. `armada cluster update` keeps settings in the cluster, so every server
 uses them, also those you add later; `armada cluster show` lists them.
 Once everything works, `armada cluster update --acme-ca letsencrypt` gets
 trusted certificates.
@@ -274,7 +275,7 @@ prepared with steps 1 and 2:
 ```bash
 armada server join-token                                     # on the first machine
 sudo armadad server join 10.0.0.2:7444 --ca-hash sha256:...   # on the new machine; paste the token when asked
-sudo systemctl enable --now armada-server
+sudo systemctl enable --now armada-kv armada-server          # as server join prints it
 armada server list                                           # all "voting"
 ```
 

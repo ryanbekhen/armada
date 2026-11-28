@@ -21,12 +21,16 @@ you there). Each section stands on its own:
 
 ## The control plane in short
 
-Armada's control plane keeps the cluster's state in etcd. A server machine
-runs three systemd units: `armada-etcd` (this server's etcd member, the
-pinned etcd of the runtime pack), `armada-server` (the control plane), and
+Armada's control plane keeps the cluster's state in armada-kv, Armada's
+own replicated store ([ADR 0057](adr/0057-state-store-in-rust.md)), on a
+cluster `armadad init` made, and in etcd on a cluster not moved yet. A
+server machine runs three systemd units: `armada-kv` (this server's
+member of the state; `armada-etcd`, the pinned etcd of the runtime pack, on
+a cluster on etcd), `armada-server` (the control plane), and
 `armada-agent` (the node's agent, as on every other node).
-`armada-server.service` wants the other two, so `systemctl enable --now
-armada-server` starts all three; each restarts on its own, so a restart of
+`armada-server.service` wants the others, so `systemctl enable --now
+armada-kv armada-server` (as `armadad init` and `armadad server join`
+print it) starts all three; each restarts on its own, so a restart of
 the control plane no longer restarts the node's agent, and an agent
 restart costs no election. A cluster runs one control plane server or, for high
 availability, three (see below). With one server, its data directory
@@ -35,16 +39,16 @@ you have to build a new cluster and redeploy everything. With three, any
 one can fail, but a mistake (a deleted app, a bad secret) is replicated to
 all of them. Back up either way.
 
-**armada-kv.** Armada's own store of the state (ADR 0057) takes etcd's
-place: each server runs `armada-kv` (`armadad kv`) in place of
-`armada-etcd`, listening on the private IP on 7445 and 7446 with the same
-mutual TLS. `armada-server.service` wants both units; the one whose store
-the server does not keep exits at once with status 78 and stays stopped.
-A running cluster on etcd moves to armada-kv by itself once every server
-runs a release with it (see [Moving the state to
-armada-kv](#moving-the-state-to-armada-kv)); `armadad init --state kv`
-makes a new cluster on armada-kv from the start, and servers that join such
-a cluster run it too, and say so.
+**armada-kv and etcd.** Each server runs `armada-kv` (`armadad kv`),
+listening on the private IP on 7445 and 7446 with mutual TLS, or, on a
+cluster on etcd, `armada-etcd` on 2379 and 2380. `armada-server.service`
+wants both units; the one whose store the server does not keep exits at
+once with status 78 and stays stopped. `armadad init` makes a new cluster
+on armada-kv, and servers that join a cluster run its store, and say so.
+`armadad init --state etcd` still makes a cluster on etcd during this
+release; etcd leaves in the next one. A cluster on etcd moves to armada-kv
+by itself once every server runs a release with it (see [Moving the state
+to armada-kv](#moving-the-state-to-armada-kv)).
 
 ### Moving the state to armada-kv
 
@@ -176,9 +180,9 @@ config that has not been used since servers were added still finds the
 leader.
 
 **Network:** control plane nodes must reach each other on the private
-network on ports 2379 and 2380 (etcd, mutual TLS; 7445 and 7446 on a
-cluster made with `armadad init --state kv`) and 7443/7444 (API and
-join listener). Allow these between servers only; nothing on the public
+network on ports 7445 and 7446 (armada-kv, mutual TLS; 2379 and 2380 for
+etcd on a cluster not moved yet, and both pairs until the move is done)
+and 7443/7444 (API and join listener). Allow these between servers only; nothing on the public
 interface. Each node's HAProxy serves its own statistics in Prometheus
 format at `http://127.0.0.1:8404/metrics`, on the node's loopback address
 only, since they name every space's apps; scrape them from the node itself.
@@ -191,7 +195,7 @@ On a machine with Armada installed (steps 1–2 of the
 ```bash
 armada server join-token               # anywhere with the admin config
 sudo armadad server join 10.0.0.2:7444 --ca-hash sha256:...   # on the new machine; paste the token
-sudo systemctl enable --now armada-server
+sudo systemctl enable --now armada-kv armada-server
 armada server list                     # waits for "voting"
 ```
 
@@ -217,8 +221,8 @@ server right after the join. Add servers one at a time, and go from one
 straight to three: with two, losing either stops the control plane.
 
 `armada server list` shows each server's role and status: `voting`,
-`catching up` (just joined), `unreachable` (its etcd member does not
-answer), or `not a member` (removed, or a join that never started).
+`catching up` (just joined), `unreachable` (its member of the state does
+not answer), or `not a member` (removed, or a join that never started).
 It also writes the servers' addresses into your client config, leader
 first. Any other command does the same (see above), so there is nothing to
 run on each admin machine after adding or removing servers; a config that
@@ -244,7 +248,7 @@ Before a removed server or node joins again, or leaves for good, wipe what
 Armada left on it:
 
 ```bash
-sudo systemctl disable --now armada-server armada-agent armada-etcd
+sudo systemctl disable --now armada-server armada-agent armada-kv armada-etcd
 sudo armadad runtime reset                       # removes Armada's containers and stops armada-dns
 sudo umount -R /var/lib/armada/volumes           # the agent mounts it onto itself
 sudo rm -rf /var/lib/armada
@@ -257,8 +261,8 @@ that step.
 
 | File | What it is | Without it |
 | --- | --- | --- |
-| `etcd/` | This server's etcd member, run by `armada-etcd` (its data, member certificate, and `etcd.yaml`): apps, revisions, replicas, nodes, domains, encrypted secrets, the ACME account and certificates. | No cluster (unless other servers have it) |
-| `kv/` | In place of `etcd/` on a cluster on armada-kv (moved there, or made with `armadad init --state kv`): this server's armada-kv member, run by `armada-kv` (`kv.db`, its member certificate). | No cluster (unless other servers have it) |
+| `kv/` | This server's armada-kv member, run by `armada-kv` (`kv.db`, its member certificate): apps, revisions, replicas, nodes, domains, encrypted secrets, the ACME account and certificates. | No cluster (unless other servers have it) |
+| `etcd/` | In place of `kv/` on a cluster on etcd (made with `armadad init --state etcd`, or not moved yet): this server's etcd member, run by `armada-etcd` (its data, member certificate, and `etcd.yaml`). | No cluster (unless other servers have it) |
 | `kv.moving/` | During a move of the state to armada-kv: this server's new member, run inside `armadad server` until it becomes `kv/`; removed when a move is given up. | The move is given up and tried again |
 | `etcd.moved/` | After the move: the etcd member's data as it was, for a manual return during this release. | Nothing (it is not used) |
 | `master.key` | Encrypts every secret in the state | Secrets are unrecoverable |
@@ -268,7 +272,7 @@ that step.
 | `runtime/`, `node/`, `supervisor/`, `containers/`, `logs/` | The container runtime: the extracted runtime pack, images (`node/`), the containers' bundles (`supervisor/`), per-container files, container output | Recreated: the binaries are extracted again, images pulled again, and the agent recreates its containers |
 | `volumes/` | App volumes held by this node (on every node, not only servers) | The apps' data, unless backed up with `armada volume backup` |
 
-`armadad backup` includes all of these except the runtime directories and volumes (the state as an etcd snapshot; the
+`armadad backup` includes all of these except the runtime directories and volumes (the state as armada-kv's snapshot, or etcd's on a cluster on etcd; the
 member's own certificate is issued again from the CA). With several
 servers, back up on any one of them: they hold the same state. It does not include
 the admin config (`/etc/armada/admin.config` or `~/.armada/config`): keep a copy of that file
@@ -594,9 +598,9 @@ Before upgrading from v0.1.0-alpha.44:
   settings are ignored: armada-node does that work on every node. They
   may stay in the file.
 
-After the upgrade, `systemctl status armada-etcd armada-server
-armada-agent` shows all three running on a server, and `armadad doctor`
-checks the member (`etcd`).
+After the upgrade, `systemctl status armada-kv armada-server
+armada-agent` (`armada-etcd` on a cluster on etcd) shows all three running
+on a server, and `armadad doctor` checks the member (`kv`, or `etcd`).
 
 Releases before `armadad upgrade` existed reach v0.1.0-alpha.44 with the
 installer instead: `sudo ARMADA_VERSION=v0.1.0-alpha.44 sh install.sh`,
@@ -620,7 +624,7 @@ newer layout, instead of misreading it. To go back:
 | Certificate | Lifetime | Renewal |
 | --- | --- | --- |
 | Node (`node.crt`) | 30 days | The agent renews it in the last third of its lifetime. A node off for more than 30 days must be removed and joined again; on a server, `armada-server` renews it at start if the node is still registered |
-| Server (`server.crt`) and etcd member | 1 year | Each server renews its own at start and every 12 hours once a third of the lifetime is left, with no restart; a server that was off past expiry renews them before it starts serving |
+| Server (`server.crt`) and the state's member (armada-kv's, or etcd's) | 1 year | Each server renews its own at start and every 12 hours once a third of the lifetime is left, with no restart; a server that was off past expiry renews them before it starts serving |
 | App certificates (Let's Encrypt) | 90 days | The leader renews them about 30 days before they expire |
 | User in `/etc/armada/admin.config` | 1 year | Each server renews the one in its own file at start and every 12 hours once a third of the lifetime is left, while the cluster still accepts that user |
 | User in `~/.armada/config` and other copies | 1 year | By hand: `armada user renew` before it expires |
@@ -1136,7 +1140,7 @@ node has a mesh address (from `--mesh-cidr`, default `10.122.0.0/16`) in
 place of a private IP, held only on `armada-net`, and an endpoint, its
 public IPv4 address (`--endpoint` on `init` and `join`, else the only one
 on its interfaces; `sudo armadad endpoint set IP` changes it later, for
-instance when the provider gives the machine a new address). The control plane API, etcd, HTTP-01 forwarding, and
+instance when the provider gives the machine a new address). The control plane API, the state's member, HTTP-01 forwarding, and
 metrics listen on mesh addresses, so nothing but 80, 443, and UDP 51820
 faces the internet; packets for the mesh range that arrive anywhere but
 the tunnel are dropped. Machines join over the leader's endpoint: its
@@ -1183,7 +1187,7 @@ nodes accept once a cluster has a second site. Node addresses must be
 unique across sites.
 
 A server joins another site the same way, with `armada server join-token
---site office` and `armadad server join` on the machine: its etcd member
+--site office` and `armadad server join` on the machine: its member of the state
 and API listen on its node address, which the other servers reach over
 WireGuard. Every write waits for a majority of servers, so keep the
 servers in one site, or in sites close together.

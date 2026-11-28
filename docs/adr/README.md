@@ -60,7 +60,7 @@ Every architectural decision that is hard to reverse is recorded here. Copy `000
 | [0054](0054-node-agent-in-rust.md) | armada-node does the node's work | Accepted |
 | [0055](0055-control-plane-and-client-in-rust.md) | One Rust workspace, two binaries, etcd as a unit | Accepted |
 | [0056](0056-crun.md) | crun runs the containers | Accepted; runc left the pack after v0.1.0-alpha.44 |
-| [0057](0057-state-store-in-rust.md) | The control plane's state in Armada's own store | Accepted; steps 1-4 built; etcd leaves in the release after |
+| [0057](0057-state-store-in-rust.md) | The control plane's state in Armada's own store | Accepted; new clusters start on armada-kv; etcd leaves in the next release |
 
 Commands in records before 0032 carry the names of their time; ADR 0032
 lists the command line as it is now.
