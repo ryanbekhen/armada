@@ -614,6 +614,29 @@ if want move && [ -n "$MOVES" ]; then
 		i=$((i + 1))
 	done
 	ok "every server runs armada-kv, armada-etcd disabled, etcd's data kept as etcd.moved"
+	# Every member holds the same key space: each read on its own
+	# (serializable) at one revision, once it has applied it.
+	_rev=$(etcdctl 'get / -w json' | jq -r '.header.revision') || fail "reading armada-kv's revision"
+	_ref=
+	i=1
+	while [ "$i" -le "$SERVERS" ]; do
+		_ip=$(host "$i" 3)
+		_sum=
+		for _try in 1 2 3 4 5 6 7 8 9 10; do
+			_sum=$(on 1 "/root/e2e-etcdctl --endpoints https://$_ip:7445 --cacert $STATE_DIR/ca.crt --cert $STATE_DIR/member.crt --key $STATE_DIR/member.key get --prefix / --consistency=s --rev=$_rev -w json" |
+				jq -c '[.kvs[] | [.key, .value, .mod_revision, .version]]' | sha256sum | cut -c1-64)
+			# An empty read hashes to the empty string's SHA-256.
+			[ "$_sum" != e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 ] && break
+			_sum=
+			sleep 3
+		done
+		[ -n "$_sum" ] || fail "reading the key space of $(host "$i" 1)'s armada-kv member at revision $_rev"
+		_n=$(on 1 "/root/e2e-etcdctl --endpoints https://$_ip:7445 --cacert $STATE_DIR/ca.crt --cert $STATE_DIR/member.crt --key $STATE_DIR/member.key get --prefix / --consistency=s --rev=$_rev --count-only -w json" | jq -r '.count // 0')
+		if [ -z "$_ref" ]; then _ref=$_sum; _refn=$_n; fi
+		[ "$_sum" = "$_ref" ] || fail "$(host "$i" 1)'s armada-kv member holds another key space at revision $_rev ($_n keys, $(host 1 1) $_refn)"
+		i=$((i + 1))
+	done
+	ok "every armada-kv member holds the same key space at revision $_rev ($_refn keys)"
 	cli cluster events --since 1h | grep -q StateMoved || fail "no StateMoved event"
 	ok "StateMoved recorded"
 	on 1 'armadad backup -o /root/e2e-kv-backup.tar.gz >/dev/null 2>&1 && tar -tzf /root/e2e-kv-backup.tar.gz | grep -qx kv.snapshot && rm -f /root/e2e-kv-backup.tar.gz' ||
