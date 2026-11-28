@@ -3,11 +3,14 @@
 //! server's boundaries (calls of the API, fake agents' sessions, the
 //! store's methods, clock moves, passes, the fake etcd membership) and
 //! the recorded answer to each. Each recording is replayed here against
-//! armada-server-parity on an etcd member of the test's own (the pinned
-//! etcd that scripts/etcd-cache.sh puts in .cache/etcd, or
-//! ARMADA_ETCD_DIR), and every answer, normalized as the transcripts
-//! were, must equal the recorded one. ARMADA_SCENARIO=NAME replays only the
-//! recordings whose names contain NAME.
+//! armada-server-parity on a member of the state of the test's own: an
+//! armada-kv member in the test's process (ADR 0057, the store of new
+//! clusters), or with ARMADA_SCENARIO_STORE=etcd the pinned etcd that
+//! scripts/etcd-cache.sh puts in .cache/etcd (or ARMADA_ETCD_DIR), the
+//! store of clusters not moved yet; every answer, normalized as the
+//! transcripts were, must equal the recorded one. ARMADA_SCENARIO=NAME
+//! replays only the recordings whose names contain NAME. The state's
+//! moves (replay/statemove.rs) always start on the pinned etcd.
 
 mod replay;
 
@@ -16,17 +19,26 @@ use std::path::Path;
 use replay::etcd::{self, Member};
 use replay::run::{Fixture, Shared, replay};
 
+/// Whether the chosen store can run here: armada-kv always, etcd only
+/// with the pinned program (CI fails without it).
+fn store_ready(name: &str) -> bool {
+    if !etcd::on_etcd() || etcd::program().is_some() {
+        return true;
+    }
+    eprintln!(
+        "{name}: skipped, no etcd in .cache/etcd or ARMADA_ETCD_DIR (run sh scripts/etcd-cache.sh)"
+    );
+    if std::env::var_os("CI").is_some() {
+        panic!("CI runs the {name} on etcd: the pinned etcd is missing");
+    }
+    false
+}
+
 #[test]
 fn scenarios() {
-    let Some(prog) = etcd::program() else {
-        eprintln!(
-            "scenarios: skipped, no etcd in .cache/etcd or ARMADA_ETCD_DIR (run sh scripts/etcd-cache.sh)"
-        );
-        if std::env::var_os("CI").is_some() {
-            panic!("CI runs the scenarios: the pinned etcd is missing");
-        }
+    if !store_ready("scenarios") {
         return;
-    };
+    }
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/testdata/scenarios");
     let mut fixtures = Vec::new();
     for e in std::fs::read_dir(&dir).expect("the recordings") {
@@ -46,12 +58,11 @@ fn scenarios() {
         .build()
         .expect("a runtime");
     rt.block_on(async {
-        let mut member = Member::start(
-            &prog,
-            Path::new(env!("CARGO_TARGET_TMPDIR")).join("scenarios-etcd"),
-        )
-        .expect("start etcd");
-        let client = member.ready().await.expect("etcd ready");
+        let mut member =
+            Member::start_chosen(Path::new(env!("CARGO_TARGET_TMPDIR")).join("scenarios-state"))
+                .expect("start the state's member");
+        let client = member.ready().await.expect("the state's member ready");
+        eprintln!("scenarios: on {}", etcd::store_name());
         let shared = Shared {
             client,
             socket: member.socket(),
@@ -99,25 +110,19 @@ fn scenarios() {
 /// The server's terms on a member of the test's own (replay/terms.rs).
 #[test]
 fn terms() {
-    let Some(prog) = etcd::program() else {
-        eprintln!("terms: skipped, no etcd in .cache/etcd or ARMADA_ETCD_DIR");
-        if std::env::var_os("CI").is_some() {
-            panic!("CI runs the terms: the pinned etcd is missing");
-        }
+    if !store_ready("terms") {
         return;
-    };
+    }
     let rt = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
         .enable_all()
         .build()
         .expect("a runtime");
     rt.block_on(async {
-        let mut member = Member::start(
-            &prog,
-            Path::new(env!("CARGO_TARGET_TMPDIR")).join("terms-etcd"),
-        )
-        .expect("start etcd");
-        let client = member.ready().await.expect("etcd ready");
+        let mut member =
+            Member::start_chosen(Path::new(env!("CARGO_TARGET_TMPDIR")).join("terms-state"))
+                .expect("start the state's member");
+        let client = member.ready().await.expect("the state's member ready");
         let res = replay::terms::terms(client, &member.socket()).await;
         drop(member);
         if let Err(e) = res {

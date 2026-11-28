@@ -18,7 +18,8 @@ VERSION_ENV = ARMADA_VERSION=$(VERSION) ARMADA_COMMIT=$(COMMIT) ARMADA_DATE=$(DA
 TEST_FEATURES = armada-node/test-hooks,$(REPLAY_FEATURES)
 
 # The replays: recorded behaviour replayed against the code (the store's
-# also on armada-kv, ADR 0057). The recordings under
+# also on armada-kv, ADR 0057; the server's scenarios on armada-kv, then
+# on the pinned etcd too). The recordings under
 # each crate's tests/testdata are goldens: nothing writes them again, so a
 # change of behaviour changes them by hand. `make replays` runs them all in
 # one cargo run, so each crate is built once with one set of features;
@@ -120,6 +121,7 @@ replays:
 		$(addprefix --test ,$(sort $(foreach r,$(REPLAYS),$(REPLAY_TESTS_$(r)))))
 	$(if $(filter store,$(REPLAYS)),ARMADA_STORE_BACKEND=kv cargo test --locked -p armada-store --features armada-store/parity --test replay)
 	$(if $(filter store,$(REPLAYS)),ARMADA_STORE_BACKEND=kv3 cargo test --locked -p armada-store --features armada-store/parity --test replay)
+	$(if $(filter server,$(REPLAYS)),ARMADA_SCENARIO_STORE=etcd ARMADA_ETCD_DIR=$(CURDIR)/.cache/etcd cargo test --locked -p armada-server --features armada-server/parity --test scenarios -- scenarios terms)
 
 # Each replay alone.
 
@@ -133,10 +135,14 @@ store-replay:
 	ARMADA_STORE_BACKEND=kv cargo test --locked -p armada-store --features armada-store/parity --test replay
 	ARMADA_STORE_BACKEND=kv3 cargo test --locked -p armada-store --features armada-store/parity --test replay
 
-# The control plane's scenarios against the server on the pinned etcd.
+# The control plane's scenarios and terms against the server on
+# armada-kv (ADR 0057, the store of new clusters), with the state's moves
+# from the pinned etcd; then the scenarios and terms again on the pinned
+# etcd, the store of clusters not moved yet.
 server-scenarios:
 	sh scripts/etcd-cache.sh
 	ARMADA_ETCD_DIR=$(CURDIR)/.cache/etcd cargo test --locked -p armada-server --features armada-server/parity --test scenarios
+	ARMADA_SCENARIO_STORE=etcd ARMADA_ETCD_DIR=$(CURDIR)/.cache/etcd cargo test --locked -p armada-server --features armada-server/parity --test scenarios -- scenarios terms
 
 # The agent's scenarios against its parity program with its fakes.
 agent-scenarios:
