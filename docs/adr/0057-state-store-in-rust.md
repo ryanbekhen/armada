@@ -158,6 +158,13 @@ into N come from the release before it, as usual.
      out), and hands it to the leader's `armadad`, which writes it as
      armada-kv's snapshot into a new store of its own member alone
      (`<data dir>/kv.moving`) and runs that member in its own process.
+     A store restored from a snapshot holds a key space no log entry
+     made, so before the member serves it builds a Raft snapshot of it and
+     purges the log up to it (the database's `base` mark until then, done
+     again on the next open when interrupted): every member added later
+     then receives the whole key space as an InstallSnapshot instead of
+     the log alone. `armadad restore` of an armada-kv backup works the
+     same way.
    - It adds every other server's member as a learner at its `KvPeerURL`
      and writes the leader member's peer URL into the record. Every
      server's `armadad server` watches the record on its own etcd member
@@ -169,10 +176,15 @@ into N come from the release before it, as usual.
      already use, and needs no agreement on member IDs before the store
      exists.
    - It reads the new key space back and compares it with the copy (every
-     key, value, version, revision, and lease; a SHA-256 over each), and
-     only then writes the step `moved` (with the revision) into etcd,
-     compared on the record's whole value so a move given up never moves,
-     and then into `armada-kv`.
+     key, value, version, revision, and lease; a SHA-256 over each), on
+     every member: each member's own key space, read serializable at the
+     revision the leader's member reached once that member applied it; a
+     member that lacks it or differs fails the move. Only then it
+     writes the step `moved` (with the revision) into etcd, compared on
+     the record's whole value so a move given up never moves, then into
+     `armada-kv`, where it also rewrites each server record's member ID to
+     its armada-kv member's (by name; each server writes its own again when
+     it starts there).
    - Every server, seeing `moved` (in etcd, or in its `armada-kv` member,
      which has it only after etcd), ends its term, stops its member, renames
      `kv.moving` to `kv` (from then on its store is armada-kv) and `etcd`

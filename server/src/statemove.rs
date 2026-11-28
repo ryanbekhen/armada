@@ -124,6 +124,9 @@ pub trait MoveHost: Send + Sync {
     fn current(&self) -> Option<String>;
     /// A client of this server's member of move id while it runs.
     fn member(&self, id: &str) -> Option<Client>;
+    /// A client of the new store's member at client_url (any server's),
+    /// with this server's member certificate.
+    fn member_client(&self, client_url: &str) -> Result<Client, String>;
     /// Stops this server's member and removes its data.
     async fn discard(&self);
     /// Whether this server's leader is in the middle of a move: its
@@ -331,6 +334,24 @@ async fn moved_in_kv(
         Ok(Some((m, _))) if m.step == STEP_MOVED && m.id == id => Some(id),
         _ => None,
     }
+}
+
+/// Each server record names its server's member of the store kc reaches
+/// (matched by name).
+async fn rename_members(kc: &Client, prefix: &str) -> Result<(), String> {
+    let members = kc.member_list().await.map_err(|e| e.to_string())?;
+    let st = Etcd::new(kc.clone(), prefix)
+        .await
+        .map_err(|e| e.to_string())?;
+    for mut srv in st.list_servers().await.map_err(|e| e.to_string())? {
+        if let Some(m) = members.iter().find(|m| m.name == srv.name)
+            && m.id != srv.member_id
+        {
+            srv.member_id = m.id;
+            st.upsert_server(&srv).await.map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
 }
 
 /// Resets a host's leading flag when a move of this server ends, also when
@@ -656,12 +677,13 @@ impl Server {
         if !others.is_empty() {
             self.wait_members(&kc, servers.len()).await?;
         }
-        let (_, got) = sm::read_key_space(&kc, 0, &prefix)
+        let (at, got) = sm::read_key_space(&kc, 0, &prefix)
             .await
             .map_err(|e| format!("read armada-kv's key space: {e}"))?;
         if let Some(d) = sm::key_space_difference(&kvs, &got) {
             return Err(format!("the copy differs from etcd: {d}"));
         }
+        self.check_members(host, &kc, at, &prefix, &kvs).await?;
         m.step = STEP_MOVED.to_string();
         m.revision = rev;
         m.moved_at = unix_milli(&self.now());
@@ -676,12 +698,76 @@ impl Server {
         let mut last = String::new();
         for _ in 0..10 {
             match kc.put(&key, &m.encode()).await {
-                Ok(_) => return Ok(()),
+                Ok(_) => {
+                    last.clear();
+                    break;
+                }
                 Err(e) => last = e.to_string(),
             }
             tokio::time::sleep(Duration::from_millis(500)).await;
         }
-        Err(format!("write the record into armada-kv: {last}"))
+        if !last.is_empty() {
+            return Err(format!("write the record into armada-kv: {last}"));
+        }
+        // The server records name their etcd member IDs: from now on they
+        // name the new store's (each server writes its own again when it
+        // starts on armada-kv).
+        if let Err(e) = rename_members(&kc, &prefix).await {
+            self.0.log.warn(
+                "state move: record the servers' armada-kv member IDs",
+                &[("err", e)],
+            );
+        }
+        Ok(())
+    }
+
+    /// Every member of the new store holds the copy: each one's own key
+    /// space at the revision the leader's member reached, read without
+    /// asking the leader once the member applied that far (at most the
+    /// join wait). A member that lacks it, or differs, fails the move.
+    async fn check_members(
+        &self,
+        host: &Arc<dyn MoveHost>,
+        kc: &Client,
+        at: i64,
+        prefix: &str,
+        kvs: &[KeyValue],
+    ) -> Result<(), String> {
+        let members = kc
+            .member_list()
+            .await
+            .map_err(|e| format!("armada-kv member list: {e}"))?;
+        for mem in &members {
+            let name = if mem.name.is_empty() {
+                mem.peer_ur_ls.join(",")
+            } else {
+                mem.name.clone()
+            };
+            let Some(url) = mem.client_ur_ls.first() else {
+                return Err(format!("armada-kv member {name} names no client URL"));
+            };
+            let c = host
+                .member_client(url)
+                .map_err(|e| format!("reach armada-kv member {name}: {e}"))?;
+            let deadline = tokio::time::Instant::now() + self.0.state_move_timing.join_wait;
+            let got = loop {
+                match sm::read_key_space_on(&c, at, prefix, true).await {
+                    Ok((_, got)) => break got,
+                    Err(e) if tokio::time::Instant::now() > deadline => {
+                        return Err(format!(
+                            "armada-kv member {name} did not apply revision {at}: {e}"
+                        ));
+                    }
+                    Err(_) => tokio::time::sleep(Duration::from_millis(200)).await,
+                }
+            };
+            if let Some(d) = sm::key_space_difference(kvs, &got) {
+                return Err(format!(
+                    "armada-kv member {name} does not hold the copy: {d}"
+                ));
+            }
+        }
+        Ok(())
     }
 
     /// Promotes the joining members as they catch up, until every server's

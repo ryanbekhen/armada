@@ -235,6 +235,9 @@ impl Node {
                 .await
                 .map_err(|e| Error::Storage(format!("Raft: {e}")))?;
         }
+        if store.unsealed_base()? {
+            seal_base(&raft, &store).await?;
+        }
         let (stop, _) = watch::channel(false);
         let node = Node(Arc::new(Inner {
             store,
@@ -926,6 +929,62 @@ fn create_private_dir(dir: &Path) -> Result<()> {
 
 /// Follows Raft's metrics: the term the headers name, and the leases'
 /// deadlines renewed when this member becomes the leader.
+/// A store restored from a snapshot (`Store::restore`: `armadad restore`,
+/// or the move of the state from etcd) holds a key space no log entry
+/// made. Members added later replicate the log, so they would never get
+/// it: a Raft snapshot of it is built and the log up to it purged, so
+/// Raft sends every member that needs what came before an InstallSnapshot
+/// of the whole key space. Done before the member serves, and again on the
+/// next open when interrupted.
+async fn seal_base(raft: &Raft, store: &Store) -> Result<()> {
+    let fail = |e: String| Error::Storage(format!("Raft: seal the restored key space: {e}"));
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let mut m = raft.metrics();
+    // The membership the cluster started with, applied (a snapshot needs
+    // an applied log ID).
+    let applied = loop {
+        if let Some(l) = m.borrow_watched().last_applied {
+            break l;
+        }
+        if Instant::now() > deadline {
+            return Err(fail("nothing applied within a minute".into()));
+        }
+        let _ = tokio::time::timeout(Duration::from_millis(200), m.changed()).await;
+    };
+    raft.trigger()
+        .snapshot()
+        .await
+        .map_err(|e| fail(e.to_string()))?;
+    let snap = loop {
+        if let Some(s) = m.borrow_watched().snapshot
+            && s.index >= applied.index
+        {
+            break s;
+        }
+        if Instant::now() > deadline {
+            return Err(fail("no snapshot within a minute".into()));
+        }
+        let _ = tokio::time::timeout(Duration::from_millis(200), m.changed()).await;
+    };
+    raft.trigger()
+        .purge_log(snap.index)
+        .await
+        .map_err(|e| fail(e.to_string()))?;
+    loop {
+        if m.borrow_watched()
+            .purged
+            .is_some_and(|p| p.index >= snap.index)
+        {
+            break;
+        }
+        if Instant::now() > deadline {
+            return Err(fail("the log was not purged within a minute".into()));
+        }
+        let _ = tokio::time::timeout(Duration::from_millis(200), m.changed()).await;
+    }
+    store.seal_base()
+}
+
 async fn follow_raft(node: Weak<Inner>, mut stop: watch::Receiver<bool>) {
     let Some(mut m) = node.upgrade().map(|n| n.raft.metrics()) else {
         return;

@@ -140,6 +140,18 @@ pub fn left_out(key: &[u8], prefix: &str) -> bool {
 /// keeps, in key order, read a page at a time at one revision. The
 /// revision read is returned with them.
 pub async fn read_key_space(c: &Client, rev: i64, prefix: &str) -> Result<(i64, Vec<KeyValue>)> {
+    read_key_space_on(c, rev, prefix, false).await
+}
+
+/// read_key_space, serializable: the key space of the member c reaches as
+/// that member applied it, without asking the leader (a member that has
+/// not applied rev yet answers an error).
+pub async fn read_key_space_on(
+    c: &Client,
+    rev: i64,
+    prefix: &str,
+    serializable: bool,
+) -> Result<(i64, Vec<KeyValue>)> {
     let mut out = Vec::new();
     let mut from = vec![0u8];
     let mut at = rev;
@@ -150,6 +162,7 @@ pub async fn read_key_space(c: &Client, rev: i64, prefix: &str) -> Result<(i64, 
                 range_end: vec![0],
                 limit: PAGE,
                 revision: at,
+                serializable,
                 ..Default::default()
             })
             .await?;

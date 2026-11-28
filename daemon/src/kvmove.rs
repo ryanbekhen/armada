@@ -260,6 +260,12 @@ impl MoveHost for Host {
         }
     }
 
+    fn member_client(&self, client_url: &str) -> Result<Client, String> {
+        // This server's member certificate (the cluster CA's etcd:member
+        // identity, which every member accepts).
+        Client::connect(client_url, &self.moving_dir()).map_err(|e| e.to_string())
+    }
+
     async fn discard(&self) {
         self.stop_member().await;
         let dir = self.moving_dir();

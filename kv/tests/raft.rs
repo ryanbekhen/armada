@@ -809,3 +809,76 @@ async fn lease_expiry_across_leader_change() {
     assert!(kept_until.load(Ordering::Relaxed) > 0);
     c.stop().await;
 }
+
+/// A store restored from a snapshot (`armadad restore`, the move of the
+/// state from etcd) holds a key space no log entry made: members added to
+/// its cluster get all of it (a Raft snapshot of it, sealed before the
+/// first member serves), the same on every member, and a member alone
+/// still has it once the first one is gone.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn restored_key_space_reaches_new_members() {
+    let mut c = Cluster {
+        dir: dir("restored"),
+        faults: Arc::default(),
+        timing: fast(),
+        names: vec!["a".into(), "b".into(), "c".into()],
+        running: vec![None, None, None],
+    };
+    let mut w = armada_kv::snapshot::Writer::new(500);
+    w.lease(77, 3600);
+    for i in 0..300 {
+        w.kv(&armada_proto::etcd::mvccpb::KeyValue {
+            key: format!("/armada/r{i:03}").into_bytes(),
+            value: format!("v{i}").into_bytes(),
+            create_revision: 10 + i,
+            mod_revision: 100 + i,
+            version: 1 + i % 3,
+            lease: if i == 7 { 77 } else { 0 },
+        });
+    }
+    let data = c.dir.join("a").join("data");
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        std::fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(&data)
+            .unwrap();
+    }
+    let st = armada_kv::mvcc::Store::restore(
+        &w.finish(),
+        &data.join(armada_kv::node::DB_FILE),
+        Default::default(),
+    )
+    .unwrap();
+    assert!(st.unsealed_base().unwrap());
+    drop(st);
+    c.open(0, Start::New).await;
+    assert!(!c.node(0).store().unsealed_base().unwrap(), "sealed");
+    assert_eq!(dump(c.node(0)).len(), 300);
+    for i in 1..3 {
+        c.add(i).await;
+        c.promote(i).await;
+    }
+    put(c.node(0), "/armada/after", "1").await.unwrap();
+    for i in 1..3 {
+        caught_up(c.node(i), c.node(0)).await;
+        assert_eq!(dump(c.node(i)), dump(c.node(0)), "member {i}");
+        assert_eq!(
+            c.node(i).store().leases().unwrap(),
+            c.node(0).store().leases().unwrap()
+        );
+    }
+    assert_eq!(dump(c.node(1)).len(), 301);
+    // The first member gone: the others elect a leader and hold it all.
+    c.kill(0).await;
+    let l = c.leader(&[1, 2]).await;
+    let (_, v) = retry(|| get(c.node(l), "/armada/r123")).await;
+    assert_eq!(v.as_deref(), Some("v123"));
+    assert_eq!(dump(c.node(l)).len(), 301);
+    // Restarting a sealed member does not seal again.
+    c.open(0, Start::New).await;
+    caught_up(c.node(0), c.node(l)).await;
+    assert_eq!(dump(c.node(0)), dump(c.node(l)));
+    c.stop().await;
+}

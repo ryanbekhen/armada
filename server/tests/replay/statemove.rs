@@ -317,6 +317,13 @@ impl MoveHost for Host {
         }
     }
 
+    fn member_client(&self, client_url: &str) -> Result<Client, String> {
+        let path = client_url
+            .strip_prefix("unix://")
+            .ok_or_else(|| format!("{client_url}: not unix://"))?;
+        Client::connect_unix(Path::new(path)).map_err(|e| e.to_string())
+    }
+
     async fn discard(&self) {
         self.stop().await;
         let _ = std::fs::remove_dir_all(self.moving());
@@ -559,6 +566,34 @@ async fn term(c: &Client, name: &str) -> Result<(Leadership, Etcd), String> {
     Ok((l, fenced))
 }
 
+/// Every member's own key space (read serializable, on that member alone)
+/// is the one of the member at kc: the same keys, and the same SHA-256.
+async fn same_everywhere(fx: &Fixture, kc: &Client) -> Result<(), String> {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let (_, want) = sm::read_key_space_on(kc, 0, PREFIX, true)
+            .await
+            .map_err(es)?;
+        let mut differ = Vec::new();
+        for (i, h) in fx.hosts.iter().enumerate() {
+            let c = h.client().await.ok_or(format!("no member on s{i}"))?;
+            let (_, got) = sm::read_key_space_on(&c, 0, PREFIX, true)
+                .await
+                .map_err(es)?;
+            if got.len() != want.len() || sm::key_space_hash(&got) != sm::key_space_hash(&want) {
+                differ.push(format!("s{i} holds {} keys of {}", got.len(), want.len()));
+            }
+        }
+        if differ.is_empty() {
+            return Ok(());
+        }
+        if Instant::now() > deadline {
+            return Err(differ.join(", "));
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+}
+
 async fn events(st: &Etcd) -> Result<Vec<String>, String> {
     Ok(st
         .list_events(&armada_spec::gotime::Time::zero())
@@ -612,7 +647,10 @@ pub async fn moved(etcd: &Path, n: usize) -> Result<(), String> {
     let (_, want) = sm::read_key_space(&fx.clients[0], m.revision, PREFIX)
         .await
         .map_err(es)?;
-    let (_, got) = sm::read_key_space(&kc, 0, PREFIX).await.map_err(es)?;
+    // At the move's revision: the servers' records change after it.
+    let (_, got) = sm::read_key_space(&kc, m.revision, PREFIX)
+        .await
+        .map_err(es)?;
     check(
         sm::key_space_difference(&want, &got).is_none(),
         format!("{:?}", sm::key_space_difference(&want, &got)),
@@ -648,6 +686,24 @@ pub async fn moved(etcd: &Path, n: usize) -> Result<(), String> {
             format!("s{i}'s member does not run"),
         )?;
     }
+    // Every member holds the whole key space, each read on its own.
+    same_everywhere(&fx, &kc).await?;
+    // The server records name the new store's member IDs.
+    let kst = Etcd::new(kc.clone(), PREFIX).await.map_err(es)?;
+    for srv in kst.list_servers().await.map_err(es)? {
+        let id = members
+            .iter()
+            .find(|m| m.name == srv.name)
+            .map(|m| m.id)
+            .unwrap_or_default();
+        check(
+            id != 0 && srv.member_id == id,
+            format!(
+                "{}'s record names member {:x}, not {id:x}",
+                srv.name, srv.member_id
+            ),
+        )?;
+    }
     // Writes: refused on etcd for good, working on armada-kv.
     let plain = Etcd::new(fx.clients[n - 1].clone(), PREFIX)
         .await
@@ -681,6 +737,30 @@ pub async fn moved(etcd: &Path, n: usize) -> Result<(), String> {
         .map_err(es)?
         .ok_or("no record on armada-kv")?;
     check(m2.told && m2.step == STEP_MOVED, format!("{m2:?}"))?;
+    if n > 1 {
+        // The member the move started from gone: the others still hold
+        // all of it.
+        same_everywhere(&fx, &kc).await?;
+        let (_, before) = sm::read_key_space_on(&kc, 0, PREFIX, true)
+            .await
+            .map_err(es)?;
+        fx.hosts[0].stop().await;
+        let c1 = fx.hosts[1].client().await.ok_or("no member on s1")?;
+        let deadline = Instant::now() + Duration::from_secs(30);
+        let after = loop {
+            match sm::read_key_space(&c1, 0, PREFIX).await {
+                Ok((_, kvs)) => break kvs,
+                Err(e) if Instant::now() > deadline => {
+                    return Err(format!("s1 alone: {e}"));
+                }
+                Err(_) => tokio::time::sleep(Duration::from_millis(200)).await,
+            }
+        };
+        check(
+            sm::key_space_hash(&after) == sm::key_space_hash(&before),
+            format!("s1 alone holds {} keys, not {}", after.len(), before.len()),
+        )?;
+    }
     let _ = stop_tx.send(true);
     for h in &fx.hosts {
         h.discard().await;
