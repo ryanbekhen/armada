@@ -1,5 +1,5 @@
 //! This server's armada-kv member (ADR 0057) as `armadad kv` runs it, and
-//! as `armadad init --state kv` and the commands that need the state while
+//! as `armadad init` and the commands that need the state while
 //! no server runs start it in process: its name, directory, addresses,
 //! certificate, and its listeners.
 //!
@@ -194,7 +194,7 @@ impl Drop for Member {
 /// How [`start`] starts a member with no state of its own.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Fresh {
-    /// A new cluster with this member alone (`armadad init --state kv`).
+    /// A new cluster with this member alone (`armadad init`).
     New,
     /// Refused, unless the member joins (initial-cluster): a member that
     /// lost its database must not start a cluster of its own.
@@ -227,7 +227,7 @@ pub async fn start(cfg: &mut Config, fresh: Fresh) -> Result<Member, String> {
         Start::New
     } else {
         return Err(format!(
-            "no armada-kv member in {}: `armadad init --state kv` or `armadad server join` makes one",
+            "no armada-kv member in {}: `armadad init` or `armadad server join` makes one",
             dir.display()
         ));
     };

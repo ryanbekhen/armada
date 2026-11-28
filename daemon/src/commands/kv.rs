@@ -1,6 +1,7 @@
 //! armadad kv: this server's armada-kv member (armada-kv.service, ADR
 //! 0057), on a server of a cluster whose state is in armada-kv (`armadad
-//! init --state kv`, or `armadad server join` to such a cluster). It works
+//! init`, the state's move from etcd, or `armadad server join` to such a
+//! cluster). It works
 //! the member out as `armadad etcd` does (name, directory, addresses,
 //! certificate), refuses while another process holds the member's
 //! database, serves until SIGTERM or SIGINT, then stops in order.
