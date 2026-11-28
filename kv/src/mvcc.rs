@@ -64,6 +64,11 @@ const M_COMPACTED: &str = "compacted";
 const M_APPLIED: &str = "applied";
 const M_MEMBER: &str = "member";
 const M_CLUSTER: &str = "cluster";
+/// Set (1) on a store restored from a snapshot until a Raft snapshot
+/// holds its key space and the log before it is purged: until then a
+/// member added to its cluster would get the log alone, never the key
+/// space the store started with.
+const M_BASE: &str = "base";
 
 /// etcd's MaxLeaseTTL.
 pub const MAX_LEASE_TTL: i64 = 9_000_000_000;
@@ -589,9 +594,34 @@ impl Store {
             t.meta
                 .insert(M_COMPACTED, snap.revision as u64)
                 .map_err(storage)?;
+            t.meta.insert(M_BASE, 1).map_err(storage)?;
         }
         txn.commit().map_err(storage)?;
         Ok(store)
+    }
+
+    /// Whether the key space came from a snapshot that no Raft snapshot
+    /// holds yet ([`Store::restore`]): the member seals it before it serves
+    /// (crate::node).
+    pub fn unsealed_base(&self) -> Result<bool> {
+        let txn = self.db.begin_read().map_err(storage)?;
+        let meta = txn.open_table(META).map_err(storage)?;
+        Ok(meta
+            .get(M_BASE)
+            .map_err(storage)?
+            .is_some_and(|g| g.value() == 1))
+    }
+
+    /// The key space a restore wrote is held by a Raft snapshot, and the
+    /// log before it purged.
+    pub(crate) fn seal_base(&self) -> Result<()> {
+        let txn = self.db.begin_write().map_err(storage)?;
+        {
+            let mut meta = txn.open_table(META).map_err(storage)?;
+            meta.remove(M_BASE).map_err(storage)?;
+        }
+        txn.commit().map_err(storage)?;
+        Ok(())
     }
 }
 
