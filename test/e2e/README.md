@@ -56,7 +56,8 @@ E2E_ACME_EMAIL=you@example.org sh test/e2e/cluster.sh hosts
 | `E2E_REBOOT` | `1` | `0` skips rebooting every machine at once |
 | `E2E_BRIDGE_GW` | read from each node | Container bridge address (each node has its own container subnet) |
 | `E2E_SERVER_FLAGS` | empty | Extra `armadad server` flags |
-| `E2E_STATE_MOVE` | `off` | The state's move to armada-kv (ADR 0057): `off` keeps it in etcd for the run, `now` moves it right after the cluster forms so every scenario runs on armada-kv, `auto` leaves it to the leader (ten minutes in) |
+| `E2E_STATE` | `kv` | Where the cluster keeps its state (ADR 0057): `kv`, armada-kv, as `armadad init` makes it, or `etcd` (`armadad init --state etcd`), the store of clusters not moved yet |
+| `E2E_STATE_MOVE` | `off` | With `E2E_STATE=etcd` only: the state's move to armada-kv. `off` keeps it in etcd for the run, `now` moves it right after the cluster forms so every scenario runs on armada-kv, `auto` leaves it to the leader (ten minutes in) |
 
 The script stops at the first failure and prints `armada server list`,
 `armada cluster status`, and `armada app list -A`. A full run on four small machines takes about 10 minutes
@@ -82,7 +83,7 @@ E2E_ONLY=isolation,rollout ARMADA_BIN=... sh test/e2e/cluster.sh hosts
 | `load` | 5 (steady load) | the path from clients to the nodes |
 | `rollout` | 5 (rolling update and rollback) | rollouts, readiness, draining, the proxy's live updates |
 | `agent-restart` | 5 (agent restart) | the agent, adopting containers and a running proxy, certificates, armada-dns outliving armadad, log history search |
-| `failover` | 6 | the control plane, etcd, elections |
+| `failover` | 6 | the control plane, its store (armada-kv, or etcd), elections |
 | `node-loss` | 7 | self-healing, rebalancing |
 | `backup` | 8 | `armadad backup` |
 | `placement` | 9 | labels, restricted nodes, scheduling |
@@ -107,7 +108,10 @@ A release runs every scenario.
 ## What it checks
 
 1. `armadad doctor` passes on every machine; the cluster forms with three
-   voting servers and every node ready. Every machine has `armada-node` in
+   voting servers and every node ready. Every server runs the member of
+   the cluster's store alone (`armada-kv` with `kv/kv.db` in its data
+   directory, or `armada-etcd` with `etcd/` for `E2E_STATE=etcd`), and
+   again after the reboot. Every machine has `armada-node` in
    its runtime pack, its agent's journal shows `armada-node applies the
    cluster network`, and doctor's network checks pass. Every container
    record on every machine names crun, runc left no state, and doctor's
@@ -233,9 +237,11 @@ A release runs every scenario.
 
 ## Servers' units
 
-A server machine runs three units (ADR 0055): `armada-etcd` (its etcd
-member), `armada-server`, and `armada-agent`, which `armada-server.service`
-wants. `cluster.sh` installs all four units on every machine and restarts,
+A server machine runs three units (ADR 0055, ADR 0057): its member of
+the state (`armada-kv`, or `armada-etcd` on a cluster made with
+`--state etcd`), `armada-server`, and `armada-agent`, which
+`armada-server.service` wants. `cluster.sh` installs all five units on
+every machine and restarts,
 stops, and reads the journal of `armada-agent` wherever a scenario is about
 the node's agent, servers included, so it tests a release whose server
 runs no agent of its own.
