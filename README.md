@@ -44,7 +44,7 @@ curl -fsSL https://raw.githubusercontent.com/ryanbekhen/armada/main/install.sh |
 
 # On the first machine: create the cluster
 sudo armadad init
-sudo systemctl enable --now armada-server
+sudo systemctl enable --now armada-kv armada-server
 armada cluster update --acme-email you@example.com --root-domain apps.example.com
 
 # Deploy an app: two replicas behind HTTPS

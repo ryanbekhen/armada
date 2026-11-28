@@ -1,6 +1,6 @@
 # 0057. The control plane's state in Armada's own store
 
-- Status: Accepted; steps 1-4 built (a single-member `armada-kv`, Raft, then the TLS listeners, `armadad kv`, `armada-kv.service`, and `armadad init --state kv`, then the backups of armada-kv and the move from etcd); `armadad init` keeps etcd as its default until the move passed the end-to-end tests on real machines; etcd leaves in the release after
+- Status: Accepted; new clusters start on armada-kv; etcd leaves in the next release. Steps 1-4 built (a single-member `armada-kv`, Raft, then the TLS listeners, `armadad kv`, `armada-kv.service`, and `armadad init --state kv`, then the backups of armada-kv and the move from etcd), and step 5: `armadad init` defaults to `--state kv` (`--state etcd` deprecated)
 - Date: 2026-11-27
 
 ## Context
@@ -103,7 +103,7 @@ member's database. `armadad server join` adds the new server as a learner
 and the leader promotes it, as today.
 
 Until the move, the choice is recorded per server by its data directory:
-a server of a cluster made with `armadad init --state kv` has the member's
+a server of a cluster made with `armadad init` (`--state kv`) has the member's
 directory `kv/` (its CA, `member.crt`/`member.key`, `kv.db`, and, on a
 server that joined until it votes, `initial-cluster`) and no `etcd/`.
 `armadad server join` learns the cluster's choice from the leader
@@ -209,8 +209,11 @@ of the API, agents' sessions, the proxies, and every container keep
 working through it.
 
 New clusters made by `armadad init` on release N start on `armada-kv`
-(until the move has passed the end-to-end tests on real machines, `init`
-keeps etcd as its default and `--state kv` asks for armada-kv).
+(`--state kv`, the default once the move passed the upgrade under load on
+real machines). `armadad init --state etcd` still makes a cluster on etcd
+during N, deprecated: it warns, and the cluster moves to armada-kv by
+itself like any other. Servers that join a cluster run its store, as
+before.
 
 ### etcd leaves, release N+1
 
@@ -228,7 +231,8 @@ licenses.
   `armada-kv` as well as etcd during N, and against `armada-kv` alone
   after: the recordings are etcd's behaviour, so any difference is a bug
   in `armada-kv`.
-- The server's scenarios run on `armada-kv`.
+- The server's scenarios run on `armada-kv`, and during N on etcd too
+  (`ARMADA_SCENARIO_STORE=etcd`), the store of clusters not moved yet.
 - Fault tests of the store on its own, in process: a member killed at
   every step of a write, a partitioned leader, a member restarted from
   every point of its log, clock jumps against lease expiry; each checks
@@ -264,8 +268,9 @@ licenses.
 
 - A bug in consensus or in the state machine can lose or fork state. The
   replay of etcd's recorded behaviour, the fault tests, and the
-  end-to-end tests must pass before N; `armada-kv` stays behind a flag
-  (`armadad init --state kv`, no move) until they do.
+  end-to-end tests must pass before N; `armada-kv` stayed behind a flag
+  (`armadad init --state kv`, no move) until the move passed on real
+  machines.
 - A move interrupted between `copying` and `moved` leaves writes refused
   until the leader cleans up; a new leader reads `meta/state-move` and
   finishes the clean-up before anything else.
