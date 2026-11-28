@@ -88,7 +88,7 @@ pub fn root() -> Tree {
     n.unknown_flags = true;
     let i_root_etcd = t.add(0, n);
     let mut n = Node::new("kv", "Run this server's armada-kv member (started by systemd)")
-        .long("kv runs this server's member of armada-kv, Armada's own store of the control\nplane's state (ADR 0057), on a cluster made with `armadad init --state kv`. systemd\nstarts it as armada-kv.service on such a cluster's servers. It works the member\nout as the server does (name, data in kv/, addresses, certificate), listens on the\nserver's private IP only (7445 for the store's API, 7446 for the other members),\nTLS 1.3 with the cluster's member certificates on both, and stops in order on\nSIGTERM. It refuses while another process holds the member. On a server whose\nstate is in etcd it exits at once (status 78) and armada-kv.service stays stopped.\nFlags it does not know (the server's, from ARMADA_SERVER_FLAGS) are ignored.")
+        .long("kv runs this server's member of armada-kv, Armada's own store of the control\nplane's state (ADR 0057), on a cluster made with `armadad init` or whose state\nmoved there from etcd. systemd starts it as armada-kv.service on such a cluster's\nservers. It works the member\nout as the server does (name, data in kv/, addresses, certificate), listens on the\nserver's private IP only (7445 for the store's API, 7446 for the other members),\nTLS 1.3 with the cluster's member certificates on both, and stops in order on\nSIGTERM. It refuses while another process holds the member. On a server whose\nstate is in etcd it exits at once (status 78) and armada-kv.service stays stopped.\nFlags it does not know (the server's, from ARMADA_SERVER_FLAGS) are ignored.")
         .example("  sudo systemctl enable --now armada-kv armada-server   # a server of a cluster on armada-kv\n  sudo systemctl status armada-kv\n  sudo armadad kv --data-dir /var/lib/armada            # in the foreground")
         .args(Args::No)
         .run(commands::kv::run)
@@ -110,7 +110,7 @@ pub fn root() -> Tree {
         .flag(Flag::int("port", None, 7443, "control plane port on the private IP"))
         .flag(Flag::string("private-ip", None, "", "this node's private IP (default: the only private IPv4 address; not with --network mesh)"))
         .flag(Flag::string("runtime", None, "supervisor", "container runtime: supervisor, the only one (ADR 0046); kept for scripts that pass it"))
-        .flag(Flag::string("state", None, "etcd", "where the control plane keeps its state: etcd, or kv for armada-kv, Armada's own store (ADR 0057; not the default yet); set once"))
+        .flag(Flag::string("state", None, "kv", "where the control plane keeps its state: kv for armada-kv, Armada's own store (ADR 0057), or etcd (deprecated: it goes away in the next release, and the cluster moves to armada-kv by itself); set once"))
         .flag(Flag::string("user-name", None, "", "name of the first user, who gets cluster-admin (default: the user running it)"));
     let i_root_init = t.add(0, n);
     let mut n = Node::new("join ADDR --ca-hash sha256:HEX", "Join this machine to a cluster as a node")

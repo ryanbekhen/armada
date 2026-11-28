@@ -229,12 +229,12 @@ fi
 # service restarts; a new one still has to be set up.
 if [ -e "$DATA_DIR/agent.json" ]; then
 	unit=armada-agent
-	# A server machine runs its etcd member and its agent as units of
-	# their own beside the server (ADR 0055).
+	# A server machine runs its member of the state and its agent as units
+	# of their own beside the server (ADR 0055): armada-kv's (ADR 0057; a
+	# kv/ member directory), or etcd's on a cluster not moved yet.
 	if command -v systemctl >/dev/null 2>&1 && systemctl is-enabled --quiet armada-server 2>/dev/null; then
 		unit="armada-etcd armada-server armada-agent"
-		# A server of a cluster whose state is in armada-kv (ADR 0057).
-		if systemctl is-enabled --quiet armada-kv 2>/dev/null; then
+		if [ -d "$DATA_DIR/kv" ] || systemctl is-enabled --quiet armada-kv 2>/dev/null; then
 			unit="armada-kv armada-server armada-agent"
 		fi
 	fi

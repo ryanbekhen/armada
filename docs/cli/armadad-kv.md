@@ -5,8 +5,9 @@
 [All commands](armadad.md)
 
 kv runs this server's member of armada-kv, Armada's own store of the control
-plane's state (ADR 0057), on a cluster made with `armadad init --state kv`. systemd
-starts it as armada-kv.service on such a cluster's servers. It works the member
+plane's state (ADR 0057), on a cluster made with `armadad init` or whose state
+moved there from etcd. systemd starts it as armada-kv.service on such a cluster's
+servers. It works the member
 out as the server does (name, data in kv/, addresses, certificate), listens on the
 server's private IP only (7445 for the store's API, 7446 for the other members),
 TLS 1.3 with the cluster's member certificates on both, and stops in order on

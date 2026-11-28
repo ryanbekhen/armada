@@ -1,8 +1,9 @@
 //! armadad init: a new cluster on this machine. The state is written
-//! through the pack's etcd, started from the configuration file `armadad
-//! etcd` writes for the command's length (ADR 0055), or, with `--state kv`,
-//! through a new armada-kv cluster (ADR 0057) opened in this process, whose
-//! member armada-kv.service runs afterwards.
+//! through a new armada-kv cluster (ADR 0057) opened in this process,
+//! whose member armada-kv.service runs afterwards, or, with `--state etcd`
+//! (until etcd leaves in the next release), through the pack's etcd,
+//! started from the configuration file `armadad etcd` writes for the
+//! command's length (ADR 0055).
 
 use std::net::IpAddr;
 use std::path::Path;
@@ -82,6 +83,14 @@ fn state_store(flag: &str) -> std::result::Result<state::Store, String> {
 
 pub fn run(ctx: &mut Ctx<'_>, _: &[String]) -> Result {
     let store = state_store(&ctx.str("state")).map_err(msg)?;
+    if store == state::Store::Etcd {
+        // Deprecated (docs/compatibility.md): etcd leaves in the next
+        // release, so a new cluster on it only moves later.
+        let _ = writeln!(
+            ctx.err,
+            "warning: --state etcd is deprecated and goes away with etcd in the next release; the cluster's state moves to armada-kv by itself (leave out --state)"
+        );
+    }
     let mode = ctx.str("network");
     let data_dir = ctx.str("data-dir");
     let port = ctx.int("port");
@@ -393,6 +402,10 @@ pub fn run(ctx: &mut Ctx<'_>, _: &[String]) -> Result {
     out.push_str(&format!("  network:     {net_mode}, {cluster_text}\n"));
     if store == state::Store::Kv {
         out.push_str("  state:       armada-kv (ADR 0057)\n");
+    } else {
+        out.push_str(
+            "  state:       etcd (deprecated; the state moves to armada-kv by itself, ADR 0057)\n",
+        );
     }
     if mode == NETWORK_MESH {
         out.push_str(&format!(
@@ -415,8 +428,7 @@ pub fn run(ctx: &mut Ctx<'_>, _: &[String]) -> Result {
 }
 
 /// What to start after init or server join: the server, and on a cluster
-/// on armada-kv its member's unit too (armada-server.service wants
-/// armada-etcd.service, not armada-kv.service).
+/// on armada-kv its member's unit too, so it is enabled for itself.
 pub fn next_step(store: state::Store, data_dir: &str) -> String {
     if store == state::Store::Etcd {
         return machine::next_step("server", data_dir);
