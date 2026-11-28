@@ -631,7 +631,7 @@ if want move && [ -n "$MOVES" ]; then
 			sleep 3
 		done
 		[ -n "$_sum" ] || fail "reading the key space of $(host "$i" 1)'s armada-kv member at revision $_rev"
-		_n=$(on 1 "/root/e2e-etcdctl --endpoints https://$_ip:7445 --cacert $STATE_DIR/ca.crt --cert $STATE_DIR/member.crt --key $STATE_DIR/member.key get --prefix / --consistency=s --rev=$_rev --count-only -w json" | jq -r '.count // 0')
+		_n=$(on 1 "/root/e2e-etcdctl --endpoints https://$_ip:7445 --cacert $STATE_DIR/ca.crt --cert $STATE_DIR/member.crt --key $STATE_DIR/member.key get --prefix / --consistency=s --rev=$_rev --count-only -w fields" | awk -F' : ' '/"Count"/ {print $2}')
 		if [ -z "$_ref" ]; then _ref=$_sum; _refn=$_n; fi
 		[ "$_sum" = "$_ref" ] || fail "$(host "$i" 1)'s armada-kv member holds another key space at revision $_rev ($_n keys, $(host 1 1) $_refn)"
 		i=$((i + 1))
